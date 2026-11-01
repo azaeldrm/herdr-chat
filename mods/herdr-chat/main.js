@@ -1,6 +1,6 @@
 import { View, div, svg, image } from "gpui-kit";
 import { set_theme, v_flex, h_flex, TextareaState, Textarea, TextView, VirtualListScrollHandle, v_virtual_list } from "gpui-base";
-import { agents, terminals, panes, focused, props, hc, exec, appHome, run, theme, settings, shared } from "herdr";
+import { agents, terminals, panes, focused, props, hc, exec, appHome, run, theme, settings, shared, watchFolder } from "herdr";
 import { SUPPORTED, ICONS, switchTo } from "./common.js";
 import { isHeader, terminalHeader } from "./header.js";
 
@@ -186,6 +186,7 @@ export default class HerdrChat extends View {
     this.heights = {}; this.measuredAt = 0;
     this.visit = shared("herdr-chat.visit");
     this.path = ""; this.hint = ""; this.note = "Loading conversation…"; this.screen = "";
+    this.raw = []; this.offset = 0; this.lastRead = 0;
     this.refresh(cx);
     // Not at start-up: set_theme restarts every copy, which would start this one again.
     cx.timer.every(1500, cx => { inputHighlight(cx); this.refresh(cx); });
@@ -201,56 +202,124 @@ export default class HerdrChat extends View {
 
   follow() { this.following = true; this.scrollAttempts = 15; }
 
+  // Cheap, every 1.5 s: notice a different agent, keep the needs-input screen current, and
+  // re-read only as a fallback. Reading itself is driven by the session file changing (watch).
   refresh(cx) {
     const t = target();
     const key = t ? `${t.address}:${t.created}:${t.app}` : "";
     if (key !== this.key) {
-      this.key = key; this.following = true; this.scrollAttempts = 15; this.path = ""; this.hint = ""; this.messages = []; this.open = {}; this.screen = ""; this.lastId = "";
+      this.key = key; this.following = true; this.scrollAttempts = 15; this.path = ""; this.hint = "";
+      this.raw = []; this.offset = 0; this.messages = []; this.open = {}; this.screen = ""; this.lastId = "";
+      this.watchToken = (this.watchToken ?? 0) + 1; this.watchedPath = "";
       this.note = !t ? "Select a Claude Code, Codex or Pi terminal to see it as a chat."
         : t.remote ? `Chat view reads sessions on this computer only; ${t.label} is running on another machine.`
         : `Finding this ${t.label} conversation…`;
       cx.notify();
     }
-    if (!t || t.remote || this.loading) return;
-    this.loading = true;
+    if (!t || t.remote) return;
+    // Until the session file is known (or as a slow safety net), read on the timer.
+    if (!this.path || Date.now() - this.lastRead > 15000) this.read(cx);
+    if (t.status === "blocked" && !this.readingScreen) {
+      this.readingScreen = true;
+      cx.spawn(async cx => {
+        try {
+          const screen = await hc(["read", t.address, "--lines", "26"]);
+          const text = screen.code === 0 ? screen.stdout.trim().slice(-4000) : "";
+          if (text !== this.screen) { this.screen = text; cx.notify(); }
+        } finally { this.readingScreen = false; }
+      });
+    } else if (t.status !== "blocked" && this.screen) { this.screen = ""; cx.notify(); }
+  }
+
+  // Wakes as soon as the session file changes, as Ovis does, instead of re-reading on a timer.
+  // Any .jsonl in the folder counts: Claude Code and Pi start a new file there on /clear or /new.
+  watch(cx, path) {
+    if (!path || path === this.watchedPath) return;
+    this.watchedPath = path;
+    const token = this.watchToken = (this.watchToken ?? 0) + 1;
+    const dir = path.replace(/[\\/][^\\/]*$/, "");
+    cx.spawn(async cx => {
+      while (this.watchToken === token) {
+        let changed;
+        try { changed = await watchFolder(dir); } catch { return; }
+        if (this.watchToken !== token) return;
+        if (changed.some(p => /\.jsonl$/i.test(p))) this.read(cx);
+      }
+    });
+  }
+
+  // Reads what the agent added since the last read (the whole recent conversation the first time).
+  read(cx) {
+    const t = target();
+    if (!t || t.remote) return;
+    if (this.loading) { this.dirty = true; return; } // one more read once this one ends
+    const key = this.key;
+    this.loading = true; this.dirty = false; this.lastRead = Date.now();
     cx.spawn(async cx => {
       try {
         const script = `${appHome()}\\mods\\herdr-chat\\read-session.ps1`;
         const r = await exec("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
           "-App", t.app, "-TermPid", String(t.pid), "-CreatedMs", String(t.created), "-Cwd", t.cwd,
-          "-KnownPath", this.path || "", "-Hint", this.hint || ""]);
+          "-KnownPath", this.path || "", "-Hint", this.hint || "", "-Offset", String(this.offset || 0)]);
         if (this.key !== key) return;
         if (r.code !== 0) throw new Error(r.stderr || `Reader exited ${r.code}`);
-        let path = "", note = "", hint = "";
-        const messages = [];
-        for (const line of r.stdout.split(/\r?\n/)) {
-          const bar = line.indexOf("|"), tag = line.slice(0, bar), rest = line.slice(bar + 1);
-          if (tag === "PATH") path = decodeURIComponent(rest);
-          else if (tag === "HINT") hint = decodeURIComponent(rest);
-          else if (tag === "NOTE") note = decodeURIComponent(rest);
-          else if (tag === "R") messages.push({ kind: "reasoning", text: decodeURIComponent(rest) });
-          else if (tag === "T") messages.push({ kind: "tools", calls: JSON.parse(decodeURIComponent(rest)) });
-          else if (tag === "M") {
-            const [role, phase, ...text] = rest.split("|");
-            messages.push({ kind: "message", role, phase, text: decodeURIComponent(text.join("|")) });
-          }
-        }
-        // Codex sessions stay put; Claude Code and Pi can start a new one in the same terminal.
-        this.path = t.app === "codex" ? path : "";
-        this.hint = hint;
-        this.messages = foldActivity(messages);
-        this.clipped = note.startsWith("Showing the recent part");
-        this.note = this.clipped ? "" : note;
-        const last = messages[messages.length - 1];
-        const id = last ? `${messages.length}:${last.kind}:${last.text ?? last.calls.length}` : "";
-        if (id !== this.lastId) { this.lastId = id; if (this.following) this.follow(); }
-        if (t.status === "blocked") {
-          const screen = await hc(["read", t.address, "--lines", "26"]);
-          this.screen = screen.code === 0 ? screen.stdout.trim().slice(-4000) : "";
-        } else this.screen = "";
+        this.merge(r.stdout);
+        this.watch(cx, this.path);
       } catch (e) { this.note = String(e); }
-      finally { this.loading = false; cx.notify(); }
+      finally {
+        this.loading = false; cx.notify();
+        if (this.dirty) this.read(cx);
+      }
     });
+  }
+
+  // Folds a reader result into the conversation kept here.
+  merge(stdout) {
+    const added = [];
+    let path = this.path, note = "", reset = false;
+    for (const line of stdout.split(/\r?\n/)) {
+      const bar = line.indexOf("|"), tag = bar < 0 ? line : line.slice(0, bar), rest = line.slice(bar + 1);
+      if (tag === "PATH") path = decodeURIComponent(rest);
+      else if (tag === "HINT") this.hint = decodeURIComponent(rest);
+      else if (tag === "NOTE") note = decodeURIComponent(rest);
+      else if (tag === "OFFSET") this.offset = Number(rest) || 0;
+      else if (tag === "RESET") reset = true;
+      else if (tag === "R") added.push({ kind: "reasoning", text: decodeURIComponent(rest) });
+      else if (tag === "C") {
+        const [id, json] = rest.split("|");
+        added.push({ kind: "call", id: decodeURIComponent(id), call: JSON.parse(decodeURIComponent(json)) });
+      } else if (tag === "O") {
+        const [id, ...text] = rest.split("|");
+        added.push({ kind: "out", id: decodeURIComponent(id), text: decodeURIComponent(text.join("|")) });
+      } else if (tag === "M") {
+        const [role, phase, ...text] = rest.split("|");
+        added.push({ kind: "message", role, phase, text: decodeURIComponent(text.join("|")) });
+      }
+    }
+    if (reset || path !== this.path) { this.raw = []; this.calls = new Map(); }
+    this.path = path;
+    for (const e of added) {
+      if (e.kind === "call") { this.raw.push(e); if (e.id) this.calls.set(e.id, e.call); }
+      else if (e.kind === "out") { const c = this.calls.get(e.id); if (c) c.o = e.text; }
+      else this.raw.push(e);
+    }
+    if (this.raw.length > 600) this.raw = this.raw.slice(-500);
+    // Consecutive calls form one group; foldActivity then merges thinking in between.
+    const shaped = [];
+    for (const e of this.raw) {
+      if (e.kind !== "call") { shaped.push(e); continue; }
+      const last = shaped[shaped.length - 1];
+      const copy = { ...e.call };
+      if (last?.kind === "tools") last.calls.push(copy); else shaped.push({ kind: "tools", calls: [copy] });
+    }
+    this.messages = foldActivity(shaped);
+    if (note || reset) {
+      this.clipped = note.startsWith("Showing the recent part");
+      this.note = this.clipped ? "" : note;
+    } else if (this.note && this.messages.length) this.note = "";
+    const last = this.messages[this.messages.length - 1];
+    const id = last ? `${this.messages.length}:${last.kind}:${last.text ?? last.calls.length}:${last.calls?.at(-1)?.o?.length ?? 0}` : "";
+    if (id !== this.lastId) { this.lastId = id; if (this.following) this.follow(); }
   }
 
   send(cx) {

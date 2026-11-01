@@ -1,21 +1,27 @@
 ﻿# Reads one agent's session log and prints it in herdr-chat's common shape:
 #   PATH|<file>   HINT|<opaque, passed back next time>   NOTE|<text>
+#   RESET                        what follows is the conversation from its start (or recent part);
+#                                without it, it is only what was added since -Offset
+#   OFFSET|<bytes>               where the next read starts: after the last complete line read
 #   M|<role>|<phase>|<text>      a message (user / assistant)
 #   R|<text>                     visible reasoning
-#   T|<json [{k,d,o,n}]>         consecutive tool calls (kind, detail, output, file count)
+#   C|<id>|<json {k,d,n}>        one tool call (kind, detail, file count); id may be empty
+#   O|<id>|<text>                the output of the call with that id, which may have come earlier
 # Every value after the tag is URI-escaped.
+# Reading only what was added (Ovis does the same) keeps a refresh to milliseconds of work.
 param(
   [Parameter(Mandatory=$true)][string]$App,
   [long]$TermPid = 0,
   [long]$CreatedMs = 0,
   [string]$Cwd = '',
   [string]$KnownPath = '',
-  [string]$Hint = ''
+  [string]$Hint = '',
+  [long]$Offset = 0
 )
 $ErrorActionPreference = 'Stop'
 $UserHome = $env:USERPROFILE
 $Ellipsis = [string][char]0x2026
-$MaxEntries = 120
+$MaxEntries = 400  # on a fresh read: the conversation's most recent entries
 
 function Esc([string]$s) { return [uri]::EscapeDataString($s) }
 function Leaf([string]$p) {
@@ -35,7 +41,6 @@ function Done([string]$note) { Write-Output 'PATH|'; Write-Output ('NOTE|' + (Es
 
 # --- the common transcript ----------------------------------------------------
 $entries = [System.Collections.Generic.List[object]]::new()
-$pending = @{}
 function Add-Message([string]$role, [string]$phase, [string]$text) {
   $text = ([string]$text).Trim()
   if (-not $text) { return }
@@ -48,18 +53,10 @@ function Add-Reasoning([string]$text) {
   if ($text.Length -gt 6000) { $text = $text.Substring(0, 6000) + "`n" + $Ellipsis }
   $entries.Add(@{ kind='reasoning'; text=$text })
 }
-function Add-Call($call, [string]$id) {
-  $previous = if ($entries.Count) { $entries[$entries.Count - 1] } else { $null }
-  if ($previous -and $previous.kind -eq 'tools') { $previous.calls.Add($call) }
-  else {
-    $calls = [System.Collections.Generic.List[object]]::new(); $calls.Add($call)
-    $entries.Add(@{ kind='tools'; calls=$calls })
-  }
-  if ($id) { $pending[$id] = $call }
-}
+# Calls and outputs go out separately: an output can arrive in a later read than its call.
+function Add-Call($call, [string]$id) { $entries.Add(@{ kind='call'; id=$id; call=$call }) }
 function Set-Output([string]$id, [string]$text) {
-  $call = $pending[$id]
-  if ($call) { $call.o = Clip $text; $pending.Remove($id) }
+  if ($id) { $entries.Add(@{ kind='out'; id=$id; text=(Clip $text) }) }
 }
 function Content-Text($content) {
   if ($content -is [string]) { return $content }
@@ -68,15 +65,27 @@ function Content-Text($content) {
     elseif ($_.type -eq 'image') { '[Image]' }
   }) -join "`n"
 }
+# The complete lines from -Offset on (or, fresh, the last 24 MB), and where the next read starts.
+# A line still being written (no newline yet) is left for the next read.
 function Read-Tail([string]$path) {
   $file = [System.IO.File]::Open($path, 'Open', 'Read', 'ReadWrite')
   try {
-    $offset = [Math]::Max(0, $file.Length - 24MB)
-    [void]$file.Seek($offset, [System.IO.SeekOrigin]::Begin)
-    $reader = [System.IO.StreamReader]::new($file, [System.Text.Encoding]::UTF8, $true, 65536, $true)
-    if ($offset -gt 0) { [void]$reader.ReadLine() }
-    $script:Clipped = $offset -gt 0
-    return $reader.ReadToEnd() -split "`n"
+    $length = $file.Length
+    $script:Fresh = $Offset -le 0 -or $Offset -gt $length -or -not [string]::Equals($path, $KnownPath, [StringComparison]::OrdinalIgnoreCase)
+    $start = if ($script:Fresh) { [Math]::Max(0, $length - 24MB) } else { $Offset }
+    $script:Clipped = $script:Fresh -and $start -gt 0
+    $count = [int]($length - $start)
+    $bytes = New-Object byte[] $count
+    [void]$file.Seek($start, [System.IO.SeekOrigin]::Begin)
+    $read = 0
+    while ($read -lt $count) { $n = $file.Read($bytes, $read, $count - $read); if ($n -le 0) { break }; $read += $n }
+    $end = if ($read -gt 0) { [Array]::LastIndexOf($bytes, [byte]10, $read - 1) } else { -1 }
+    if ($end -lt 0) { $script:NextOffset = $start; return @() }
+    $script:NextOffset = $start + $end + 1
+    $text = [System.Text.Encoding]::UTF8.GetString($bytes, 0, $end + 1)
+    $lines = $text -split "`n"
+    if ($script:Clipped) { $lines = $lines | Select-Object -Skip 1 } # the first line was cut part-way
+    return $lines
   } finally { $file.Dispose() }
 }
 
@@ -317,7 +326,7 @@ function Parse-Pi([string]$path) {
 }
 
 # --- main -----------------------------------------------------------------------
-$script:NewHint = ''; $script:Clipped = $false; $script:WaitingNote = ''
+$script:NewHint = ''; $script:Clipped = $false; $script:WaitingNote = ''; $script:Fresh = $true; $script:NextOffset = 0
 $label = @{ 'claude-code'='Claude Code'; 'codex'='Codex'; 'pi'='Pi' }[$App]
 if (-not $label) { Done "Chat view doesn't read $App sessions yet." }
 $path = switch ($App) { 'claude-code' { Find-Claude } 'codex' { Find-Codex } 'pi' { Find-Pi } }
@@ -328,10 +337,14 @@ if (-not $path) {
 switch ($App) { 'claude-code' { Parse-Claude $path } 'codex' { Parse-Codex $path } 'pi' { Parse-Pi $path } }
 Write-Output ('PATH|' + (Esc $path))
 Write-Output ('HINT|' + (Esc $script:NewHint))
+Write-Output ('OFFSET|' + $script:NextOffset)
+if ($script:Fresh) { Write-Output 'RESET' }
 if ($script:Clipped) { Write-Output 'NOTE|Showing the recent part of this session.' }
-foreach ($entry in @($entries | Select-Object -Last $MaxEntries)) {
+$out = if ($script:Fresh) { @($entries | Select-Object -Last $MaxEntries) } else { @($entries) }
+foreach ($entry in $out) {
   switch ($entry.kind) {
-    'tools' { Write-Output ('T|' + (Esc (ConvertTo-Json -InputObject @($entry.calls) -Compress -Depth 3))) }
+    'call' { Write-Output ('C|' + (Esc $entry.id) + '|' + (Esc (ConvertTo-Json -InputObject $entry.call -Compress -Depth 3))) }
+    'out' { Write-Output ('O|' + (Esc $entry.id) + '|' + (Esc $entry.text)) }
     'reasoning' { Write-Output ('R|' + (Esc $entry.text)) }
     default { Write-Output ('M|' + $entry.role + '|' + $entry.phase + '|' + (Esc $entry.text)) }
   }
