@@ -1,6 +1,6 @@
 import { View, div, svg, image } from "gpui-kit";
 import { set_theme, v_flex, h_flex, TextareaState, Textarea, TextView, VirtualListScrollHandle, v_virtual_list } from "gpui-base";
-import { agents, terminals, panes, focused, props, hc, exec, appHome, run, theme, settings, shared, watchFolder } from "herdr";
+import { agents, terminals, panes, focused, props, hc, exec, appHome, run, theme, settings, shared, setShared, watchFolder } from "herdr";
 import { readFile } from "fs/promises";
 import { SUPPORTED, ICONS, switchTo, showView, preferredView } from "./common.js";
 import { isHeader, terminalHeader } from "./header.js";
@@ -11,6 +11,8 @@ import { isHeader, terminalHeader } from "./header.js";
 const CORAL = "#d97757"; // Claude's accent: the working spark and the send button.
 const TURN_GAP = 28;     // extra space where you and the agent take turns
 const COLUMN = 740;      // the conversation's width, as on the web
+const SESSIONS_KEPT = 12; // recent conversations kept in memory, so switching back is instant
+const PATHS_KEY = "herdr-chat.paths"; // { "<terminal>:<created ms>": { path, hint } }, across restarts
 // Herdr's built-in inputs (this message box, the command palette, prompts) paint selected
 // text with gpui-base's "accent" token, which herdr fills from the theme's hover color: a gray
 // that vanishes on dark backgrounds. Point that one token at the theme's accent instead, kept in
@@ -68,7 +70,7 @@ function onWindows() { return appHome().includes("\\"); }
 // read-session.ps1; anywhere else (Linux, macOS, or another machine herdr reaches) it's
 // read_session.py, passed to `python3 -c` so nothing has to be installed over there.
 let pythonBoot = null;
-async function runReader(t, { path, hint, offset, screen }) {
+async function runReader(t, { path, hint, offset, screen, peers }) {
   if (!t.remote && onWindows()) {
     return exec("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
       `${appHome()}\\mods\\herdr-chat\\read-session.ps1`,
@@ -82,6 +84,7 @@ async function runReader(t, { path, hint, offset, screen }) {
   // Empty values are left out rather than passed as "", which a remote shell can drop.
   const args = ["--app", t.app, "--pid", String(t.pid), "--created", String(t.created), "--offset", String(offset || 0)];
   if (screen) args.push("--screen", screen);
+  if (peers) args.push("--peers", String(peers));
   if (t.cwd) args.push("--cwd", t.cwd);
   if (path) args.push("--known", path);
   if (hint) args.push("--hint", hint);
@@ -216,12 +219,15 @@ export default class HerdrChat extends View {
     this.heights = {}; this.measuredAt = 0;
     this.visit = shared("herdr-chat.visit");
     this.path = ""; this.hint = ""; this.note = "Loading conversation…"; this.screen = "";
-    this.raw = []; this.offset = 0; this.lastRead = 0;
+    this.raw = []; this.calls = new Map(); this.offset = 0; this.lastRead = 0; this.sessions = new Map();
     this.refresh(cx);
     // Not at start-up: set_theme restarts every copy, which would start this one again.
     cx.timer.every(1500, cx => { inputHighlight(cx); this.refresh(cx); });
     cx.timer.every(100, cx => {
       this.applyView();
+      // A switch to another agent is picked up at once, not on the next 1.5 s refresh.
+      const t = target();
+      if ((t ? `${t.address}:${t.created}:${t.app}` : "") !== this.key) this.refresh(cx);
       const visit = shared("herdr-chat.visit");
       if (visit !== this.visit) { this.visit = visit; this.follow(); }
       // Repeated while freshly measured rows settle their heights.
@@ -243,20 +249,53 @@ export default class HerdrChat extends View {
 
   follow() { this.following = true; this.scrollAttempts = 15; }
 
+  // The conversation shown now, kept in memory for the next time its agent is opened.
+  stash() {
+    if (!this.key || !this.path) return;
+    const { raw, calls, offset, path, hint, messages, clipped, note, open } = this;
+    this.sessions.delete(this.key); // newest last, so trimming drops the least recently seen
+    this.sessions.set(this.key, { raw, calls, offset, path, hint, messages, clipped, note, open });
+    while (this.sessions.size > SESSIONS_KEPT) this.sessions.delete(this.sessions.keys().next().value);
+  }
+
+  // Remembers which file holds this session (across restarts), so it is never searched for again.
+  rememberPath(path) {
+    const t = target();
+    if (!t) return;
+    const all = { ...(shared(PATHS_KEY) ?? {}) }, id = `${t.address}:${t.created}`;
+    delete all[id];
+    all[id] = { path, hint: this.hint || "" };
+    const ids = Object.keys(all);
+    for (const old of ids.slice(0, Math.max(0, ids.length - 200))) delete all[old];
+    setShared(PATHS_KEY, all);
+    this.rememberedHint = this.hint;
+  }
+
   // Cheap, every 1.5 s: notice a different agent, keep the needs-input screen current, and
   // re-read only as a fallback. Reading itself is driven by the session file changing (watch).
   refresh(cx) {
     const t = target();
     const key = t ? `${t.address}:${t.created}:${t.app}` : "";
-    if (key !== this.key) {
-      this.key = key; this.following = true; this.scrollAttempts = 15; this.path = ""; this.hint = "";
-      this.raw = []; this.offset = 0; this.messages = []; this.open = {}; this.screen = ""; this.lastId = "";
+    const switched = key !== this.key;
+    if (switched) {
+      // Keep the conversation being left, and bring back the one being opened if it was seen
+      // recently, so switching between agents doesn't find and read everything again.
+      this.stash();
+      this.key = key; this.following = true; this.scrollAttempts = 15; this.screen = ""; this.lastId = ""; this.screenAskedAt = 0;
       this.watchToken = (this.watchToken ?? 0) + 1; this.watchedPath = "";
-      this.note = !t ? "Select a Claude Code, Codex or Pi terminal to see it as a chat."
-        : `Finding this ${t.label} conversation…`;
+      const kept = key ? this.sessions.get(key) : null;
+      if (kept) Object.assign(this, kept);
+      else {
+        // A session's file, once found, is remembered across restarts: no search next time.
+        const known = t ? (shared(PATHS_KEY) ?? {})[`${t.address}:${t.created}`] : null;
+        this.path = known?.path ?? ""; this.hint = known?.hint ?? "";
+        this.raw = []; this.calls = new Map(); this.offset = 0; this.messages = []; this.open = {}; this.clipped = false;
+        this.note = !t ? "Select a Claude Code, Codex or Pi terminal to see it as a chat." : `Opening this ${t.label} conversation…`;
+      }
       cx.notify();
     }
     if (!t) return;
+    if (switched) { this.read(cx); return; }
     // On this computer the file watch drives reading; the timer covers finding the session file and
     // is a slow safety net. Another machine's files can't be watched from here, so it polls them.
     if (!this.path || t.remote || Date.now() - this.lastRead > 15000) this.read(cx);
@@ -293,29 +332,39 @@ export default class HerdrChat extends View {
   read(cx) {
     const t = target();
     if (!t) return;
-    if (this.loading) { this.dirty = true; return; } // one more read once this one ends
     const key = this.key;
-    this.loading = true; this.dirty = false; this.lastRead = Date.now();
+    // One read at a time per agent; one more once it ends if asked meanwhile. A read still running
+    // for an agent you've left (a slow screen read, say) never holds up the one you switched to.
+    if (this.reading === key) { this.dirty = true; return; }
+    this.reading = key; this.dirty = false; this.lastRead = Date.now();
     cx.spawn(async cx => {
       try {
-        // Two Pis can share a folder: the terminal's screen tells their sessions apart. Read it while
-        // the session file isn't known yet, and every 15 s in case Pi started a new one.
-        let screen = "";
-        if (t.app === "pi" && (!this.path || Date.now() - (this.screenChecked ?? 0) > 15000)) {
+        // Other agents of the same kind on the same machine could own the session file found.
+        const machineOf = a => a.address.includes("/") ? a.address.split("/")[0] : null;
+        const peers = agents().filter(a => a.app === t.app && a.address !== t.address && machineOf(a) === t.machine).length;
+        const at = { path: this.path, hint: this.hint, offset: this.offset, peers };
+        let r = await runReader(t, at);
+        if (this.key !== key) return;
+        // The reader asks for the terminal's screen only when it can't otherwise tell which file is
+        // this agent's: reading a screen can take seconds, so it's never done up front.
+        // An agent with no conversation of its own would ask on every poll: once per 15 s is enough.
+        if (r.code === 0 && /^NEED\|screen/m.test(r.stdout) && Date.now() - (this.screenAskedAt ?? 0) > 15000) {
+          this.screenAskedAt = Date.now();
           const shown = await hc(["read", t.address, "--lines", "40"]);
-          if (shown.code === 0) screen = shown.stdout.slice(-3000);
-          this.screenChecked = Date.now();
+          if (this.key !== key) return;
+          r = await runReader(t, { ...at, screen: shown.code === 0 ? shown.stdout.slice(-3000) : "" });
+          if (this.key !== key) return;
         }
-        if (this.key !== key) return;
-        const r = await runReader(t, { path: this.path, hint: this.hint, offset: this.offset, screen });
-        if (this.key !== key) return;
         if (r.code !== 0) throw new Error(r.stderr || `Reader exited ${r.code}`);
         this.merge(r.stdout);
         if (!t.remote) this.watch(cx, this.path);
       } catch (e) { this.note = String(e); }
       finally {
-        this.loading = false; cx.notify();
-        if (this.dirty) this.read(cx);
+        if (this.reading === key) {
+          this.reading = null;
+          if (this.dirty) this.read(cx);
+        }
+        cx.notify();
       }
     });
   }
@@ -347,6 +396,7 @@ export default class HerdrChat extends View {
       }
     }
     if (reset || path !== this.path) { this.raw = []; this.calls = new Map(); }
+    if (path && (path !== this.path || this.hint !== this.rememberedHint)) this.rememberPath(path);
     this.path = path;
     for (const e of added) {
       if (e.kind === "call") { this.raw.push(e); if (e.id) this.calls.set(e.id, e.call); }

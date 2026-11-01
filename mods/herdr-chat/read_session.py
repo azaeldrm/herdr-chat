@@ -16,6 +16,7 @@ ap.add_argument("--known", default="")
 ap.add_argument("--hint", default="")
 ap.add_argument("--offset", type=int, default=0)
 ap.add_argument("--screen", default="")  # the terminal's last lines on screen, to tell sessions apart
+ap.add_argument("--peers", type=int, default=0)  # other agents of this kind on this machine
 A = ap.parse_args()
 
 HOME = os.path.expanduser("~")
@@ -24,7 +25,7 @@ MAX_ENTRIES = 400
 TAIL = 24 * 1024 * 1024
 out = []
 entries = []
-state = {"hint": "", "clipped": False, "fresh": True, "next": 0, "waiting": ""}
+state = {"hint": "", "clipped": False, "fresh": True, "next": 0, "waiting": "", "need": ""}
 
 
 def esc(s): return quote(str(s), safe="")
@@ -383,11 +384,15 @@ def find_pi():
     if A.known and newest[1] == A.known: return A.known
     # Two Pis can share a folder, and herdr's record of when each last changed is not reliable
     # for another machine's terminals; the screen is. Keep the files whose latest messages show
-    # on this terminal's screen.
+    # on this terminal's screen. Reading a screen can take seconds, so it is asked for (NEED)
+    # only when it matters: several candidate files, or other Pis that could own the one found.
     if A.screen:
         screen = words_of(A.screen)
         hits = [f for f in files if shown_on(f[1], screen)]
         return max(hits)[1] if hits else None
+    if len(files) > 1 or A.peers:
+        state["need"] = "screen"
+        return None
     return newest[1]
 
 
@@ -455,6 +460,7 @@ LABELS = {"claude-code": "Claude Code", "codex": "Codex", "pi": "Pi"}
 label = LABELS.get(A.app)
 if not label: done("Chat view doesn't read %s sessions yet." % A.app)
 path = {"claude-code": find_claude, "codex": find_codex, "pi": find_pi}[A.app]()
+if not path and state["need"]: emit("NEED|" + state["need"]); done("Finding this %s conversation…" % label)
 if not path: done(state["waiting"] or "Waiting for this %s conversation to start." % label)
 {"claude-code": parse_claude, "codex": parse_codex, "pi": parse_pi}[A.app](path)
 emit("PATH|" + esc(path))
