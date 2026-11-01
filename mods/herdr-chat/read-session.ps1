@@ -1,14 +1,17 @@
-﻿# Reads one agent's session log and prints it in herdr-chat's common shape:
-#   PATH|<file>   HINT|<opaque, passed back next time>   NOTE|<text>
-#   RESET                        what follows is the conversation from its start (or recent part);
-#                                without it, it is only what was added since -Offset
-#   OFFSET|<bytes>               where the next read starts: after the last complete line read
-#   M|<role>|<phase>|<text>      a message (user / assistant)
-#   R|<text>                     visible reasoning
-#   C|<id>|<json {k,d,n}>        one tool call (kind, detail, file count); id may be empty
-#   O|<id>|<text>                the output of the call with that id, which may have come earlier
-# Every value after the tag is URI-escaped.
-# Reading only what was added (Ovis does the same) keeps a refresh to milliseconds of work.
+﻿<#
+.SYNOPSIS
+Reads one agent's session log and prints it in herdr-chat's common shape:
+  PATH|<file>   HINT|<opaque, passed back next time>   NOTE|<text>
+  RESET                        what follows is the conversation from its start (or recent part);
+                               without it, it is only what was added since -Offset
+  OFFSET|<bytes>               where the next read starts: after the last complete line read
+  M|<role>|<phase>|<text>      a message (user / assistant)
+  R|<text>                     visible reasoning
+  C|<id>|<json {k,d,n}>        one tool call (kind, detail, file count); id may be empty
+  O|<id>|<text>                the output of the call with that id, which may have come earlier
+Every value after the tag is URI-escaped.
+Reading only what was added (Ovis does the same) keeps a refresh to milliseconds of work.
+#>
 param(
   [Parameter(Mandatory=$true)][string]$App,
   [long]$TermPid = 0,
@@ -21,7 +24,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $UserHome = $env:USERPROFILE
 $Ellipsis = [string][char]0x2026
-$MaxEntries = 400  # on a fresh read: the conversation's most recent entries
+$MaxEntries = 400
 
 function Esc([string]$s) { return [uri]::EscapeDataString($s) }
 function Leaf([string]$p) {
@@ -39,7 +42,6 @@ function Clip([string]$s) {
 }
 function Done([string]$note) { Write-Output 'PATH|'; Write-Output ('NOTE|' + (Esc $note)); exit 0 }
 
-# --- the common transcript ----------------------------------------------------
 $entries = [System.Collections.Generic.List[object]]::new()
 function Add-Message([string]$role, [string]$phase, [string]$text) {
   $text = ([string]$text).Trim()
@@ -53,7 +55,7 @@ function Add-Reasoning([string]$text) {
   if ($text.Length -gt 6000) { $text = $text.Substring(0, 6000) + "`n" + $Ellipsis }
   $entries.Add(@{ kind='reasoning'; text=$text })
 }
-# Calls and outputs go out separately: an output can arrive in a later read than its call.
+
 function Add-Call($call, [string]$id) { $entries.Add(@{ kind='call'; id=$id; call=$call }) }
 function Set-Output([string]$id, [string]$text) {
   if ($id) { $entries.Add(@{ kind='out'; id=$id; text=(Clip $text) }) }
@@ -65,8 +67,7 @@ function Content-Text($content) {
     elseif ($_.type -eq 'image') { '[Image]' }
   }) -join "`n"
 }
-# The complete lines from -Offset on (or, fresh, the last 24 MB), and where the next read starts.
-# A line still being written (no newline yet) is left for the next read.
+
 function Read-Tail([string]$path) {
   $file = [System.IO.File]::Open($path, 'Open', 'Read', 'ReadWrite')
   try {
@@ -84,12 +85,11 @@ function Read-Tail([string]$path) {
     $script:NextOffset = $start + $end + 1
     $text = [System.Text.Encoding]::UTF8.GetString($bytes, 0, $end + 1)
     $lines = $text -split "`n"
-    if ($script:Clipped) { $lines = $lines | Select-Object -Skip 1 } # the first line was cut part-way
+    if ($script:Clipped) { $lines = $lines | Select-Object -Skip 1 }
     return $lines
   } finally { $file.Dispose() }
 }
 
-# --- Claude Code ----------------------------------------------------------------
 function Claude-Call([string]$name, $in) {
   switch -Regex ($name) {
     '^(Bash|PowerShell)$' { return @{ k='shell'; d=(Short $in.command 400) } }
@@ -179,7 +179,6 @@ function Parse-Claude([string]$path) {
   }
 }
 
-# --- Codex ----------------------------------------------------------------------
 function Unquote([string]$s) { try { return [string](ConvertFrom-Json ('"' + $s + '"')) } catch { return $s } }
 function Codex-Call([string]$tool, [string]$src, [string]$whole) {
   $q = '"((?:[^"\\]|\\.)*)"'
@@ -210,7 +209,7 @@ function Codex-Output($payload) {
   $text = Content-Text $payload.output
   $text = $text -replace '^Script completed\s*\r?\nWall time[^\n]*\n(Output:\s*\n)?', ''
   $text = $text -replace '^Wall time:[^\n]*\n', ''
-  # Scripts that call several tools report each result as JSON; keep just what they printed.
+
   if ($text.TrimStart().StartsWith('{') -and $text -match '"(chunk_id|output)":') {
     $outs = [regex]::Matches($text, '"output":"((?:[^"\\]|\\.)*)"') | ForEach-Object { Unquote $_.Groups[1].Value }
     if (@($outs).Count) { $text = (@($outs) | Where-Object { $_.Trim() }) -join "`n" } else { $text = '' }
@@ -259,7 +258,6 @@ function Parse-Codex([string]$path) {
         if (-not $calls.Count) { $calls += ,@{ k='other'; d='script' } }
       } elseif ($tool) { $calls += ,(Codex-Call $tool $src $src) }
       for ($i = 0; $i -lt $calls.Count; $i++) {
-        # The script's output belongs to its last call.
         Add-Call $calls[$i] $(if ($i -eq $calls.Count - 1) { [string]$p.call_id } else { '' })
       }
       continue
@@ -281,7 +279,6 @@ function Parse-Codex([string]$path) {
   }
 }
 
-# --- Pi -------------------------------------------------------------------------
 function Pi-Call([string]$name, $in) {
   switch ($name) {
     'bash' { return @{ k='shell'; d=(Short $in.command 400) } }
@@ -294,15 +291,13 @@ function Pi-Call([string]$name, $in) {
 function Find-Pi {
   $dir = Join-Path $UserHome ('.pi\agent\sessions\--' + ($Cwd -replace '[\\/:]', '-') + '--')
   if (-not (Test-Path -LiteralPath $dir)) { return $null }
-  # The newest file written since this terminal started: Pi appends to a resumed (older) file too.
+
   $since = [DateTimeOffset]::FromUnixTimeMilliseconds($CreatedMs).UtcDateTime.AddSeconds(-10)
   $newest = Get-ChildItem -LiteralPath $dir -Filter '*.jsonl' -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
   if ($newest -and $newest.LastWriteTimeUtc -ge $since) { return $newest.FullName }
   return $null
 }
 function Parse-Pi([string]$path) {
-  # A resumed Pi session keeps its whole history in one file; only what this terminal has seen
-  # (entries from its start on) belongs in its chat.
   $since = if ($CreatedMs) { [DateTimeOffset]::FromUnixTimeMilliseconds($CreatedMs - 10000) } else { $null }
   foreach ($line in (Read-Tail $path)) {
     if ($line -notmatch '"type":"message"') { continue }
@@ -327,7 +322,6 @@ function Parse-Pi([string]$path) {
   }
 }
 
-# --- main -----------------------------------------------------------------------
 $script:NewHint = ''; $script:Clipped = $false; $script:WaitingNote = ''; $script:Fresh = $true; $script:NextOffset = 0
 $label = @{ 'claude-code'='Claude Code'; 'codex'='Codex'; 'pi'='Pi' }[$App]
 if (-not $label) { Done "Chat view doesn't read $App sessions yet." }

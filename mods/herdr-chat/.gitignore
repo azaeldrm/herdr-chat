@@ -1,7 +1,5 @@
-# Written by the Herdr app on every start (type definitions and editor config).
 gpui-kit.d.ts
 jsconfig.json
 
-# Stray debug output.
 .*.json
 .*.log

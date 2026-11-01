@@ -1,8 +1,9 @@
-# Python port of read-session.ps1, for agents on Linux and macOS machines (this computer or one
-# herdr reaches over SSH). Same arguments, same output; see read-session.ps1 for the format:
-#   PATH|  HINT|  NOTE|  RESET  OFFSET|  M|role|phase|text  R|text  C|id|json  O|id|text
-# The chat runs it with `python3 -c`, the script itself passed in, so nothing is installed on the
-# other machine. Standard library only; Python 3.6 or later.
+"""Python port of read-session.ps1, for agents on Linux and macOS machines (this computer or one
+herdr reaches over SSH). Same arguments, same output; see read-session.ps1 for the format:
+  PATH|  HINT|  NOTE|  RESET  OFFSET|  M|role|phase|text  R|text  C|id|json  O|id|text
+The chat runs it with `python3 -c`, the script itself passed in, so nothing is installed on the
+other machine. Standard library only; Python 3.6 or later.
+"""
 import argparse, glob, json, os, re, sys
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -10,13 +11,13 @@ from urllib.parse import quote
 ap = argparse.ArgumentParser()
 ap.add_argument("--app", required=True)
 ap.add_argument("--pid", type=int, default=0)
-ap.add_argument("--created", type=int, default=0)  # ms
+ap.add_argument("--created", type=int, default=0)
 ap.add_argument("--cwd", default="")
 ap.add_argument("--known", default="")
 ap.add_argument("--hint", default="")
 ap.add_argument("--offset", type=int, default=0)
-ap.add_argument("--screen", default="")  # the terminal's last lines on screen, to tell sessions apart
-ap.add_argument("--peers", type=int, default=0)  # other agents of this kind on this machine
+ap.add_argument("--screen", default="")
+ap.add_argument("--peers", type=int, default=0)
 A = ap.parse_args()
 
 HOME = os.path.expanduser("~")
@@ -27,32 +28,25 @@ out = []
 entries = []
 state = {"hint": "", "clipped": False, "fresh": True, "next": 0, "waiting": "", "need": ""}
 
-
 def esc(s): return quote(str(s), safe="")
 def emit(line): out.append(line)
-
 
 def done(note):
     emit("PATH|"); emit("HINT|" + esc(state["hint"])); emit("NOTE|" + esc(note)); flush(); sys.exit(0)
 
-
 def flush(): sys.stdout.write("\n".join(out) + "\n")
-
 
 def leaf(p):
     p = str(p or "").strip().rstrip("\\/")
     return re.split(r"[\\/]", p)[-1] if p else ""
 
-
 def short(s, n):
     s = re.sub(r"\s+", " ", str(s or "")).strip()
     return s[:n] + ELLIPSIS if len(s) > n else s
 
-
 def clip(s):
     s = str(s or "").replace("\r", "").rstrip()
     return s[:1200] + "\n" + ELLIPSIS if len(s) > 1200 else s
-
 
 def add_message(role, phase, text):
     text = str(text or "").strip()
@@ -60,20 +54,16 @@ def add_message(role, phase, text):
     if len(text) > 12000: text = text[:12000] + "\n" + ELLIPSIS
     entries.append({"kind": "message", "role": role, "phase": phase, "text": text})
 
-
 def add_reasoning(text):
     text = str(text or "").strip()
     if not text: return
     if len(text) > 6000: text = text[:6000] + "\n" + ELLIPSIS
     entries.append({"kind": "reasoning", "text": text})
 
-
 def add_call(call, cid): entries.append({"kind": "call", "id": cid or "", "call": call})
-
 
 def set_output(cid, text):
     if cid: entries.append({"kind": "out", "id": cid, "text": clip(text)})
-
 
 def content_text(content):
     if isinstance(content, str): return content
@@ -83,7 +73,6 @@ def content_text(content):
         if c.get("type") in ("text", "input_text", "output_text"): parts.append(str(c.get("text", "")))
         elif c.get("type") == "image": parts.append("[Image]")
     return "\n".join(parts)
-
 
 def read_tail(path):
     """The complete lines from --offset on (or, fresh, the last 24 MB). A partial last line waits."""
@@ -101,15 +90,12 @@ def read_tail(path):
         return []
     state["next"] = start + end + 1
     lines = data[:end + 1].decode("utf-8", "replace").split("\n")
-    return lines[1:] if state["clipped"] else lines  # the first line was cut part-way
-
+    return lines[1:] if state["clipped"] else lines
 
 def loads(line):
     try: return json.loads(line)
     except ValueError: return None
 
-
-# --- Claude Code -----------------------------------------------------------------------------
 def claude_call(name, inp):
     inp = inp if isinstance(inp, dict) else {}
     if name in ("Bash", "PowerShell"): return {"k": "shell", "d": short(inp.get("command"), 400)}
@@ -127,7 +113,6 @@ def claude_call(name, inp):
     if name.startswith("mcp__"): return {"k": "other", "d": name[5:].replace("__", " \u00b7 ")}
     return {"k": "other", "d": name}
 
-
 def claude_user_text(t):
     t = re.sub(r"(?s)<system-reminder>.*?</system-reminder>", "", t)
     m = re.search(r"(?s)The user sent a new message while you were working:\s*\r?\n(.*?)(\r?\n\s*\r?\nThis is how Claude Code surfaces|$)", t)
@@ -141,7 +126,6 @@ def claude_user_text(t):
     if re.match(r"^\s*<(local-command-stdout|local-command-caveat|bash-stdout|bash-stderr|task-notification)", t): return ""
     if re.match(r"^\s*\[Image: original", t): return ""
     return t
-
 
 def parent_map():
     """pid -> parent pid: /proc on Linux, ps elsewhere."""
@@ -161,7 +145,6 @@ def parent_map():
             if len(a) == 2: parents[int(a[0])] = int(a[1])
     except Exception: pass
     return parents
-
 
 def candidate_cwds():
     """The working folders of the processes running in the terminal (the agent among them), read
@@ -183,7 +166,6 @@ def candidate_cwds():
             except OSError: pass
             todo.extend(children.get(pid, []))
     return cwds or ([A.cwd] if A.cwd else [])
-
 
 def find_claude():
     sessions = os.path.join(HOME, ".claude", "sessions")
@@ -218,7 +200,6 @@ def find_claude():
     state["waiting"] = "Claude Code hasn't written this conversation yet. Send a message to start it."
     return None
 
-
 def parse_claude(path):
     for line in read_tail(path):
         if len(line) < 20 or line.startswith('{"type":"api-') or not re.search(r'"type":"(user|assistant)"', line): continue
@@ -245,15 +226,11 @@ def parse_claude(path):
             elif c.get("type") == "thinking": add_reasoning(c.get("thinking"))
             elif c.get("type") == "tool_use": add_call(claude_call(str(c.get("name", "")), c.get("input")), str(c.get("id", "")))
 
-
-# --- Codex ------------------------------------------------------------------------------------
 Q = r'"((?:[^"\\]|\\.)*)"'
-
 
 def unquote(s):
     try: return json.loads('"' + s + '"')
     except ValueError: return s
-
 
 def codex_call(tool, src, whole):
     if tool == "exec_command":
@@ -275,7 +252,6 @@ def codex_call(tool, src, whole):
         return {"k": "web", "d": short(unquote(m.group(1)), 160) if m else ""}
     return {"k": "other", "d": tool}
 
-
 def codex_output(payload):
     text = content_text(payload.get("output"))
     text = re.sub(r"^Script completed\s*\r?\nWall time[^\n]*\n(Output:\s*\n)?", "", text)
@@ -285,12 +261,10 @@ def codex_output(payload):
         text = "\n".join(o for o in outs if o.strip())
     return "" if text.strip() == "{}" else text
 
-
 def iso_ms(s):
     try:
         return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp() * 1000
     except ValueError: return None
-
 
 def find_codex():
     if A.known and os.path.isfile(A.known): return A.known
@@ -316,7 +290,6 @@ def find_codex():
         if delta > 0 and not later: later = fp
     return later
 
-
 def parse_codex(path):
     for line in read_tail(path):
         if '"type":"response_item"' not in line: continue
@@ -336,7 +309,7 @@ def parse_codex(path):
                 if not calls: calls.append({"k": "other", "d": "script"})
             elif tool:
                 calls.append(codex_call(tool, src, src))
-            for i, c in enumerate(calls):  # the script's output belongs to its last call
+            for i, c in enumerate(calls):
                 add_call(c, str(p.get("call_id", "")) if i == len(calls) - 1 else "")
             continue
         if ptype in ("custom_tool_call_output", "function_call_output"):
@@ -355,8 +328,6 @@ def parse_codex(path):
             body = re.sub(r"\s*\[Image #\d+\]", "", body.replace("</image>", ""))
         add_message(role, phase, body)
 
-
-# --- Pi ---------------------------------------------------------------------------------------
 def pi_call(name, inp):
     inp = inp if isinstance(inp, dict) else {}
     if name == "bash": return {"k": "shell", "d": short(inp.get("command"), 400)}
@@ -367,11 +338,7 @@ def pi_call(name, inp):
     if name in ("grep", "find", "ls"): return {"k": "search", "d": short(inp.get("pattern") or inp.get("path"), 200)}
     return {"k": "other", "d": name}
 
-
 def find_pi():
-    # Pi names a session folder after its working folder: separators as "-", wrapped in "--"
-    # ("/srv/code" -> "--srv-code--", "C:\Users\me" -> "--C--Users-me--"). The newest file written
-    # since this terminal started wins: Pi appends to a resumed (older) file too.
     since = A.created / 1000 - 10
     files = []
     for cwd in candidate_cwds():
@@ -380,12 +347,7 @@ def find_pi():
     files = [f for f in files if f[0] >= since]
     if not files: return None
     newest = max(files)
-    # The file found before stays while nothing newer appears (Pi starts a new file on /new).
     if A.known and newest[1] == A.known: return A.known
-    # Two Pis can share a folder, and herdr's record of when each last changed is not reliable
-    # for another machine's terminals; the screen is. Keep the files whose latest messages show
-    # on this terminal's screen. Reading a screen can take seconds, so it is asked for (NEED)
-    # only when it matters: several candidate files, or other Pis that could own the one found.
     if A.screen:
         screen = words_of(A.screen)
         hits = [f for f in files if shown_on(f[1], screen)]
@@ -395,11 +357,9 @@ def find_pi():
         return None
     return newest[1]
 
-
 def words_of(text):
     """Lower-case words only, so markdown, wrapping and terminal drawing don't matter."""
     return " ".join(re.sub(r"[^0-9A-Za-z]+", " ", text).lower().split())
-
 
 def shown_on(path, screen):
     """Whether one of the file's last few messages shows on the screen: its first or last words."""
@@ -425,10 +385,7 @@ def shown_on(path, screen):
             if " ".join(part) in screen: return True
     return False
 
-
 def parse_pi(path):
-    # A resumed Pi session keeps its whole history in one file; only what this terminal has seen
-    # (entries from its start on) belongs in its chat.
     since = A.created - 10000 if A.created else 0
     for line in read_tail(path):
         if '"type":"message"' not in line: continue
@@ -454,8 +411,6 @@ def parse_pi(path):
         elif role == "toolResult":
             set_output(str(m.get("toolCallId", "")), "\n".join(str(c.get("text", "")) for c in content if isinstance(c, dict) and c.get("type") == "text"))
 
-
-# --- main -------------------------------------------------------------------------------------
 LABELS = {"claude-code": "Claude Code", "codex": "Codex", "pi": "Pi"}
 label = LABELS.get(A.app)
 if not label: done("Chat view doesn't read %s sessions yet." % A.app)

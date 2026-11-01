@@ -1,8 +1,11 @@
-# Sends the chat box's text to a terminal as the person, not as a terminal.
-# herdr-core tags messages from inside one of its terminals with <hc from="tN">, and the
-# herdr app can inherit such an identity when it was started from a terminal. Clearing it
-# here keeps typed messages untagged. The text arrives base64-encoded (UTF-8) so any
-# quotes, newlines or symbols pass through intact.
+﻿<#
+.SYNOPSIS
+Sends the chat box's text to a terminal as the person, not as a terminal.
+herdr-core tags messages from inside one of its terminals with <hc from="tN">, and the
+herdr app can inherit such an identity when it was started from a terminal. Clearing it
+here keeps typed messages untagged. The text arrives base64-encoded (UTF-8) so any
+quotes, newlines or symbols pass through intact.
+#>
 param(
   [Parameter(Mandatory=$true)][string]$Address,
   [Parameter(Mandatory=$true)][string]$Text64,
@@ -11,8 +14,6 @@ param(
 $ErrorActionPreference = 'Stop'
 $text = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Text64))
 
-# Windows command-line quoting (CommandLineToArgvW rules). PowerShell 5.1's own native-argument
-# passing drops embedded double quotes, so hc is started directly with a quoted command line.
 function Quote([string]$s) {
   $s = [regex]::Replace($s, '(\\*)"', { param($m) ($m.Groups[1].Value * 2) + '\"' })
   $s = [regex]::Replace($s, '(\\+)$', { param($m) $m.Groups[1].Value * 2 })

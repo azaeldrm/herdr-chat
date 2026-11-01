@@ -5,34 +5,23 @@ import { readFile } from "fs/promises";
 import { SUPPORTED, ICONS, switchTo, showView, preferredView } from "./common.js";
 import { isHeader, terminalHeader } from "./header.js";
 
-// herdr-chat: any supported agent's terminal as a chat. Each agent writes its own session
-// log; read-session.ps1 turns Claude Code, Codex and Pi logs into one shape, drawn here.
-
-const CORAL = "#d97757"; // Claude's accent: the working spark and the send button.
-const TURN_GAP = 28;     // extra space where you and the agent take turns
-const COLUMN = 740;      // the conversation's width, as on the web
-const LOGO_INTRO_MS = 1500; // length of icons/logo-intro.webp (45 frames at 30 fps)
-const SESSIONS_KEPT = 12; // recent conversations kept in memory, so switching back is instant
-const PATHS_KEY = "herdr-chat.paths"; // { "<terminal>:<created ms>": { path, hint } }, across restarts
-// Herdr's built-in inputs (this message box, the command palette, prompts) paint selected
-// text with gpui-base's "accent" token, which herdr fills from the theme's hover color: a gray
-// that vanishes on dark backgrounds. Point that one token at the theme's accent instead, kept in
-// step with the theme. It is app-wide; herdr's own mods draw from herdr's colors, not this token.
+const CORAL = "#d97757";
+const TURN_GAP = 28;
+const COLUMN = 740;
+const LOGO_INTRO_MS = 1500;
+const SESSIONS_KEPT = 12;
+const PATHS_KEY = "herdr-chat.paths";
 function inputHighlight(cx) {
-  // The token takes no alpha, so blend the accent over the surface by hand.
   const t = theme(), th = cx.theme();
   const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
   const a = rgb(t.accent), b = rgb(t.surface), k = th.is_dark ? 0.32 : 0.28;
   const want = "#" + a.map((v, i) => Math.round(v * k + b[i] * (1 - k)).toString(16).padStart(2, "0")).join("");
-  // Text in the chat is painted under its selection, so that colour must be see-through.
   const see = `${t.accent.slice(0, 7)}${th.is_dark ? "47" : "40"}`;
-  // herdr reports colours back without their alpha, so compare the RGB part only. A mismatch
-  // here would re-apply forever, and every set_theme restarts every mod copy.
   if (th.colors.accent.slice(0, 7).toLowerCase() === want && th.colors.selection.slice(0, 7).toLowerCase() === see.slice(0, 7).toLowerCase()) return;
   set_theme({ appearance: th.appearance, tokens: { colors: { ...th.colors, accent: want, selection: see }, spacing: th.spacing, radius: th.radius } });
 }
 
-const SPARK = ["·", "✢", "✶", "✻", "✽", "✻", "✶", "✢"]; // no ✳: it draws as an emoji
+const SPARK = ["·", "✢", "✶", "✻", "✽", "✻", "✶", "✢"];
 
 const KINDS = {
   shell:  { icon: "terminal",    label: "Ran",     one: "command",  many: "commands" },
@@ -57,19 +46,14 @@ function target() {
   return {
     address: a.address, pane: a.pane, app: a.app, label: SUPPORTED[a.app], program: a.program,
     status: a.status, title: a.title, remote: a.address.includes("/"),
-    // Another machine's agents are addressed "machine/tN"; their session files live there.
     machine: a.address.includes("/") ? a.address.split("/")[0] : null,
     pid: term?.pid ?? 0, created: term?.created_ms ?? 0, cwd: term?.cwd ?? "",
     activity: term?.report?.msg ?? term?.status?.msg ?? "",
   };
 }
 
-// Windows paths are written with backslashes; that's how this tells the computer it runs on.
 function onWindows() { return appHome().includes("\\"); }
 
-// Runs the session reader where the agent's files are. On this computer under Windows that's
-// read-session.ps1; anywhere else (Linux, macOS, or another machine herdr reaches) it's
-// read_session.py, passed to `python3 -c` so nothing has to be installed over there.
 let pythonBoot = null;
 async function runReader(t, { path, hint, offset, screen, peers }) {
   if (!t.remote && onWindows()) {
@@ -82,7 +66,6 @@ async function runReader(t, { path, hint, offset, screen, peers }) {
     const source = await readFile(`${appHome()}/mods/herdr-chat/read_session.py`, "utf8");
     pythonBoot = `import base64,sys;sys.argv[0]='read_session';exec(compile(base64.b64decode('${base64Utf8(source)}'),'read_session.py','exec'))`;
   }
-  // Empty values are left out rather than passed as "", which a remote shell can drop.
   const args = ["--app", t.app, "--pid", String(t.pid), "--created", String(t.created), "--offset", String(offset || 0)];
   if (screen) args.push("--screen", screen);
   if (peers) args.push("--peers", String(peers));
@@ -92,7 +75,6 @@ async function runReader(t, { path, hint, offset, screen, peers }) {
   return exec("python3", ["-c", pythonBoot, ...args], t.machine ? { on: t.machine } : undefined);
 }
 
-// UTF-8 then base64, by hand: the mod runtime doesn't promise TextEncoder or btoa.
 function base64Utf8(text) {
   const bytes = [];
   for (const ch of text) {
@@ -110,7 +92,6 @@ function base64Utf8(text) {
   }
   return out;
 }
-
 
 function icon(name, size, color) { return svg(`${ICONS}/${name}.svg`).size(size).flex_none().text_color(color); }
 function mono() { return settings().font_family || settings().font || "JetBrains Mono"; }
@@ -134,8 +115,6 @@ function summary(steps) {
   return parts.length ? text[0].toUpperCase() + text.slice(1).replace(/, (\w)/g, (_m, c) => `, ${c.toLowerCase()}`) : "";
 }
 
-// A run of thinking and tool calls between two messages becomes one activity row, as on the
-// web: thoughts are steps inside it rather than rows of their own.
 function foldActivity(messages) {
   const out = [];
   for (const m of messages) {
@@ -153,8 +132,6 @@ function outputLines(o) {
   return { shown: lines.slice(0, 6), more: Math.max(0, lines.length - 6) };
 }
 
-// A row's identity follows its content, not its position: the list caches each row's
-// measured height by key, and older rows drop off the top as a session grows.
 function hash(text) {
   let h = 5381;
   for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
@@ -167,9 +144,6 @@ function keyRows(rows) {
     seen[base] = (seen[base] ?? 0) + 1;
     m.key = `${base}-${seen[base]}`;
   }
-  // Extra space where the speaker changes: above the first reply after one of your messages,
-  // and above your next message after a reply, so each turn reads as its own block. It is part
-  // of the row, so it is measured with it.
   rows.forEach((m, i) => {
     const prev = rows[i - 1], user = m.kind === "message" && m.role === "user";
     const prevUser = prev?.kind === "message" && prev.role === "user";
@@ -203,17 +177,13 @@ export default class HerdrChat extends View {
   }
 
   initInner(cx) {
-    // Used as the terminal pane's header, this copy draws only that (see header.js).
-    if (isHeader(props())) { this.asHeader = true; this.hovered = false; return; } // not "header": that name is the chat's own top-bar method
-    // Wraps, and grows from one row to four as you type; Enter sends, Shift+Enter is a new line.
+    if (isHeader(props())) { this.asHeader = true; this.hovered = false; return; }
     this.input = TextareaState.new({ placeholder: "Reply…", rows: 1 });
     this.input.set_soft_wrap(true);
     this.input.set_auto_grow(1, 4);
     this.scroll = VirtualListScrollHandle.new();
     this.input.on("submit", (e, cx) => { if (!e?.shift) this.send(cx); });
     this.input.on("change", (_e, cx) => cx.notify());
-    // following: the view keeps to the newest message. Scrolling up turns it off (and shows
-    // the jump button); reaching the bottom, sending, or the jump button turns it back on.
     this.following = true; this.visibleEnd = 0; this.rowCount = 0;
     this.messages = []; this.open = {};
     this.width = 900; this.scrollAttempts = 0;
@@ -222,28 +192,22 @@ export default class HerdrChat extends View {
     this.path = ""; this.hint = ""; this.note = "Loading conversation…"; this.screen = "";
     this.raw = []; this.calls = new Map(); this.offset = 0; this.lastRead = 0; this.sessions = new Map();
     this.refresh(cx);
-    // Not at start-up: set_theme restarts every copy, which would start this one again.
     cx.timer.every(1500, cx => { inputHighlight(cx); this.refresh(cx); });
     cx.timer.every(100, cx => {
       this.applyView();
-      // Swap the logo's slide-in for its float once the slide-in has played.
       const intro = this.lookingSince && Date.now() - this.lookingSince >= LOGO_INTRO_MS;
       if (intro && !this.logoLooping) { this.logoLooping = true; cx.notify(); }
       if (!this.lookingSince) this.logoLooping = false;
-      // A switch to another agent is picked up at once, not on the next 1.5 s refresh.
       const t = target();
       if ((t ? `${t.address}:${t.created}:${t.app}` : "") !== this.key) this.refresh(cx);
       const visit = shared("herdr-chat.visit");
       if (visit !== this.visit) { this.visit = visit; this.follow(); }
-      // Repeated while freshly measured rows settle their heights.
       if (this.scrollAttempts > 0) { this.scroll.scroll_to_bottom(); this.scrollAttempts--; cx.notify(); return; }
       const atBottom = this.rowCount === 0 || this.visibleEnd >= this.rowCount;
       if (atBottom !== this.following) { this.following = atBottom; cx.notify(); }
     });
   }
 
-  // When you move to another tab or agent, show the view that session was left in (the terminal
-  // unless you switched it to the chat). Tabs without a chat-capable agent show the terminal.
   applyView() {
     const f = focused(), t = target();
     const focus = `${f?.space ?? ""}:${f?.tab ?? ""}:${t ? `${t.address}:${t.created}` : "-"}`;
@@ -254,23 +218,20 @@ export default class HerdrChat extends View {
 
   follow() { this.following = true; this.scrollAttempts = 15; }
 
-  // Which logo the empty chat shows. The slide-in clip (1.5 s, played once) leads into the float.
   logoNow() {
     if (!/^(Opening|Finding)/.test(this.note || "")) { this.lookingSince = 0; return `${ICONS}/logo.svg`; }
     if (!this.lookingSince) this.lookingSince = Date.now();
     return Date.now() - this.lookingSince < LOGO_INTRO_MS ? `${ICONS}/logo-intro.webp` : `${ICONS}/logo-loop.webp`;
   }
 
-  // The conversation shown now, kept in memory for the next time its agent is opened.
   stash() {
     if (!this.key || !this.path) return;
     const { raw, calls, offset, path, hint, messages, clipped, note, open } = this;
-    this.sessions.delete(this.key); // newest last, so trimming drops the least recently seen
+    this.sessions.delete(this.key);
     this.sessions.set(this.key, { raw, calls, offset, path, hint, messages, clipped, note, open });
     while (this.sessions.size > SESSIONS_KEPT) this.sessions.delete(this.sessions.keys().next().value);
   }
 
-  // Remembers which file holds this session (across restarts), so it is never searched for again.
   rememberPath(path) {
     const t = target();
     if (!t) return;
@@ -283,22 +244,17 @@ export default class HerdrChat extends View {
     this.rememberedHint = this.hint;
   }
 
-  // Cheap, every 1.5 s: notice a different agent, keep the needs-input screen current, and
-  // re-read only as a fallback. Reading itself is driven by the session file changing (watch).
   refresh(cx) {
     const t = target();
     const key = t ? `${t.address}:${t.created}:${t.app}` : "";
     const switched = key !== this.key;
     if (switched) {
-      // Keep the conversation being left, and bring back the one being opened if it was seen
-      // recently, so switching between agents doesn't find and read everything again.
       this.stash();
       this.key = key; this.following = true; this.scrollAttempts = 15; this.screen = ""; this.lastId = ""; this.screenAskedAt = 0;
       this.watchToken = (this.watchToken ?? 0) + 1; this.watchedPath = "";
       const kept = key ? this.sessions.get(key) : null;
       if (kept) Object.assign(this, kept);
       else {
-        // A session's file, once found, is remembered across restarts: no search next time.
         const known = t ? (shared(PATHS_KEY) ?? {})[`${t.address}:${t.created}`] : null;
         this.path = known?.path ?? ""; this.hint = known?.hint ?? "";
         this.raw = []; this.calls = new Map(); this.offset = 0; this.messages = []; this.open = {}; this.clipped = false;
@@ -308,8 +264,6 @@ export default class HerdrChat extends View {
     }
     if (!t) return;
     if (switched) { this.read(cx); return; }
-    // On this computer the file watch drives reading; the timer covers finding the session file and
-    // is a slow safety net. Another machine's files can't be watched from here, so it polls them.
     if (!this.path || t.remote || Date.now() - this.lastRead > 15000) this.read(cx);
     if (t.status === "blocked" && !this.readingScreen) {
       this.readingScreen = true;
@@ -323,8 +277,6 @@ export default class HerdrChat extends View {
     } else if (t.status !== "blocked" && this.screen) { this.screen = ""; cx.notify(); }
   }
 
-  // Wakes as soon as the session file changes, as Ovis does, instead of re-reading on a timer.
-  // Any .jsonl in the folder counts: Claude Code and Pi start a new file there on /clear or /new.
   watch(cx, path) {
     if (!path || path === this.watchedPath) return;
     this.watchedPath = path;
@@ -340,26 +292,19 @@ export default class HerdrChat extends View {
     });
   }
 
-  // Reads what the agent added since the last read (the whole recent conversation the first time).
   read(cx) {
     const t = target();
     if (!t) return;
     const key = this.key;
-    // One read at a time per agent; one more once it ends if asked meanwhile. A read still running
-    // for an agent you've left (a slow screen read, say) never holds up the one you switched to.
     if (this.reading === key) { this.dirty = true; return; }
     this.reading = key; this.dirty = false; this.lastRead = Date.now();
     cx.spawn(async cx => {
       try {
-        // Other agents of the same kind on the same machine could own the session file found.
         const machineOf = a => a.address.includes("/") ? a.address.split("/")[0] : null;
         const peers = agents().filter(a => a.app === t.app && a.address !== t.address && machineOf(a) === t.machine).length;
         const at = { path: this.path, hint: this.hint, offset: this.offset, peers };
         let r = await runReader(t, at);
         if (this.key !== key) return;
-        // The reader asks for the terminal's screen only when it can't otherwise tell which file is
-        // this agent's: reading a screen can take seconds, so it's never done up front.
-        // An agent with no conversation of its own would ask on every poll: once per 15 s is enough.
         if (r.code === 0 && /^NEED\|screen/m.test(r.stdout) && Date.now() - (this.screenAskedAt ?? 0) > 15000) {
           this.screenAskedAt = Date.now();
           const shown = await hc(["read", t.address, "--lines", "40"]);
@@ -381,7 +326,6 @@ export default class HerdrChat extends View {
     });
   }
 
-  // Folds a reader result into the conversation kept here.
   merge(stdout) {
     const added = [];
     let path = this.path, note = "", reset = false;
@@ -402,7 +346,6 @@ export default class HerdrChat extends View {
       } else if (tag === "M") {
         const [role, phase, ...text] = rest.split("|");
         let body = decodeURIComponent(text.join("|"));
-        // A message hc delivered with its <hc from="..."> wrapper shows as just what was said.
         if (role === "user") body = body.replace(/^\s*<hc from="[^"]*"[^>]*>([\s\S]*?)<\/hc>\s*$/, "$1");
         added.push({ kind: "message", role, phase, text: body });
       }
@@ -416,7 +359,6 @@ export default class HerdrChat extends View {
       else this.raw.push(e);
     }
     if (this.raw.length > 600) this.raw = this.raw.slice(-500);
-    // Consecutive calls form one group; foldActivity then merges thinking in between.
     const shaped = [];
     for (const e of this.raw) {
       if (e.kind !== "call") { shaped.push(e); continue; }
@@ -441,9 +383,6 @@ export default class HerdrChat extends View {
     cx.spawn(async cx => {
       try {
         if (t.status === "blocked" && !(await this.promptStillCurrent(t))) throw new Error("The prompt changed. Review it again before answering.");
-        // Sent as you: hc wraps text in <hc from="..."> when its sender seems to be another terminal
-        // (the app is one if it was started from one) or another machine. So it is sent from the
-        // agent's own machine, without hc's terminal identity: send.ps1 on Windows, `env -u` elsewhere.
         const force = t.status === "blocked" ? ["--force"] : [];
         const r = t.remote
           ? await exec("sh", ["-c", 'h=$(command -v hc || echo "$HOME/.local/bin/hc"); exec env -u HC_TERMINAL_ID -u HC_SCOPE "$h" send "$@"',
@@ -480,8 +419,6 @@ export default class HerdrChat extends View {
       finally { this.sending = false; cx.notify(); }
     });
   }
-
-  // --- rows ----------------------------------------------------------------------
 
   disclosure(i, t, glyph, title, open) {
     return h_flex().h(30).gap(8).items_center().text_size(13.5).text_color(open ? t.foreground : t.muted)
@@ -531,8 +468,6 @@ export default class HerdrChat extends View {
     return m.turnGap ? v_flex().w_full().pt(TURN_GAP).child(body) : body;
   }
 
-  // --- frame ---------------------------------------------------------------------
-
   header(t, active) {
     const program = active?.program;
     const glyph = program?.icon
@@ -542,7 +477,6 @@ export default class HerdrChat extends View {
       .text_size(12.5).text_color(selected ? t.foreground : t.muted).when(selected, el => el.bg(t.selected))
       .when(!selected, el => el.cursor_pointer().hover(s => s.text_color(t.foreground)).on_click(action))
       .child(label);
-    // The same pane buttons the terminal header shows on hover, acting on the agent's pane.
     const pane = active?.pane, zoomed = Boolean(pane && panes().find(p => p.pane === pane)?.zoomed);
     const paneButton = (id, glyph, command, args) => div().id(id).p(3).rounded(4).flex_none().cursor_pointer()
       .text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground))
@@ -575,8 +509,6 @@ export default class HerdrChat extends View {
           .child(div().size(8).rounded(4).bg(t.blocked))
           .child(div().text_size(13.5).font_semibold().text_color(t.foreground).child(`${active.label} needs your input`)))
         .child(div().max_h(220).overflow_y_scrollbar().px(10).py(8).rounded(8).bg(t.background)
-          // The question and its options are at the bottom of the screen: show the last lines, not
-          // the top (which is usually the diff or command being asked about).
           .font_family(mono()).text_size(12).text_color(t.muted)
           .child(this.screen ? this.screen.split("\n").filter(l => l.trim()).slice(-12).join("\n") : "Open the terminal to review the request."))
         .child(h_flex().gap(6).flex_wrap()
@@ -625,9 +557,6 @@ export default class HerdrChat extends View {
     if (this.note) rows.push({ kind: "note", text: this.note });
     const empty = rows.length === 0 || (rows.length === 1 && rows[0].kind === "note" && !this.messages.length);
     keyRows(rows);
-    // The virtual list places rows at the heights it is given, and clips what doesn't fit.
-    // So each new or changed row is drawn once off-screen at the column's width and its real
-    // height recorded; the list then uses exactly that.
     const inner = Math.min(COLUMN, Math.max(280, Math.floor(this.width) - 50));
     if (inner !== this.measuredAt) { this.heights = {}; this.measuredAt = inner; }
     const hkey = m => `${m.key}${this.open[m.key] ? ":open" : ""}`;
@@ -640,14 +569,11 @@ export default class HerdrChat extends View {
       .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 8) { this.width = size.width; cx.notify(); } })
       .child(this.header(t, active))
       .when(empty, el => el.child(v_flex().flex_1().min_h(0).items_center().justify_center().gap(14).px(24)
-        // The logo stands in while there's nothing to show: still while waiting for a first message,
-        // and, while still looking, the animated logo (recorded from harness-logo-animated.svg, whose
-        // CSS animation herdr can't play): its panels slide in once, then float on a loop.
         .child(image(this.logoNow()).size(64).flex_none())
         .child(div().max_w(420).text_center().text_size(14).text_color(t.muted).child(this.note))))
       .when(!empty, el => el.child(v_flex().relative().flex_1().min_h(0)
         .child(v_virtual_list("herdr-chat-messages", rows.length, sizes, i => rows[i].key, range => {
-        this.visibleEnd = range.end; // read by the 100 ms timer: is the newest row on screen?
+        this.visibleEnd = range.end;
         const out = [];
         for (let i = range.start; i < range.end; i++)
           out.push(h_flex().w_full().justify_center().px(24).py(8).child(div().w_full().max_w(COLUMN).child(this.row(rows[i], rows[i].key, t))));

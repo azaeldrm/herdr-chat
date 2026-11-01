@@ -1,8 +1,3 @@
-// The terminal side's pane header, drawn by this mod when the layout uses it as one:
-//   { "tab": "active", "pane": { "header": { "content": { "mod": "herdr-chat" } } } }
-// Herdr hands a header copy { pane, terminal } as props; the chat panel gets none of those.
-// Shows the program's icon, name and folder; on hover, split / zoom / close buttons; the
-// agent's status; and, for agents the chat can read, the Chat / Terminal toggle at the far right.
 import { div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { panes, props, run, theme, home } from "herdr";
@@ -28,7 +23,6 @@ function button(t, id, glyph, command, args) {
 
 export function isHeader(p) { return Boolean(p?.pane); }
 
-// view: the mod's View, which keeps `hovered` for this copy.
 export function terminalHeader(view) {
   const t = theme();
   const p = panes().find(x => x.pane === props()?.pane);
@@ -48,11 +42,9 @@ export function terminalHeader(view) {
       .child(button(t, `ph-d-${pane}`, "split-down", "pane.split", { direction: "down", pane }))
       .child(button(t, `ph-z-${pane}`, p.zoomed ? "unzoom" : "zoom", "pane.zoom", { pane }))
       .child(button(t, `ph-x-${pane}`, "close", "pane.close", { pane })))
-    // Status sits right of the hover buttons, just left of the toggle.
     .when(st === "working", el => el.child(svg(`${ICONS}/spinner.svg`).size(12).flex_none().text_color(t.working).spin(900)))
     .when(st === "blocked", el => el.child(div().flex_none().px(6).h(18).flex().items_center().rounded(5).bg(t.blocked + "26").text_size(10.5).font_semibold().text_color(t.blocked).child("Needs you")))
     .when(st === "done", el => el.child(div().size(7).flex_none().rounded(4).bg(t.done)))
-    // Last, so the toggle stays at the far right whether or not the hover buttons show.
     .when(Boolean(SUPPORTED[p.app]), el => el
       .child(h_flex().flex_none().p(2).gap(2).rounded(8).bg(t.surface).border_1().border_color(t.border).text_size(12.5)
         .child(div().id(`chat-view-${pane}`).px(10).h(24).flex().items_center().rounded(6).cursor_pointer()

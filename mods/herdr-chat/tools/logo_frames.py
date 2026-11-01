@@ -1,10 +1,11 @@
-# Lays out every frame of harness-logo-animated.svg in one page: each copy's CSS animation is
-# paused at its own moment (negative delays), so one screenshot captures the whole clip.
+"""Lays out every frame of harness-logo-animated.svg in one page: each copy's CSS animation is
+paused at its own moment (negative delays), so one screenshot captures the whole clip.
+"""
 import re, sys
 src, out = sys.argv[1], sys.argv[2]
 svg = open(src, encoding="utf-8").read()
 FPS, CELL, COLS = 30, 192, 16
-INTRO, LOOP = 1.5, 3.0          # slide-in until every panel floats, then one 3 s float cycle
+INTRO, LOOP = 1.5, 3.0
 times = [i / FPS for i in range(int(INTRO * FPS))] + [INTRO + i / FPS for i in range(int(LOOP * FPS))]
 enter = {"l4": 0.00, "l3": 0.12, "l2": 0.24, "l1": 0.36, "l0": 0.48}
 float_ = {"l4": 0.70, "l3": 0.90, "l2": 1.10, "l1": 1.30, "l0": 1.50}
