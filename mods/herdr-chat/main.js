@@ -11,6 +11,7 @@ import { isHeader, terminalHeader } from "./header.js";
 const CORAL = "#d97757"; // Claude's accent: the working spark and the send button.
 const TURN_GAP = 28;     // extra space where you and the agent take turns
 const COLUMN = 740;      // the conversation's width, as on the web
+const LOGO_INTRO_MS = 1500; // length of icons/logo-intro.webp (45 frames at 30 fps)
 const SESSIONS_KEPT = 12; // recent conversations kept in memory, so switching back is instant
 const PATHS_KEY = "herdr-chat.paths"; // { "<terminal>:<created ms>": { path, hint } }, across restarts
 // Herdr's built-in inputs (this message box, the command palette, prompts) paint selected
@@ -225,6 +226,10 @@ export default class HerdrChat extends View {
     cx.timer.every(1500, cx => { inputHighlight(cx); this.refresh(cx); });
     cx.timer.every(100, cx => {
       this.applyView();
+      // Swap the logo's slide-in for its float once the slide-in has played.
+      const intro = this.lookingSince && Date.now() - this.lookingSince >= LOGO_INTRO_MS;
+      if (intro && !this.logoLooping) { this.logoLooping = true; cx.notify(); }
+      if (!this.lookingSince) this.logoLooping = false;
       // A switch to another agent is picked up at once, not on the next 1.5 s refresh.
       const t = target();
       if ((t ? `${t.address}:${t.created}:${t.app}` : "") !== this.key) this.refresh(cx);
@@ -248,6 +253,13 @@ export default class HerdrChat extends View {
   }
 
   follow() { this.following = true; this.scrollAttempts = 15; }
+
+  // Which logo the empty chat shows. The slide-in clip (1.5 s, played once) leads into the float.
+  logoNow() {
+    if (!/^(Opening|Finding)/.test(this.note || "")) { this.lookingSince = 0; return `${ICONS}/logo.svg`; }
+    if (!this.lookingSince) this.lookingSince = Date.now();
+    return Date.now() - this.lookingSince < LOGO_INTRO_MS ? `${ICONS}/logo-intro.webp` : `${ICONS}/logo-loop.webp`;
+  }
 
   // The conversation shown now, kept in memory for the next time its agent is opened.
   stash() {
@@ -624,8 +636,11 @@ export default class HerdrChat extends View {
       .bg(t.background).text_color(t.foreground)
       .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 8) { this.width = size.width; cx.notify(); } })
       .child(this.header(t, active))
-      .when(empty, el => el.child(v_flex().flex_1().min_h(0).items_center().justify_center().gap(10).px(24)
-        .child(div().text_size(26).text_color(CORAL).child("✻"))
+      .when(empty, el => el.child(v_flex().flex_1().min_h(0).items_center().justify_center().gap(14).px(24)
+        // The logo stands in while there's nothing to show: still while waiting for a first message,
+        // and, while still looking, the animated logo (recorded from harness-logo-animated.svg, whose
+        // CSS animation herdr can't play): its panels slide in once, then float on a loop.
+        .child(image(this.logoNow()).size(64).flex_none())
         .child(div().max_w(420).text_center().text_size(14).text_color(t.muted).child(this.note))))
       .when(!empty, el => el.child(v_flex().relative().flex_1().min_h(0)
         .child(v_virtual_list("herdr-chat-messages", rows.length, sizes, i => rows[i].key, range => {
