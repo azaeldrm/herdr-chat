@@ -9,8 +9,10 @@ herdr reaches.
 
 ## Install
 
-1. Copy this folder to `~/.config/herdr-app/mods/herdr-chat/`.
-2. Copy `layout/herdr-chat.json` to `~/.config/herdr-app/layouts/herdr-chat.json`.
+This repository is laid out like the herdr home (`~/.config/herdr-app`):
+
+1. Copy `mods/herdr-chat/` to `~/.config/herdr-app/mods/herdr-chat/`.
+2. Copy `layouts/herdr-chat.json` to `~/.config/herdr-app/layouts/herdr-chat.json`.
 3. Switch to it: `herdr-app do layout.switch --name herdr-chat` (or `ctrl-shift-l`). Your own layout
    stays as it was; switch back the same way.
 
@@ -75,7 +77,7 @@ runs in. Icons are the mod's own SVGs drawn in the theme's text colour.
 
 ## Built from
 
-Layout (`layout/herdr-chat.json`): `main.json` with its `main` block replaced by
+Layout (`layouts/herdr-chat.json`): `main.json` with its `main` block replaced by
 
 ```
 chat-view   stack, active "terminal-panel"
