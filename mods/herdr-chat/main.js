@@ -1,7 +1,7 @@
 import { View, div, svg, image } from "gpui-kit";
 import { set_theme, v_flex, h_flex, TextareaState, Textarea, TextView, VirtualListScrollHandle, v_virtual_list } from "gpui-base";
 import { agents, terminals, panes, focused, props, hc, exec, appHome, run, theme, settings, shared, watchFolder } from "herdr";
-import { SUPPORTED, ICONS, switchTo } from "./common.js";
+import { SUPPORTED, ICONS, switchTo, showView, preferredView } from "./common.js";
 import { isHeader, terminalHeader } from "./header.js";
 
 // herdr-chat: any supported agent's terminal as a chat. Each agent writes its own session
@@ -191,6 +191,7 @@ export default class HerdrChat extends View {
     // Not at start-up: set_theme restarts every copy, which would start this one again.
     cx.timer.every(1500, cx => { inputHighlight(cx); this.refresh(cx); });
     cx.timer.every(100, cx => {
+      this.applyView();
       const visit = shared("herdr-chat.visit");
       if (visit !== this.visit) { this.visit = visit; this.follow(); }
       // Repeated while freshly measured rows settle their heights.
@@ -198,6 +199,17 @@ export default class HerdrChat extends View {
       const atBottom = this.rowCount === 0 || this.visibleEnd >= this.rowCount;
       if (atBottom !== this.following) { this.following = atBottom; cx.notify(); }
     });
+  }
+
+  // When you move to another tab or agent, show the view that session was left in (the terminal
+  // unless you switched it to the chat). Tabs without a chat-capable local agent show the terminal.
+  applyView() {
+    const f = focused(), t = target();
+    const local = t && !t.remote;
+    const focus = `${f?.space ?? ""}:${f?.tab ?? ""}:${local ? `${t.address}:${t.created}` : "-"}`;
+    if (focus === this.viewFocus) return;
+    this.viewFocus = focus;
+    showView(local ? preferredView(`${t.address}:${t.created}`) : "terminal");
   }
 
   follow() { this.following = true; this.scrollAttempts = 15; }
@@ -433,7 +445,6 @@ export default class HerdrChat extends View {
       .on_hover((hovered, cx) => { if (this.headerHovered !== hovered) { this.headerHovered = hovered; cx.notify(); } })
       .when(Boolean(glyph), el => el.child(glyph))
       .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.muted).child(active?.title || active?.label || ""))
-      .when(this.clipped, el => el.child(div().flex_none().text_size(11.5).text_color(t.dim).child("Recent history")))
       .when(Boolean(this.headerHovered && pane), el => el
         .child(paneButton("chat-split-right", "split-right", "pane.split", { direction: "right", pane }))
         .child(paneButton("chat-split-down", "split-down", "pane.split", { direction: "down", pane }))
@@ -444,14 +455,14 @@ export default class HerdrChat extends View {
       .when(active?.status === "done", el => el.child(div().size(7).flex_none().rounded(4).bg(t.done)))
       .child(h_flex().flex_none().p(2).gap(2).rounded(8).bg(t.surface).border_1().border_color(t.border)
         .child(segment("view-chat", "Chat", true, null))
-        .child(segment("view-terminal", "Terminal", false, () => switchTo("terminal"))));
+        .child(segment("view-terminal", "Terminal", false, () => switchTo("terminal", active ? `${active.address}:${active.created}` : ""))));
   }
 
   status(t, active) {
     if (active?.status === "blocked") {
       const key = (id, label, k) => div().id(id).h(30).px(12).flex().items_center().rounded(8).cursor_pointer()
         .border_1().border_color(t.border).bg(t.background).text_size(12.5).text_color(t.foreground)
-        .hover(s => s.bg(t.hover)).on_click((_e, cx) => k === "terminal" ? switchTo("terminal") : this.press(k, cx)).child(label);
+        .hover(s => s.bg(t.hover)).on_click((_e, cx) => k === "terminal" ? switchTo("terminal", active ? `${active.address}:${active.created}` : "") : this.press(k, cx)).child(label);
       return v_flex().w_full().max_w(COLUMN).p(14).gap(10).rounded(14).border_1().border_color(t.blocked).bg(t.surface)
         .child(h_flex().gap(8).items_center()
           .child(div().size(8).rounded(4).bg(t.blocked))

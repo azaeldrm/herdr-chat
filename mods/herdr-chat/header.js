@@ -6,7 +6,7 @@
 import { div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { panes, props, run, theme, home } from "herdr";
-import { SUPPORTED, ICONS, switchTo } from "./common.js";
+import { SUPPORTED, ICONS, switchTo, sessionKey } from "./common.js";
 
 function programIcon(p, size, color) {
   if (!p?.icon) return null;
@@ -57,7 +57,7 @@ export function terminalHeader(view) {
       .child(h_flex().flex_none().p(2).gap(2).rounded(8).bg(t.surface).border_1().border_color(t.border).text_size(12.5)
         .child(div().id(`chat-view-${pane}`).px(10).h(24).flex().items_center().rounded(6).cursor_pointer()
           .text_color(t.muted).hover(s => s.text_color(t.foreground))
-          .on_click((_e, cx) => { cx.stop_propagation(); switchTo("chat"); })
+          .on_click((_e, cx) => { cx.stop_propagation(); switchTo("chat", sessionKey(p.terminal)); })
           .child("Chat"))
         .child(div().id(`terminal-view-${pane}`).px(10).h(24).flex().items_center().rounded(6)
           .bg(t.selected).text_color(t.foreground).child("Terminal"))));
