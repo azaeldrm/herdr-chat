@@ -575,7 +575,10 @@ export default class HerdrChat extends View {
           .child(div().size(8).rounded(4).bg(t.blocked))
           .child(div().text_size(13.5).font_semibold().text_color(t.foreground).child(`${active.label} needs your input`)))
         .child(div().max_h(220).overflow_y_scrollbar().px(10).py(8).rounded(8).bg(t.background)
-          .font_family(mono()).text_size(12).text_color(t.muted).child(this.screen || "Open the terminal to review the request."))
+          // The question and its options are at the bottom of the screen: show the last lines, not
+          // the top (which is usually the diff or command being asked about).
+          .font_family(mono()).text_size(12).text_color(t.muted)
+          .child(this.screen ? this.screen.split("\n").filter(l => l.trim()).slice(-12).join("\n") : "Open the terminal to review the request."))
         .child(h_flex().gap(6).flex_wrap()
           .child(key("k-up", "↑", "up")).child(key("k-down", "↓", "down"))
           .child(key("k-enter", "Enter", "enter")).child(key("k-esc", "Esc", "esc"))
