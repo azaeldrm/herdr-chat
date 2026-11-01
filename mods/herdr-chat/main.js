@@ -5,10 +5,8 @@ import { readFile } from "fs/promises";
 import { SUPPORTED, ICONS, switchTo, showView, preferredView } from "./common.js";
 import { isHeader, terminalHeader } from "./header.js";
 
-const CORAL = "#d97757";
 const TURN_GAP = 28;
 const COLUMN = 740;
-const LOGO_INTRO_MS = 1500;
 const SESSIONS_KEPT = 12;
 const PATHS_KEY = "herdr-chat.paths";
 function inputHighlight(cx) {
@@ -195,9 +193,6 @@ export default class HerdrChat extends View {
     cx.timer.every(1500, cx => { inputHighlight(cx); this.refresh(cx); });
     cx.timer.every(100, cx => {
       this.applyView();
-      const intro = this.lookingSince && Date.now() - this.lookingSince >= LOGO_INTRO_MS;
-      if (intro && !this.logoLooping) { this.logoLooping = true; cx.notify(); }
-      if (!this.lookingSince) this.logoLooping = false;
       const t = target();
       if ((t ? `${t.address}:${t.created}:${t.app}` : "") !== this.key) this.refresh(cx);
       const visit = shared("herdr-chat.visit");
@@ -217,12 +212,6 @@ export default class HerdrChat extends View {
   }
 
   follow() { this.following = true; this.scrollAttempts = 15; }
-
-  logoNow() {
-    if (!/^(Opening|Finding)/.test(this.note || "")) { this.lookingSince = 0; return `${ICONS}/logo.svg`; }
-    if (!this.lookingSince) this.lookingSince = Date.now();
-    return Date.now() - this.lookingSince < LOGO_INTRO_MS ? `${ICONS}/logo-intro.webp` : `${ICONS}/logo-loop.webp`;
-  }
 
   stash() {
     if (!this.key || !this.path) return;
@@ -518,7 +507,7 @@ export default class HerdrChat extends View {
           .child(key("k-term", "Open terminal", "terminal")));
     }
     if (active?.status === "working") return h_flex().w_full().max_w(COLUMN).h(26).gap(8).items_center()
-      .child(div().w(14).text_size(15).text_color(CORAL).frames(SPARK, 120).child(SPARK[0]))
+      .child(div().w(14).text_size(15).text_color(t.accent).frames(SPARK, 120).child(SPARK[0]))
       .child(div().flex_1().min_w(0).truncate().text_size(13.5).text_color(t.muted)
         .loop("opacity", { from: 0.55, to: 1, period: 1600 }).child(active.activity ? `${active.activity}…`.replace(/……$/, "…") : "Working…"));
     return null;
@@ -536,7 +525,7 @@ export default class HerdrChat extends View {
           })
           .child(Textarea.new(this.input).w_full().text_size(15).text_color(t.foreground)))
         .child(div().id("send").size(32).flex_none().flex().items_center().justify_center().rounded(16)
-          .bg(ready ? CORAL : t.raised).text_color(ready ? "#ffffff" : t.dim)
+          .bg(ready ? t.accent : t.raised).text_color(ready ? t.accent_foreground : t.dim)
           .when(ready, el => el.cursor_pointer().hover(s => s.opacity(0.88)).on_click((_e, cx) => this.send(cx)))
           .child(svg(`${ICONS}/arrow-up.svg`).size(16))))
       .child(div().w_full().text_center().text_size(11.5).text_color(t.dim)
@@ -544,9 +533,9 @@ export default class HerdrChat extends View {
   }
 
   render(cx) {
-    if (this.initError) return div().p(20).text_color("#ff6666").child(`herdr-chat init error: ${this.initError}`);
+    if (this.initError) return div().p(20).text_color(theme().blocked).child(`herdr-chat init error: ${this.initError}`);
     try { return this.renderInner(cx); }
-    catch (e) { return div().p(20).text_color("#ff6666").child(`herdr-chat render error: ${e?.stack ?? e}`); }
+    catch (e) { return div().p(20).text_color(theme().blocked).child(`herdr-chat render error: ${e?.stack ?? e}`); }
   }
 
   renderInner() {
@@ -569,7 +558,8 @@ export default class HerdrChat extends View {
       .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 8) { this.width = size.width; cx.notify(); } })
       .child(this.header(t, active))
       .when(empty, el => el.child(v_flex().flex_1().min_h(0).items_center().justify_center().gap(14).px(24)
-        .child(image(this.logoNow()).size(64).flex_none())
+        .child(image("frame/welcome/herdr.png").size(64).rounded(14).flex_none()
+          .when(/^(Opening|Finding)/.test(this.note || ""), el => el.loop("opacity", { from: 0.4, to: 1, period: 1600 })))
         .child(div().max_w(420).text_center().text_size(14).text_color(t.muted).child(this.note))))
       .when(!empty, el => el.child(v_flex().relative().flex_1().min_h(0)
         .child(v_virtual_list("herdr-chat-messages", rows.length, sizes, i => rows[i].key, range => {
