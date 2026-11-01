@@ -1,6 +1,7 @@
 import { View, div, svg, image } from "gpui-kit";
 import { set_theme, v_flex, h_flex, TextareaState, Textarea, TextView, VirtualListScrollHandle, v_virtual_list } from "gpui-base";
 import { agents, terminals, panes, focused, props, hc, exec, appHome, run, theme, settings, shared, watchFolder } from "herdr";
+import { readFile } from "fs/promises";
 import { SUPPORTED, ICONS, switchTo, showView, preferredView } from "./common.js";
 import { isHeader, terminalHeader } from "./header.js";
 
@@ -53,9 +54,38 @@ function target() {
   return {
     address: a.address, pane: a.pane, app: a.app, label: SUPPORTED[a.app], program: a.program,
     status: a.status, title: a.title, remote: a.address.includes("/"),
+    // Another machine's agents are addressed "machine/tN"; their session files live there.
+    machine: a.address.includes("/") ? a.address.split("/")[0] : null,
     pid: term?.pid ?? 0, created: term?.created_ms ?? 0, cwd: term?.cwd ?? "",
     activity: term?.report?.msg ?? term?.status?.msg ?? "",
   };
+}
+
+// Windows paths are written with backslashes; that's how this tells the computer it runs on.
+function onWindows() { return appHome().includes("\\"); }
+
+// Runs the session reader where the agent's files are. On this computer under Windows that's
+// read-session.ps1; anywhere else (Linux, macOS, or another machine herdr reaches) it's
+// read_session.py, passed to `python3 -c` so nothing has to be installed over there.
+let pythonBoot = null;
+async function runReader(t, { path, hint, offset, screen }) {
+  if (!t.remote && onWindows()) {
+    return exec("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+      `${appHome()}\\mods\\herdr-chat\\read-session.ps1`,
+      "-App", t.app, "-TermPid", String(t.pid), "-CreatedMs", String(t.created), "-Cwd", t.cwd,
+      "-KnownPath", path || "", "-Hint", hint || "", "-Offset", String(offset || 0)]);
+  }
+  if (!pythonBoot) {
+    const source = await readFile(`${appHome()}/mods/herdr-chat/read_session.py`, "utf8");
+    pythonBoot = `import base64,sys;sys.argv[0]='read_session';exec(compile(base64.b64decode('${base64Utf8(source)}'),'read_session.py','exec'))`;
+  }
+  // Empty values are left out rather than passed as "", which a remote shell can drop.
+  const args = ["--app", t.app, "--pid", String(t.pid), "--created", String(t.created), "--offset", String(offset || 0)];
+  if (screen) args.push("--screen", screen);
+  if (t.cwd) args.push("--cwd", t.cwd);
+  if (path) args.push("--known", path);
+  if (hint) args.push("--hint", hint);
+  return exec("python3", ["-c", pythonBoot, ...args], t.machine ? { on: t.machine } : undefined);
 }
 
 // UTF-8 then base64, by hand: the mod runtime doesn't promise TextEncoder or btoa.
@@ -202,14 +232,13 @@ export default class HerdrChat extends View {
   }
 
   // When you move to another tab or agent, show the view that session was left in (the terminal
-  // unless you switched it to the chat). Tabs without a chat-capable local agent show the terminal.
+  // unless you switched it to the chat). Tabs without a chat-capable agent show the terminal.
   applyView() {
     const f = focused(), t = target();
-    const local = t && !t.remote;
-    const focus = `${f?.space ?? ""}:${f?.tab ?? ""}:${local ? `${t.address}:${t.created}` : "-"}`;
+    const focus = `${f?.space ?? ""}:${f?.tab ?? ""}:${t ? `${t.address}:${t.created}` : "-"}`;
     if (focus === this.viewFocus) return;
     this.viewFocus = focus;
-    showView(local ? preferredView(`${t.address}:${t.created}`) : "terminal");
+    showView(t ? preferredView(`${t.address}:${t.created}`) : "terminal");
   }
 
   follow() { this.following = true; this.scrollAttempts = 15; }
@@ -224,13 +253,13 @@ export default class HerdrChat extends View {
       this.raw = []; this.offset = 0; this.messages = []; this.open = {}; this.screen = ""; this.lastId = "";
       this.watchToken = (this.watchToken ?? 0) + 1; this.watchedPath = "";
       this.note = !t ? "Select a Claude Code, Codex or Pi terminal to see it as a chat."
-        : t.remote ? `Chat view reads sessions on this computer only; ${t.label} is running on another machine.`
         : `Finding this ${t.label} conversation…`;
       cx.notify();
     }
-    if (!t || t.remote) return;
-    // Until the session file is known (or as a slow safety net), read on the timer.
-    if (!this.path || Date.now() - this.lastRead > 15000) this.read(cx);
+    if (!t) return;
+    // On this computer the file watch drives reading; the timer covers finding the session file and
+    // is a slow safety net. Another machine's files can't be watched from here, so it polls them.
+    if (!this.path || t.remote || Date.now() - this.lastRead > 15000) this.read(cx);
     if (t.status === "blocked" && !this.readingScreen) {
       this.readingScreen = true;
       cx.spawn(async cx => {
@@ -263,20 +292,26 @@ export default class HerdrChat extends View {
   // Reads what the agent added since the last read (the whole recent conversation the first time).
   read(cx) {
     const t = target();
-    if (!t || t.remote) return;
+    if (!t) return;
     if (this.loading) { this.dirty = true; return; } // one more read once this one ends
     const key = this.key;
     this.loading = true; this.dirty = false; this.lastRead = Date.now();
     cx.spawn(async cx => {
       try {
-        const script = `${appHome()}\\mods\\herdr-chat\\read-session.ps1`;
-        const r = await exec("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
-          "-App", t.app, "-TermPid", String(t.pid), "-CreatedMs", String(t.created), "-Cwd", t.cwd,
-          "-KnownPath", this.path || "", "-Hint", this.hint || "", "-Offset", String(this.offset || 0)]);
+        // Two Pis can share a folder: the terminal's screen tells their sessions apart. Read it while
+        // the session file isn't known yet, and every 15 s in case Pi started a new one.
+        let screen = "";
+        if (t.app === "pi" && (!this.path || Date.now() - (this.screenChecked ?? 0) > 15000)) {
+          const shown = await hc(["read", t.address, "--lines", "40"]);
+          if (shown.code === 0) screen = shown.stdout.slice(-3000);
+          this.screenChecked = Date.now();
+        }
+        if (this.key !== key) return;
+        const r = await runReader(t, { path: this.path, hint: this.hint, offset: this.offset, screen });
         if (this.key !== key) return;
         if (r.code !== 0) throw new Error(r.stderr || `Reader exited ${r.code}`);
         this.merge(r.stdout);
-        this.watch(cx, this.path);
+        if (!t.remote) this.watch(cx, this.path);
       } catch (e) { this.note = String(e); }
       finally {
         this.loading = false; cx.notify();
@@ -305,7 +340,10 @@ export default class HerdrChat extends View {
         added.push({ kind: "out", id: decodeURIComponent(id), text: decodeURIComponent(text.join("|")) });
       } else if (tag === "M") {
         const [role, phase, ...text] = rest.split("|");
-        added.push({ kind: "message", role, phase, text: decodeURIComponent(text.join("|")) });
+        let body = decodeURIComponent(text.join("|"));
+        // A message hc delivered with its <hc from="..."> wrapper shows as just what was said.
+        if (role === "user") body = body.replace(/^\s*<hc from="[^"]*"[^>]*>([\s\S]*?)<\/hc>\s*$/, "$1");
+        added.push({ kind: "message", role, phase, text: body });
       }
     }
     if (reset || path !== this.path) { this.raw = []; this.calls = new Map(); }
@@ -336,16 +374,23 @@ export default class HerdrChat extends View {
 
   send(cx) {
     const t = target(), message = this.input.value().trim();
-    if (!t || t.remote || !message || this.sending) return;
+    if (!t || !message || this.sending) return;
     this.sending = true; cx.notify();
     cx.spawn(async cx => {
       try {
         if (t.status === "blocked" && !(await this.promptStillCurrent(t))) throw new Error("The prompt changed. Review it again before answering.");
-        // Through send.ps1, which sends as you: hc would otherwise wrap the text in
-        // <hc from="tN"> when the app itself was started from inside a terminal.
-        const r = await exec("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-          `${appHome()}\\mods\\herdr-chat\\send.ps1`, "-Address", t.address, "-Text64", base64Utf8(message),
-          ...(t.status === "blocked" ? ["-Force"] : [])]);
+        // Sent as you: hc wraps text in <hc from="..."> when its sender seems to be another terminal
+        // (the app is one if it was started from one) or another machine. So it is sent from the
+        // agent's own machine, without hc's terminal identity: send.ps1 on Windows, `env -u` elsewhere.
+        const force = t.status === "blocked" ? ["--force"] : [];
+        const r = t.remote
+          ? await exec("sh", ["-c", 'h=$(command -v hc || echo "$HOME/.local/bin/hc"); exec env -u HC_TERMINAL_ID -u HC_SCOPE "$h" send "$@"',
+              "hc-send", ...force, t.address.slice(t.address.indexOf("/") + 1), message], { on: t.machine })
+          : onWindows()
+          ? await exec("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+              `${appHome()}\\mods\\herdr-chat\\send.ps1`, "-Address", t.address, "-Text64", base64Utf8(message),
+              ...(force.length ? ["-Force"] : [])])
+          : await exec("env", ["-u", "HC_TERMINAL_ID", "-u", "HC_SCOPE", "hc", "send", ...force, t.address, message]);
         if (r.code !== 0) throw new Error(r.stderr || "Send failed");
         if (this.key?.startsWith(`${t.address}:`)) this.input.set_value("");
         this.follow();
@@ -483,7 +528,7 @@ export default class HerdrChat extends View {
   }
 
   composer(t, active) {
-    const ready = Boolean(this.input.value().trim()) && !this.sending && active && !active.remote;
+    const ready = Boolean(this.input.value().trim()) && !this.sending && Boolean(active);
     return v_flex().w_full().max_w(COLUMN).gap(6)
       .child(h_flex().w_full().pl(16).pr(8).py(8).gap(8).items_end().rounded(18).border_1().border_color(t.input).bg(t.surface)
         .child(div().id("composer-input").flex_1().min_w(0).py(4)

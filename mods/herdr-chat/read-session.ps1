@@ -294,20 +294,22 @@ function Pi-Call([string]$name, $in) {
 function Find-Pi {
   $dir = Join-Path $UserHome ('.pi\agent\sessions\--' + ($Cwd -replace '[\\/:]', '-') + '--')
   if (-not (Test-Path -LiteralPath $dir)) { return $null }
+  # The newest file written since this terminal started: Pi appends to a resumed (older) file too.
   $since = [DateTimeOffset]::FromUnixTimeMilliseconds($CreatedMs).UtcDateTime.AddSeconds(-10)
-  $files = Get-ChildItem -LiteralPath $dir -Filter '*.jsonl' -File | Sort-Object LastWriteTime -Descending
-  foreach ($f in $files) {
-    if ($f.Name -match '^(\d{4}-\d\d-\d\d)T(\d\d)-(\d\d)-(\d\d)-(\d{3})Z_') {
-      $started = [DateTime]::ParseExact("$($Matches[1]) $($Matches[2]):$($Matches[3]):$($Matches[4])", 'yyyy-MM-dd HH:mm:ss', $null)
-      if ($started -ge $since) { return $f.FullName }
-    }
-  }
+  $newest = Get-ChildItem -LiteralPath $dir -Filter '*.jsonl' -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+  if ($newest -and $newest.LastWriteTimeUtc -ge $since) { return $newest.FullName }
   return $null
 }
 function Parse-Pi([string]$path) {
+  # A resumed Pi session keeps its whole history in one file; only what this terminal has seen
+  # (entries from its start on) belongs in its chat.
+  $since = if ($CreatedMs) { [DateTimeOffset]::FromUnixTimeMilliseconds($CreatedMs - 10000) } else { $null }
   foreach ($line in (Read-Tail $path)) {
     if ($line -notmatch '"type":"message"') { continue }
     try { $o = $line | ConvertFrom-Json } catch { continue }
+    if ($since -and $o.timestamp) {
+      try { if ([DateTimeOffset]::Parse([string]$o.timestamp) -lt $since) { continue } } catch { }
+    }
     $m = $o.message
     switch ([string]$m.role) {
       'user' {
@@ -340,6 +342,7 @@ Write-Output ('HINT|' + (Esc $script:NewHint))
 Write-Output ('OFFSET|' + $script:NextOffset)
 if ($script:Fresh) { Write-Output 'RESET' }
 if ($script:Clipped) { Write-Output 'NOTE|Showing the recent part of this session.' }
+if ($script:Fresh -and -not $entries.Count) { Write-Output ('NOTE|' + (Esc 'No messages in this session yet.')) }
 $out = if ($script:Fresh) { @($entries | Select-Object -Last $MaxEntries) } else { @($entries) }
 foreach ($entry in $out) {
   switch ($entry.kind) {
