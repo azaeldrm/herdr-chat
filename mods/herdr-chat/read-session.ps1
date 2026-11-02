@@ -5,6 +5,8 @@ Reads one agent's session log and prints it in herdr-chat's common shape:
   RESET                        what follows is the conversation from its start (or recent part);
                                without it, it is only what was added since -Offset
   OFFSET|<bytes>               where the next read starts: after the last complete line read
+  LEAF|<uuid.v|t,...>          Claude Code only: the tail of the live branch (v: shows text), passed
+                               back as -Leaf so the next read can tell a continuation from a rewind
   M|<role>|<phase>|<text>      a message (user / assistant)
   R|<text>                     visible reasoning
   C|<id>|<json {k,d,n}>        one tool call (kind, detail, file count); id may be empty
@@ -19,7 +21,8 @@ param(
   [string]$Cwd = '',
   [string]$KnownPath = '',
   [string]$Hint = '',
-  [long]$Offset = 0
+  [long]$Offset = 0,
+  [string]$Leaf = ''
 )
 $ErrorActionPreference = 'Stop'
 $UserHome = $env:USERPROFILE
@@ -152,30 +155,105 @@ function Find-Claude {
   $script:WaitingNote = 'Claude Code hasn''t written this conversation yet. Send a message to start it.'
   return $null
 }
-function Parse-Claude([string]$path) {
-  foreach ($line in (Read-Tail $path)) {
-    if ($line.Length -lt 20 -or $line.StartsWith('{"type":"api-')) { continue }
-    if ($line -notmatch '"type":"(user|assistant)"') { continue }
-    try { $o = $line | ConvertFrom-Json } catch { continue }
-    if ($o.type -ne 'user' -and $o.type -ne 'assistant') { continue }
-    if ($o.isSidechain -or $o.isMeta -or $o.isCompactSummary) { continue }
-    $content = $o.message.content
-    if ($o.type -eq 'user') {
-      if ($content -is [string]) { Add-Message 'user' '' (Claude-UserText $content); continue }
-      $texts = [System.Collections.Generic.List[string]]::new()
-      foreach ($c in @($content)) {
-        if ($c.type -eq 'tool_result') { Set-Output ([string]$c.tool_use_id) (Content-Text $c.content) }
-        elseif ($c.type -eq 'text') { $t = Claude-UserText ([string]$c.text); if ($t.Trim()) { $texts.Add($t) } }
-        elseif ($c.type -eq 'image') { $texts.Add('[Image attached]') }
+$ClaudeKept = 50
+
+<# The log's tree nodes in file order: u (uuid), p (parent), o (the entry, if user/assistant), v (shows text). #>
+function Claude-Records($lines) {
+  $recs = [System.Collections.Generic.List[object]]::new()
+  foreach ($line in $lines) {
+    if ($line.Length -lt 20 -or -not $line.StartsWith('{"parentUuid":')) { continue }
+    if ($line.Substring(0, [Math]::Min(300, $line.Length)).Contains('"isSidechain":true')) { continue }
+    if ($line -match '"type":"(user|assistant)"') {
+      $o = $null
+      try { $o = $line | ConvertFrom-Json } catch { }
+      if ($o -and ($o.type -eq 'user' -or $o.type -eq 'assistant') -and $o.uuid) {
+        $content = $o.message.content
+        $shows = ($content -is [string]) -or (@(@($content) | Where-Object { $_.type -eq 'text' }).Count -gt 0)
+        $p = if ($o.parentUuid) { [string]$o.parentUuid } else { [string]$o.logicalParentUuid }
+        $recs.Add([pscustomobject]@{ u = [string]$o.uuid; p = $p; o = $o; v = ($shows -and -not $o.isMeta) })
+        continue
       }
-      if ($texts.Count) { Add-Message 'user' '' ($texts -join "`n") }
-      continue
     }
+    $ids = [regex]::Matches($line, '"uuid":"([0-9a-f-]{36})"')
+    if ($ids.Count -eq 0) { continue }
+    $m = [regex]::Match($line, '^\{"parentUuid":(?:null|"([^"]+)")')
+    $p = if ($m.Groups[1].Success) { $m.Groups[1].Value } else {
+      $l = [regex]::Match($line, '"logicalParentUuid":"([^"]+)"'); if ($l.Success) { $l.Groups[1].Value } else { '' } }
+    $recs.Add([pscustomobject]@{ u = $ids[$ids.Count - 1].Groups[1].Value; p = $p; o = $null; v = $false })
+  }
+  return ,$recs
+}
+
+<# The live branch through these nodes, ending at the newest one, and the known tail it continues
+   (base $null when it doesn't: the person rewound, or the read starts somewhere unknown). #>
+function Claude-Branch($recs, $known) {
+  $any = $false
+  foreach ($r in $recs) { if ($r.o) { $any = $true; break } }
+  if (-not $any) { return @{ path = @(); base = $known } }
+  $by = @{}
+  foreach ($r in $recs) { $by[$r.u] = $r }
+  $path = [System.Collections.Generic.List[object]]::new()
+  $seen = @{}
+  $x = $recs[$recs.Count - 1]
+  while ($x -and -not $seen.ContainsKey($x.u)) {
+    $seen[$x.u] = $true; $path.Add($x)
+    $x = if ($x.p) { $by[$x.p] } else { $null }
+  }
+  $path.Reverse()
+  if ($script:Fresh) { return @{ path = $path; base = [System.Collections.Generic.List[string]]::new() } }
+  $joint = [string]$path[0].p
+  $at = -1
+  for ($i = 0; $i -lt $known.Count; $i++) { if ($known[$i].StartsWith($joint + '.')) { $at = $i; break } }
+  if (-not $joint -or $at -lt 0) { return @{ path = $path; base = $null } }
+  for ($i = $at + 1; $i -lt $known.Count; $i++) { if ($known[$i].EndsWith('.v')) { return @{ path = $path; base = $null } } }
+  return @{ path = $path; base = $known.GetRange(0, $at + 1) }
+}
+
+function Parse-Claude([string]$path) {
+  $lines = Read-Tail $path
+  $known = [System.Collections.Generic.List[string]]::new()
+  foreach ($k in $Leaf.Split(',')) { if ($k.Contains('.')) { $known.Add($k) } }
+  $recs = Claude-Records $lines
+  $b = Claude-Branch $recs $known
+  if ($null -eq $b.base) { $script:Offset = 0; Parse-Claude $path; return }
+  if ($b.path.Count -eq 0) { $script:Chain = $Leaf; return }
+  $on = @{}
+  $mids = @{}
+  foreach ($r in $b.path) {
+    $on[$r.u] = $true
+    if ($r.o -and $r.o.type -eq 'assistant' -and $r.o.message.id) { $mids[[string]$r.o.message.id] = $true }
+  }
+  foreach ($r in $recs) {
+    if (-not $r.o) { continue }
+    if ($on.ContainsKey($r.u) -or ($r.o.type -eq 'assistant' -and $r.o.message.id -and $mids.ContainsKey([string]$r.o.message.id))) { Claude-Entry $r.o }
+    elseif ($r.o.type -eq 'user') {
+      foreach ($c in @($r.o.message.content)) { if ($c.type -eq 'tool_result') { Set-Output ([string]$c.tool_use_id) (Content-Text $c.content) } }
+    }
+  }
+  $all = [System.Collections.Generic.List[string]]::new($b.base)
+  foreach ($r in $b.path) { $all.Add($r.u + '.' + $(if ($r.v) { 'v' } else { 't' })) }
+  $from = [Math]::Max(0, $all.Count - $ClaudeKept)
+  $script:Chain = $all.GetRange($from, $all.Count - $from) -join ','
+}
+
+function Claude-Entry($o) {
+  if ($o.isSidechain -or $o.isMeta -or $o.isCompactSummary) { return }
+  $content = $o.message.content
+  if ($o.type -eq 'user') {
+    if ($content -is [string]) { Add-Message 'user' '' (Claude-UserText $content); return }
+    $texts = [System.Collections.Generic.List[string]]::new()
     foreach ($c in @($content)) {
-      if ($c.type -eq 'text') { Add-Message 'assistant' 'final' ([string]$c.text) }
-      elseif ($c.type -eq 'thinking') { Add-Reasoning ([string]$c.thinking) }
-      elseif ($c.type -eq 'tool_use') { Add-Call (Claude-Call ([string]$c.name) $c.input) ([string]$c.id) }
+      if ($c.type -eq 'tool_result') { Set-Output ([string]$c.tool_use_id) (Content-Text $c.content) }
+      elseif ($c.type -eq 'text') { $t = Claude-UserText ([string]$c.text); if ($t.Trim()) { $texts.Add($t) } }
+      elseif ($c.type -eq 'image') { $texts.Add('[Image attached]') }
     }
+    if ($texts.Count) { Add-Message 'user' '' ($texts -join "`n") }
+    return
+  }
+  foreach ($c in @($content)) {
+    if ($c.type -eq 'text') { Add-Message 'assistant' 'final' ([string]$c.text) }
+    elseif ($c.type -eq 'thinking') { Add-Reasoning ([string]$c.thinking) }
+    elseif ($c.type -eq 'tool_use') { Add-Call (Claude-Call ([string]$c.name) $c.input) ([string]$c.id) }
   }
 }
 
@@ -322,7 +400,7 @@ function Parse-Pi([string]$path) {
   }
 }
 
-$script:NewHint = ''; $script:Clipped = $false; $script:WaitingNote = ''; $script:Fresh = $true; $script:NextOffset = 0
+$script:NewHint = ''; $script:Clipped = $false; $script:WaitingNote = ''; $script:Fresh = $true; $script:NextOffset = 0; $script:Chain = $null
 $label = @{ 'claude-code'='Claude Code'; 'codex'='Codex'; 'pi'='Pi' }[$App]
 if (-not $label) { Done "Chat view doesn't read $App sessions yet." }
 $path = switch ($App) { 'claude-code' { Find-Claude } 'codex' { Find-Codex } 'pi' { Find-Pi } }
@@ -334,6 +412,7 @@ switch ($App) { 'claude-code' { Parse-Claude $path } 'codex' { Parse-Codex $path
 Write-Output ('PATH|' + (Esc $path))
 Write-Output ('HINT|' + (Esc $script:NewHint))
 Write-Output ('OFFSET|' + $script:NextOffset)
+if ($null -ne $script:Chain) { Write-Output ('LEAF|' + (Esc $script:Chain)) }
 if ($script:Fresh) { Write-Output 'RESET' }
 if ($script:Clipped) { Write-Output 'NOTE|Showing the recent part of this session.' }
 if ($script:Fresh -and -not $entries.Count) { Write-Output ('NOTE|' + (Esc 'No messages in this session yet.')) }

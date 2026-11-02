@@ -18,6 +18,7 @@ ap.add_argument("--hint", default="")
 ap.add_argument("--offset", type=int, default=0)
 ap.add_argument("--screen", default="")
 ap.add_argument("--peers", type=int, default=0)
+ap.add_argument("--leaf", default="")
 A = ap.parse_args()
 
 HOME = os.path.expanduser("~")
@@ -26,7 +27,7 @@ MAX_ENTRIES = 400
 TAIL = 24 * 1024 * 1024
 out = []
 entries = []
-state = {"hint": "", "clipped": False, "fresh": True, "next": 0, "waiting": "", "need": ""}
+state = {"hint": "", "clipped": False, "fresh": True, "next": 0, "waiting": "", "need": "", "chain": None}
 
 def esc(s): return quote(str(s), safe="")
 def emit(line): out.append(line)
@@ -200,16 +201,74 @@ def find_claude():
     state["waiting"] = "Claude Code hasn't written this conversation yet. Send a message to start it."
     return None
 
+CLAUDE_KEPT = 50
+
+def claude_records(lines):
+    """The log's tree nodes in file order: {u: uuid, p: parent, o: the entry if user/assistant, v: shows text}."""
+    recs = []
+    for line in lines:
+        if len(line) < 20 or not line.startswith('{"parentUuid":') or '"isSidechain":true' in line[:300]: continue
+        if re.search(r'"type":"(user|assistant)"', line):
+            o = loads(line)
+            if isinstance(o, dict) and o.get("type") in ("user", "assistant") and o.get("uuid"):
+                content = (o.get("message") or {}).get("content")
+                shows = isinstance(content, str) or any(isinstance(c, dict) and c.get("type") == "text" for c in content or [])
+                recs.append({"u": o["uuid"], "p": o.get("parentUuid") or o.get("logicalParentUuid"), "o": o, "v": shows and not o.get("isMeta")})
+                continue
+        ids = re.findall(r'"uuid":"([0-9a-f-]{36})"', line)
+        if not ids: continue
+        parent = re.match(r'\{"parentUuid":(?:null|"([^"]+)")', line).group(1)
+        logical = re.search(r'"logicalParentUuid":"([^"]+)"', line)
+        recs.append({"u": ids[-1], "p": parent or (logical.group(1) if logical else None), "o": None, "v": False})
+    return recs
+
+def claude_branch(recs, known):
+    """The live branch through these nodes, ending at the newest one, and the known tail it continues
+    (None when it doesn't: the person rewound, or the read starts somewhere unknown)."""
+    by = {r["u"]: r for r in recs}
+    if not any(r["o"] is not None for r in recs): return [], known
+    path, seen, x = [], set(), recs[-1]
+    while x and x["u"] not in seen:
+        seen.add(x["u"]); path.append(x); x = by.get(x["p"])
+    path.reverse()
+    if state["fresh"]: return path, []
+    ids = [k[0] for k in known]
+    joint = path[0]["p"]
+    if joint not in ids: return path, None
+    at = ids.index(joint)
+    if any(flag == "v" for _, flag in known[at + 1:]): return path, None
+    return path, known[:at + 1]
+
 def parse_claude(path):
-    for line in read_tail(path):
-        if len(line) < 20 or line.startswith('{"type":"api-') or not re.search(r'"type":"(user|assistant)"', line): continue
-        o = loads(line)
-        if not isinstance(o, dict) or o.get("type") not in ("user", "assistant"): continue
-        if o.get("isSidechain") or o.get("isMeta") or o.get("isCompactSummary"): continue
+    lines = read_tail(path)
+    known = [k.rsplit(".", 1) for k in A.leaf.split(",") if "." in k]
+    recs = claude_records(lines)
+    branch, base = claude_branch(recs, known)
+    if base is None:
+        A.offset = 0
+        return parse_claude(path)
+    if not branch:
+        state["chain"] = A.leaf
+        return
+    on = {id(r) for r in branch}
+    mids = {(r["o"].get("message") or {}).get("id") for r in branch if r["o"] and r["o"].get("type") == "assistant"}
+    mids.discard(None)
+    for r in recs:
+        o = r["o"]
+        if o is None: continue
+        if id(r) in on or (o.get("type") == "assistant" and (o.get("message") or {}).get("id") in mids): claude_entry(o)
+        elif o.get("type") == "user":
+            for c in (o.get("message") or {}).get("content") or []:
+                if isinstance(c, dict) and c.get("type") == "tool_result": set_output(str(c.get("tool_use_id", "")), content_text(c.get("content")))
+    tail = base + [[r["u"], "v" if r["v"] else "t"] for r in branch]
+    state["chain"] = ",".join("%s.%s" % (u, f) for u, f in tail[-CLAUDE_KEPT:])
+
+def claude_entry(o):
+        if o.get("isSidechain") or o.get("isMeta") or o.get("isCompactSummary"): return
         content = (o.get("message") or {}).get("content")
         if o["type"] == "user":
             if isinstance(content, str):
-                add_message("user", "", claude_user_text(content)); continue
+                add_message("user", "", claude_user_text(content)); return
             texts = []
             for c in content or []:
                 if not isinstance(c, dict): continue
@@ -219,14 +278,14 @@ def parse_claude(path):
                     if t.strip(): texts.append(t)
                 elif c.get("type") == "image": texts.append("[Image attached]")
             if texts: add_message("user", "", "\n".join(texts))
-            continue
+            return
         for c in content or []:
             if not isinstance(c, dict): continue
             if c.get("type") == "text": add_message("assistant", "final", c.get("text"))
             elif c.get("type") == "thinking": add_reasoning(c.get("thinking"))
             elif c.get("type") == "tool_use": add_call(claude_call(str(c.get("name", "")), c.get("input")), str(c.get("id", "")))
 
-Q = r'"((?:[^"\\]|\\.)*)"'
+Q =r'"((?:[^"\\]|\\.)*)"'
 
 def unquote(s):
     try: return json.loads('"' + s + '"')
@@ -421,6 +480,7 @@ if not path: done(state["waiting"] or "Waiting for this %s conversation to start
 emit("PATH|" + esc(path))
 emit("HINT|" + esc(state["hint"]))
 emit("OFFSET|%d" % state["next"])
+if state["chain"] is not None: emit("LEAF|" + esc(state["chain"]))
 if state["fresh"]: emit("RESET")
 if state["clipped"]: emit("NOTE|" + esc("Showing the recent part of this session."))
 if state["fresh"] and not entries: emit("NOTE|" + esc("No messages in this session yet."))

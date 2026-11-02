@@ -53,12 +53,12 @@ function target() {
 function onWindows() { return appHome().includes("\\"); }
 
 let pythonBoot = null;
-async function runReader(t, { path, hint, offset, screen, peers }) {
+async function runReader(t, { path, hint, offset, screen, peers, leaf }) {
   if (!t.remote && onWindows()) {
     return exec("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
       `${appHome()}\\mods\\herdr-chat\\read-session.ps1`,
       "-App", t.app, "-TermPid", String(t.pid), "-CreatedMs", String(t.created), "-Cwd", t.cwd,
-      "-KnownPath", path || "", "-Hint", hint || "", "-Offset", String(offset || 0)]);
+      "-KnownPath", path || "", "-Hint", hint || "", "-Offset", String(offset || 0), "-Leaf", leaf || ""]);
   }
   if (!pythonBoot) {
     const source = await readFile(`${appHome()}/mods/herdr-chat/read_session.py`, "utf8");
@@ -70,6 +70,7 @@ async function runReader(t, { path, hint, offset, screen, peers }) {
   if (t.cwd) args.push("--cwd", t.cwd);
   if (path) args.push("--known", path);
   if (hint) args.push("--hint", hint);
+  if (leaf) args.push("--leaf", leaf);
   return exec("python3", ["-c", pythonBoot, ...args], t.machine ? { on: t.machine } : undefined);
 }
 
@@ -211,26 +212,28 @@ export default class HerdrChat extends View {
     this.input.on("change", (_e, cx) => cx.notify());
     this.following = true; this.visibleEnd = 0; this.rowCount = 0;
     this.messages = []; this.open = {};
-    this.width = 900; this.needsScroll = true; this.scrollAskedAt = Date.now(); this.pendingCount = -1; this.settling = true; this.isEmpty = true;
+    this.width = 900; this.needsScroll = true; this.scrollAskedAt = Date.now(); this.lastAsk = Date.now(); this.laidOut = 0; this.pendingCount = -1; this.settling = true; this.isEmpty = true;
     this.heights = {}; this.measuredAt = 0;
     this.visit = shared("herdr-chat.visit");
     this.path = ""; this.hint = ""; this.note = "Loading conversation…"; this.screen = "";
-    this.raw = []; this.calls = new Map(); this.offset = 0; this.lastRead = 0; this.sessions = new Map();
+    this.raw = []; this.calls = new Map(); this.offset = 0; this.leaf = ""; this.lastRead = 0; this.sessions = new Map();
     this.refresh(cx);
     cx.timer.every(1500, cx => { inputHighlight(cx); this.refresh(cx); });
     cx.timer.every(100, cx => {
       this.applyView();
       const t = target();
       if ((t ? `${t.address}:${t.created}:${t.app}` : "") !== this.key) this.refresh(cx);
-      const visit = shared("herdr-chat.visit");
-      if (visit !== this.visit) { this.visit = visit; this.follow(); }
+      this.noticeVisit();
+      if (shared("herdr-chat.mode") !== "chat") return;
       if (this.following && this.needsScroll) {
-        if (this.pendingCount === 0 || Date.now() - this.scrollAskedAt > 1500) {
+        const drawn = (this.laidOut ?? 0) >= this.lastAsk;
+        if (drawn && (this.pendingCount === 0 || Date.now() - this.scrollAskedAt > 1500)) {
           this.needsScroll = false;
+          this.settledSig = this.sig;
           if (!this.isEmpty) this.settling = false;
           this.scroll.scroll_to_bottom();
-          cx.notify();
         }
+        cx.notify();
         return;
       }
       if (this.settling) { if (!this.isEmpty) this.follow(); return; }
@@ -247,17 +250,30 @@ export default class HerdrChat extends View {
     showView(t ? preferredView(`${t.address}:${t.created}`) : "terminal");
   }
 
-  /** Keeps the chat at its newest message: one scroll once what's on screen has its final heights, not a scroll per tick. */
-  follow() {
+  /**
+   * Keeps the chat at its newest message: one scroll, once the list has been drawn since this was asked
+   * and what's on screen has its final heights (or 1.5 s have passed), not a scroll per tick.
+   */
+  follow(restart = false) {
     this.following = true;
-    if (!this.needsScroll) { this.needsScroll = true; this.scrollAskedAt = Date.now(); }
+    this.lastAsk = Date.now();
+    if (!this.needsScroll || restart) { this.needsScroll = true; this.scrollAskedAt = Date.now(); }
+  }
+
+  /** A switch to Chat: back to the newest message, hidden until it lands unless nothing changed since it last did. */
+  noticeVisit() {
+    const visit = shared("herdr-chat.visit");
+    if (visit === this.visit) return;
+    this.visit = visit;
+    if (this.sig !== this.settledSig) this.settling = true;
+    this.follow(true);
   }
 
   stash() {
     if (!this.key || !this.path) return;
-    const { raw, calls, offset, path, hint, messages, clipped, note, open } = this;
+    const { raw, calls, offset, leaf, path, hint, messages, clipped, note, open } = this;
     this.sessions.delete(this.key);
-    this.sessions.set(this.key, { raw, calls, offset, path, hint, messages, clipped, note, open });
+    this.sessions.set(this.key, { raw, calls, offset, leaf, path, hint, messages, clipped, note, open });
     while (this.sessions.size > SESSIONS_KEPT) this.sessions.delete(this.sessions.keys().next().value);
   }
 
@@ -286,7 +302,7 @@ export default class HerdrChat extends View {
       else {
         const known = t ? (shared(PATHS_KEY) ?? {})[`${t.address}:${t.created}`] : null;
         this.path = known?.path ?? ""; this.hint = known?.hint ?? "";
-        this.raw = []; this.calls = new Map(); this.offset = 0; this.messages = []; this.open = {}; this.clipped = false;
+        this.raw = []; this.calls = new Map(); this.offset = 0; this.leaf = ""; this.messages = []; this.open = {}; this.clipped = false;
         this.note = !t ? "Select a Claude Code, Codex or Pi terminal to see it as a chat." : `Opening this ${t.label} conversation…`;
       }
       cx.notify();
@@ -331,7 +347,7 @@ export default class HerdrChat extends View {
       try {
         const machineOf = a => a.address.includes("/") ? a.address.split("/")[0] : null;
         const peers = agents().filter(a => a.app === t.app && a.address !== t.address && machineOf(a) === t.machine).length;
-        const at = { path: this.path, hint: this.hint, offset: this.offset, peers };
+        const at = { path: this.path, hint: this.hint, offset: this.offset, peers, leaf: this.leaf };
         let r = await runReader(t, at);
         if (this.key !== key) return;
         if (r.code === 0 && /^NEED\|screen/m.test(r.stdout) && Date.now() - (this.screenAskedAt ?? 0) > 15000) {
@@ -364,6 +380,7 @@ export default class HerdrChat extends View {
       else if (tag === "HINT") this.hint = decodeURIComponent(rest);
       else if (tag === "NOTE") note = decodeURIComponent(rest);
       else if (tag === "OFFSET") this.offset = Number(rest) || 0;
+      else if (tag === "LEAF") this.leaf = decodeURIComponent(rest);
       else if (tag === "RESET") reset = true;
       else if (tag === "R") added.push({ kind: "reasoning", text: decodeURIComponent(rest) });
       else if (tag === "C") {
@@ -594,6 +611,8 @@ export default class HerdrChat extends View {
     const pending = rows.filter(m => !(hkey(m) in this.heights)).slice(-40);
     this.pendingCount = pending.length;
     const sizes = rows.map(m => (this.heights[hkey(m)] ?? 40) + 16);
+    this.sig = `${rows.length}:${sizes.reduce((a, b) => a + b, 0)}`;
+    this.noticeVisit();
     const status = this.status(t, active);
     this.rowCount = rows.length;
     return v_flex().id("herdr-chat-root").relative().size_full().min_h(0).rounded(10).border_1().border_color(t.border)
@@ -607,6 +626,7 @@ export default class HerdrChat extends View {
       .when(!empty, el => el.child(v_flex().relative().flex_1().min_h(0).when(this.settling, el => el.opacity(0))
         .child(v_virtual_list("herdr-chat-messages", rows.length, sizes, i => rows[i].key, range => {
         this.visibleEnd = range.end;
+        this.laidOut = Date.now();
         const out = [];
         for (let i = range.start; i < range.end; i++)
           out.push(h_flex().w_full().justify_center().px(24).py(8).child(div().w_full().max_w(COLUMN).child(this.row(rows[i], rows[i].key, t))));
