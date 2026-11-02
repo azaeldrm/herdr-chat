@@ -135,10 +135,37 @@ function hash(text) {
   for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36);
 }
+const DIGESTS = new WeakMap();
+const CALL_DIGESTS = new WeakMap();
+const CALL_SOURCE = new WeakMap();
+const sample = s => s.length > 512 ? `${s.length}:${s.slice(0, 256)}:${s.slice(-256)}` : s;
+
+/** A tool call's digest: its input once per call, plus its output's size and end, which arrive later. */
+function callDigest(c) {
+  const source = CALL_SOURCE.get(c) ?? c;
+  let base = CALL_DIGESTS.get(source);
+  if (base === undefined) {
+    base = hash(JSON.stringify(source, (k, v) => k === "o" ? undefined : typeof v === "string" ? sample(v) : v));
+    CALL_DIGESTS.set(source, base);
+  }
+  const o = typeof c.o === "string" ? c.o : "";
+  return `${base}.${o.length}.${hash(o.slice(-64))}`;
+}
+
+/** A row's content digest, computed once per row object: rows are rebuilt, never edited, when their content changes. */
+function digest(m) {
+  let d = DIGESTS.get(m);
+  if (d === undefined) {
+    d = m.text != null ? hash(sample(m.text)) : hash((m.calls ?? []).map(callDigest).join("|"));
+    DIGESTS.set(m, d);
+  }
+  return d;
+}
+
 function keyRows(rows) {
   const seen = {};
   for (const m of rows) {
-    const base = `${m.kind}-${m.role ?? ""}-${hash(m.text ?? JSON.stringify(m.calls ?? []))}`;
+    const base = `${m.kind}-${m.role ?? ""}-${digest(m)}`;
     seen[base] = (seen[base] ?? 0) + 1;
     m.key = `${base}-${seen[base]}`;
   }
@@ -353,6 +380,7 @@ export default class HerdrChat extends View {
       if (e.kind !== "call") { shaped.push(e); continue; }
       const last = shaped[shaped.length - 1];
       const copy = { ...e.call };
+      CALL_SOURCE.set(copy, e.call);
       if (last?.kind === "tools") last.calls.push(copy); else shaped.push({ kind: "tools", calls: [copy] });
     }
     this.messages = foldActivity(shaped);
