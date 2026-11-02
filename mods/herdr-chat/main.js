@@ -211,7 +211,7 @@ export default class HerdrChat extends View {
     this.input.on("change", (_e, cx) => cx.notify());
     this.following = true; this.visibleEnd = 0; this.rowCount = 0;
     this.messages = []; this.open = {};
-    this.width = 900; this.scrollAttempts = 0;
+    this.width = 900; this.needsScroll = true; this.scrollAskedAt = Date.now(); this.pendingCount = -1; this.settling = true; this.isEmpty = true;
     this.heights = {}; this.measuredAt = 0;
     this.visit = shared("herdr-chat.visit");
     this.path = ""; this.hint = ""; this.note = "Loading conversation…"; this.screen = "";
@@ -224,8 +224,17 @@ export default class HerdrChat extends View {
       if ((t ? `${t.address}:${t.created}:${t.app}` : "") !== this.key) this.refresh(cx);
       const visit = shared("herdr-chat.visit");
       if (visit !== this.visit) { this.visit = visit; this.follow(); }
-      if (this.scrollAttempts > 0) { this.scroll.scroll_to_bottom(); this.scrollAttempts--; cx.notify(); return; }
-      const atBottom = this.rowCount === 0 || this.visibleEnd >= this.rowCount;
+      if (this.following && this.needsScroll) {
+        if (this.pendingCount === 0 || Date.now() - this.scrollAskedAt > 1500) {
+          this.needsScroll = false;
+          if (!this.isEmpty) this.settling = false;
+          this.scroll.scroll_to_bottom();
+          cx.notify();
+        }
+        return;
+      }
+      if (this.settling) { if (!this.isEmpty) this.follow(); return; }
+      const atBottom = this.isEmpty || this.rowCount === 0 || this.visibleEnd >= this.rowCount;
       if (atBottom !== this.following) { this.following = atBottom; cx.notify(); }
     });
   }
@@ -238,7 +247,11 @@ export default class HerdrChat extends View {
     showView(t ? preferredView(`${t.address}:${t.created}`) : "terminal");
   }
 
-  follow() { this.following = true; this.scrollAttempts = 15; }
+  /** Keeps the chat at its newest message: one scroll once what's on screen has its final heights, not a scroll per tick. */
+  follow() {
+    this.following = true;
+    if (!this.needsScroll) { this.needsScroll = true; this.scrollAskedAt = Date.now(); }
+  }
 
   stash() {
     if (!this.key || !this.path) return;
@@ -266,7 +279,7 @@ export default class HerdrChat extends View {
     const switched = key !== this.key;
     if (switched) {
       this.stash();
-      this.key = key; this.following = true; this.scrollAttempts = 15; this.screen = ""; this.lastId = ""; this.screenAskedAt = 0;
+      this.key = key; this.needsScroll = false; this.settling = true; this.pendingCount = -1; this.follow(); this.screen = ""; this.lastId = ""; this.screenAskedAt = 0;
       this.watchToken = (this.watchToken ?? 0) + 1; this.watchedPath = "";
       const kept = key ? this.sessions.get(key) : null;
       if (kept) Object.assign(this, kept);
@@ -573,23 +586,25 @@ export default class HerdrChat extends View {
     const rows = this.messages.slice();
     if (this.note) rows.push({ kind: "note", text: this.note });
     const empty = rows.length === 0 || (rows.length === 1 && rows[0].kind === "note" && !this.messages.length);
+    this.isEmpty = empty;
     keyRows(rows);
     const inner = Math.min(COLUMN, Math.max(280, Math.floor(this.width) - 50));
     if (inner !== this.measuredAt) { this.heights = {}; this.measuredAt = inner; }
     const hkey = m => `${m.key}${this.open[m.key] ? ":open" : ""}`;
     const pending = rows.filter(m => !(hkey(m) in this.heights)).slice(-40);
+    this.pendingCount = pending.length;
     const sizes = rows.map(m => (this.heights[hkey(m)] ?? 40) + 16);
     const status = this.status(t, active);
     this.rowCount = rows.length;
     return v_flex().id("herdr-chat-root").relative().size_full().min_h(0).rounded(10).border_1().border_color(t.border)
       .bg(t.background).text_color(t.foreground)
-      .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 8) { this.width = size.width; cx.notify(); } })
+      .on_size_change((size, cx) => { if (size.width >= 200 && Math.abs(size.width - this.width) > 8) { this.width = size.width; cx.notify(); } })
       .child(this.header(t, active))
       .when(empty, el => el.child(v_flex().flex_1().min_h(0).items_center().justify_center().gap(14).px(24)
         .child(image("frame/welcome/herdr.png").size(64).rounded(14).flex_none()
           .when(/^(Opening|Finding)/.test(this.note || ""), el => el.loop("opacity", { from: 0.4, to: 1, period: 1600 })))
         .child(div().max_w(420).text_center().text_size(14).text_color(t.muted).child(this.note))))
-      .when(!empty, el => el.child(v_flex().relative().flex_1().min_h(0)
+      .when(!empty, el => el.child(v_flex().relative().flex_1().min_h(0).when(this.settling, el => el.opacity(0))
         .child(v_virtual_list("herdr-chat-messages", rows.length, sizes, i => rows[i].key, range => {
         this.visibleEnd = range.end;
         const out = [];
@@ -600,7 +615,7 @@ export default class HerdrChat extends View {
         const kind = rows.find(r => r.key === key)?.kind;
         if (kind === "tools" || kind === "reasoning") { this.open[key] = !this.open[key]; cx.notify(); }
       }).size_full())
-        .when(!this.following && this.scrollAttempts === 0, el => el.child(h_flex().absolute().bottom(12).left(0).right(0).justify_center()
+        .when(!this.following && !this.needsScroll, el => el.child(h_flex().absolute().bottom(12).left(0).right(0).justify_center()
           .child(div().id("jump-bottom").size(34).flex().items_center().justify_center().rounded(17).cursor_pointer()
             .bg(t.popover ?? t.surface).border_1().border_color(t.border).shadow_md().text_color(t.foreground)
             .hover(s => s.bg(t.hover))
@@ -611,7 +626,7 @@ export default class HerdrChat extends View {
           const k = hkey(m);
           return div().id(`measure-${k}`).w(inner).flex_none()
             .on_size_change((size, cx) => {
-              if (this.heights[k] !== size.height) { this.heights[k] = size.height; if (this.following && this.scrollAttempts < 4) this.scrollAttempts = 4; cx.notify(); }
+              if (this.heights[k] !== size.height) { this.heights[k] = size.height; if (this.following) this.follow(); cx.notify(); }
             })
             .child(this.row(m, m.key, t));
         }))))
