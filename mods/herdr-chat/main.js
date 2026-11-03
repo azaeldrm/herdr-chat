@@ -856,11 +856,18 @@ export default class HerdrChat extends View {
           .child(icon("close", 10, t.muted)))));
   }
 
+  /**
+   * Whether the prompt shown is still the one on screen. A question card compares the question as
+   * parsed: a working agent's screen also holds a spinner or a timer that changes on every read.
+   * Without a card (a blocked agent's raw screen) the screen itself has to be the same.
+   */
   async promptStillCurrent(t) {
-    const status = target()?.status;
-    if (!this.screen || target()?.address !== t.address || !(status === "blocked" || (status === "working" && this.choices))) return false;
+    if (target()?.address !== t.address) return false;
     const read = await hc(["read", t.address, "--lines", "26"]);
-    return read.code === 0 && read.stdout.trim().slice(-4000) === this.screen;
+    if (read.code !== 0) return false;
+    const text = read.stdout.trim().slice(-4000);
+    if (this.choices) return parseChoices(text)?.sig === this.choices.sig;
+    return target()?.status === "blocked" && Boolean(this.screen) && text === this.screen;
   }
 
   /** Picks a choice of the prompt on screen: from the selected one, ↑ or ↓ to it, then Enter. */
