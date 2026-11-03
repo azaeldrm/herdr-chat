@@ -2,7 +2,10 @@ import { View, div, svg, image } from "gpui-kit";
 import { set_theme, v_flex, h_flex, TextareaState, Textarea, TextView, VirtualListScrollHandle, v_virtual_list } from "gpui-base";
 import { agents, terminals, panes, focused, props, hc, exec, appHome, run, theme, settings, shared, setShared, watchFolder } from "herdr";
 import { readFile } from "fs/promises";
-import { SUPPORTED, ICONS, switchTo, showView, preferredView } from "./common.js";
+import { SUPPORTED, ICONS, switchTo, showView, preferredView, sessionOf } from "./common.js";
+import { onWindows, modFile, base64Utf8, removeFiles, pruneOld } from "./platform.js";
+import { readScreen, readPrompt, sendMessage, pressKeys, inputBox } from "./terminal.js";
+import { imageStyle, canMirror, withImages, draftPastes, textOfBox, readBack } from "./agents.js";
 import { isHeader, terminalHeader } from "./header.js";
 
 const TURN_GAP = 28;
@@ -55,8 +58,6 @@ function target() {
   };
 }
 
-function onWindows() { return appHome().includes("\\"); }
-
 // Images attached in the reply box. Each gets a short-lived preview copy in the herdr
 // home (image() draws only from there), deleted once it's sent or removed. On send,
 // `hc put` places the image beside the agent's terminal, here or on another machine,
@@ -64,45 +65,11 @@ function onWindows() { return appHome().includes("\\"); }
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp)$/i;
 const ATTACH_DIR = "cache/herdr-chat";
 function attachDir() { return onWindows() ? `${appHome()}\\cache\\herdr-chat` : `${appHome()}/${ATTACH_DIR}`; }
-function modFile(name) { return onWindows() ? `${appHome()}\\mods\\herdr-chat\\${name}` : `${appHome()}/mods/herdr-chat/${name}`; }
-function psQuote(s) { return `'${String(s).replace(/'/g, "''")}'`; }
 /** A unique name for the preview copy, without its extension (the prepare script picks it). */
 function attachName(source) {
   const base = source.split(/[\\/]/).pop().replace(/\.[^.]*$/, "").replace(/[^A-Za-z0-9_-]/g, "-").slice(-40) || "image";
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}-${base}`;
 }
-// How a message carries an image, per agent (each checked in its session log):
-// - Claude Code attaches an @-mentioned image file to the message, up to about 256 KB
-//   (why the prepare scripts shrink bigger ones).
-// - Codex attaches a pasted path only when the paste holds nothing else, so each path is
-//   pasted first without Enter (input-box.py paste), then the text is sent. Windows has no pty
-//   for that, so there Codex gets the plain path and opens it with its view_image tool.
-// - Pi never attaches: its own Ctrl+V saves the image and inserts the path as text, and the
-//   model reads it with its read tool. The plain path is Pi's native form.
-const ATTACH_STYLE = { "claude-code": "mention", codex: "paste", pi: "path" };
-/**
- * The agent's box read back into the chat's draft. `m` is what the chat last put there: its images
- * (`images`, `paths` as placed beside the terminal), what it pasted for the text (`pasted`) and what
- * that became in the box (`textBox`: a long paste folds into a placeholder). Returns the text, the
- * chat's images still in the box, and whether an image pasted in the terminal itself is there.
- */
-function readBack(app, box, m) {
-  let s = box;
-  if (m && m.textBox && m.textBox !== m.pasted && s.includes(m.textBox)) s = s.replace(m.textBox, m.pasted);
-  const kept = [];
-  let foreign = false;
-  const ours = i => (m && i >= 0 && i < m.images.length ? m.images[i] : null);
-  if (app === "codex") {
-    s = s.replace(/\[Image #(\d+)\]\s?/g, (all, k) => { const a = ours(Number(k) - 1); if (a) { kept.push(a); return ""; } foreign = true; return all; });
-  } else if (app === "claude-code") {
-    s = s.replace(/@"([^"]+)"\s?|@(\S+)\s?/g, (all, quoted, bare) => { const a = ours(m ? m.paths.indexOf(quoted ?? bare) : -1); if (a) { kept.push(a); return ""; } return all; });
-    if (/\[Image #\d+\]/.test(s)) foreign = true;
-  } else if (m) {
-    m.paths.forEach((path, i) => { if (s.includes(path)) { kept.push(m.images[i]); s = s.replace(path, "").replace(/^\s+/, ""); } });
-  }
-  return { text: s.replace(/^\s+/, ""), kept, foreign };
-}
-
 // A choice prompt on an agent's screen (a permission request, a question tool, an approval):
 // its question, its tabs when there are several questions, and its choices with the one selected.
 // null when the screen has none.
@@ -166,20 +133,6 @@ function parseChoices(screen) {
   return { question, tabs, options, footer: lines[footer].trim(), more, sig };
 }
 
-// The agents whose input box input-box.py can read and set (it needs a pty: not on Windows).
-const DRAFT_MIRROR = { "claude-code": true, codex: true, pi: true };
-function attachStyle(app) {
-  const style = ATTACH_STYLE[app] ?? "path";
-  return style === "paste" && onWindows() ? "path" : style;
-}
-function withImages(app, paths, text) {
-  if (!paths.length) return text;
-  const style = attachStyle(app);
-  if (style === "paste") return text;
-  const refs = paths.map(p => style === "mention" ? (/\s/.test(p) ? `@"${p}"` : `@${p}`) : p);
-  return [refs.join(" "), text].filter(Boolean).join(" ");
-}
-
 let pythonBoot = null;
 async function runReader(t, { path, hint, offset, screen, peers, leaf }) {
   if (!t.remote && onWindows()) {
@@ -200,24 +153,6 @@ async function runReader(t, { path, hint, offset, screen, peers, leaf }) {
   if (hint) args.push("--hint", hint);
   if (leaf) args.push("--leaf", leaf);
   return exec("python3", ["-c", pythonBoot, ...args], t.machine ? { on: t.machine } : undefined);
-}
-
-function base64Utf8(text) {
-  const bytes = [];
-  for (const ch of text) {
-    const c = ch.codePointAt(0);
-    if (c < 0x80) bytes.push(c);
-    else if (c < 0x800) bytes.push(0xc0 | c >> 6, 0x80 | c & 63);
-    else if (c < 0x10000) bytes.push(0xe0 | c >> 12, 0x80 | c >> 6 & 63, 0x80 | c & 63);
-    else bytes.push(0xf0 | c >> 18, 0x80 | c >> 12 & 63, 0x80 | c >> 6 & 63, 0x80 | c & 63);
-  }
-  const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  let out = "";
-  for (let i = 0; i < bytes.length; i += 3) {
-    const n = bytes[i] << 16 | (bytes[i + 1] ?? 0) << 8 | (bytes[i + 2] ?? 0);
-    out += abc[n >> 18 & 63] + abc[n >> 12 & 63] + (i + 1 < bytes.length ? abc[n >> 6 & 63] : "=") + (i + 2 < bytes.length ? abc[n & 63] : "=");
-  }
-  return out;
 }
 
 function icon(name, size, color) { return svg(`${ICONS}/${name}.svg`).size(size).flex_none().text_color(color); }
@@ -369,7 +304,7 @@ export default class HerdrChat extends View {
       this.applyView();
       this.mirrorOnSwitch(cx);
       const t = target();
-      if ((t ? `${t.address}:${t.created}:${t.app}` : "") !== this.key) this.refresh(cx);
+      if ((t ? `${sessionOf(t)}:${t.app}` : "") !== this.key) this.refresh(cx);
       this.noticeVisit();
       if (shared("herdr-chat.mode") !== "chat") return;
       if (this.following && this.needsScroll) {
@@ -396,14 +331,14 @@ export default class HerdrChat extends View {
    */
   mirrorOnSwitch(cx) {
     const mode = shared("herdr-chat.mode"), t = target();
-    const session = t ? `${t.address}:${t.created}` : "";
+    const session = t ? sessionOf(t) : "";
     const was = this.lastMode, wasSession = this.lastModeSession;
     this.lastMode = mode; this.lastModeSession = session;
     // The keyboard follows the view: otherwise the hidden terminal keeps it, and Ctrl+V there pastes
     // an image into the agent's own box (herdr's terminal.paste_image) instead of the chat.
     if (mode === "chat" && was !== "chat") this.input.focus();
     // a question card on screen means the agent's box isn't: nothing to carry either way
-    if (mode === was || !t || session !== wasSession || !DRAFT_MIRROR[t.app] || onWindows() || this.sending || this.choices) return;
+    if (mode === was || !t || session !== wasSession || !canMirror(t.app) || this.sending || this.choices) return;
     if (was === "chat" && mode === "terminal") this.pushDraft(t, session, cx);
     else if (was === "terminal" && mode === "chat") this.pullDraft(t, session, cx);
   }
@@ -415,30 +350,17 @@ export default class HerdrChat extends View {
     })));
   }
 
-  /**
-   * The chat's draft as the agent's own box shows it: each attached image in the agent's native form,
-   * then the text. Claude Code: `@path` mentions, which it attaches when the message is sent. Codex:
-   * each path pasted alone, which it shows as [Image #N]. Pi: plain paths, as its own paste leaves.
-   */
-  draftPastes(app, paths, text) {
-    if (app === "codex") return { pastes: [...paths, text], pasted: text };
-    const refs = paths.map(p => app === "claude-code" ? (/\s/.test(p) ? `@"${p}"` : `@${p}`) : p);
-    const pasted = [refs.join(" "), text].filter(Boolean).join(" ");
-    return { pastes: [pasted], pasted };
-  }
-
   pushDraft(t, session, cx) {
     const text = this.input.value(), images = this.attachments.slice();
     const sig = `${text}\u0000${images.map(a => a.file).join("|")}`;
     if (this.mirror?.session === session && this.mirror.sig === sig) return;
     this.queueMirror(cx, async () => {
       const paths = await this.placeImages(t, images);
-      const { pastes, pasted } = this.draftPastes(t.app, paths, text);
-      const r = await exec("python3", ["-I", modFile("input-box.py"), "set", t.address, t.app, JSON.stringify(pastes)]);
-      if (r.code !== 0) return;
-      const box = JSON.parse(r.stdout).box ?? "";
-      // what the text became in the box (a long paste folds into a placeholder), images left out
-      const textBox = t.app === "codex" ? box.replace(/\[Image #\d+\]\s?/g, "").trim() : box;
+      const { pastes, pasted } = draftPastes(t.app, paths, text);
+      const r = await inputBox("set", t, t.app, JSON.stringify(pastes));
+      if (!r.ok) return;
+      const box = r.box ?? "";
+      const textBox = textOfBox(t.app, box);
       this.mirror = { session, sig, images, paths, pasted, textBox, box, foreign: false };
     });
   }
@@ -450,9 +372,9 @@ export default class HerdrChat extends View {
    */
   pullDraft(t, session, cx) {
     this.queueMirror(cx, async cx => {
-      const r = await exec("python3", ["-I", modFile("input-box.py"), "read", t.address, t.app]);
-      if (r.code !== 0) return;
-      const box = JSON.parse(r.stdout).box;
+      const r = await inputBox("read", t, t.app);
+      if (!r.ok) return;
+      const box = r.box;
       if (box == null || target()?.address !== t.address || shared("herdr-chat.mode") !== "chat") return;
       const m = this.mirror?.session === session ? this.mirror : null;
       if (m && box === m.box) return; // nothing changed in the terminal (a pasted image there stays flagged)
@@ -475,10 +397,10 @@ export default class HerdrChat extends View {
 
   applyView() {
     const f = focused(), t = target();
-    const focus = `${f?.space ?? ""}:${f?.tab ?? ""}:${t ? `${t.address}:${t.created}` : "-"}`;
+    const focus = `${f?.space ?? ""}:${f?.tab ?? ""}:${t ? sessionOf(t) : "-"}`;
     if (focus === this.viewFocus) return;
     this.viewFocus = focus;
-    showView(t ? preferredView(`${t.address}:${t.created}`) : "terminal");
+    showView(t ? preferredView(sessionOf(t)) : "terminal");
   }
 
   /**
@@ -524,7 +446,7 @@ export default class HerdrChat extends View {
   rememberPath(path) {
     const t = target();
     if (!t) return;
-    const all = { ...(shared(PATHS_KEY) ?? {}) }, id = `${t.address}:${t.created}`;
+    const all = { ...(shared(PATHS_KEY) ?? {}) }, id = sessionOf(t);
     delete all[id];
     all[id] = { path, hint: this.hint || "" };
     const ids = Object.keys(all);
@@ -535,7 +457,7 @@ export default class HerdrChat extends View {
 
   refresh(cx) {
     const t = target();
-    const key = t ? `${t.address}:${t.created}:${t.app}` : "";
+    const key = t ? `${sessionOf(t)}:${t.app}` : "";
     const switched = key !== this.key;
     if (switched) {
       this.stash();
@@ -545,7 +467,7 @@ export default class HerdrChat extends View {
       const kept = key ? this.sessions.get(key) : null;
       if (kept) Object.assign(this, kept);
       else {
-        const known = t ? (shared(PATHS_KEY) ?? {})[`${t.address}:${t.created}`] : null;
+        const known = t ? (shared(PATHS_KEY) ?? {})[sessionOf(t)] : null;
         this.path = known?.path ?? ""; this.hint = known?.hint ?? "";
         this.raw = []; this.calls = new Map(); this.offset = 0; this.leaf = ""; this.messages = []; this.open = {}; this.clipped = false;
         this.note = !t ? "Select a Claude Code, Codex or Pi terminal to see it as a chat." : `Opening this ${t.label} conversation…`;
@@ -561,8 +483,7 @@ export default class HerdrChat extends View {
       this.readingScreen = true;
       cx.spawn(async cx => {
         try {
-          const screen = await hc(["read", t.address, "--lines", "26"]);
-          const text = screen.code === 0 ? screen.stdout.trim().slice(-4000) : "";
+          const text = (await readPrompt(t)) ?? "";
           if (text !== this.screen) { this.screen = text; this.choices = parseChoices(text); cx.notify(); }
         } finally { this.readingScreen = false; }
       });
@@ -599,9 +520,9 @@ export default class HerdrChat extends View {
         if (this.key !== key) return;
         if (r.code === 0 && /^NEED\|screen/m.test(r.stdout) && Date.now() - (this.screenAskedAt ?? 0) > 15000) {
           this.screenAskedAt = Date.now();
-          const shown = await hc(["read", t.address, "--lines", "40"]);
+          const shown = await readScreen(t, 40);
           if (this.key !== key) return;
-          r = await runReader(t, { ...at, screen: shown.code === 0 ? shown.stdout.slice(-3000) : "" });
+          r = await runReader(t, { ...at, screen: shown != null ? shown.slice(-3000) : "" });
           if (this.key !== key) return;
         }
         if (r.code !== 0) throw new Error(r.stderr || `Reader exited ${r.code}`);
@@ -702,39 +623,29 @@ export default class HerdrChat extends View {
         if (t.status === "blocked" && !(await this.promptStillCurrent(t))) throw new Error("The prompt changed. Review it again before answering.");
         // The agent's own box may still hold the mirrored draft (or something typed there): the chat's
         // text is what goes, so the box is emptied first rather than sent along with it.
-        if (DRAFT_MIRROR[t.app] && !onWindows() && t.status !== "blocked") {
+        if (canMirror(t.app) && t.status !== "blocked") {
           await this.mirrorChain;
-          if (this.mirror?.session === `${t.address}:${t.created}` && this.mirror.foreign)
+          if (this.mirror?.session === sessionOf(t) && this.mirror.foreign)
             throw new Error(`${t.label}'s input box has an image pasted in the terminal. Send that draft from the terminal, or clear it there, first.`);
-          const c = await exec("python3", ["-I", modFile("input-box.py"), "set", t.address, t.app, "[]"]).catch(() => null);
-          if (c?.code === 0) this.mirror = null;
+          if ((await inputBox("set", t, t.app, "[]")).ok) this.mirror = null;
         }
         const placed = await this.placeImages(t, attached);
-        if (attachStyle(t.app) === "paste") {
+        if (imageStyle(t.app) === "paste") {
           for (const path of placed) {
-            const p = await exec("python3", ["-I", modFile("input-box.py"), "paste", t.address, path]).catch(e => ({ code: 1, stderr: String(e) }));
-            if (p.code !== 0) throw new Error(`Couldn't paste the image into ${t.label}: ${(p.stderr || p.stdout || "paste failed").trim()}`);
+            const p = await inputBox("paste", t, path);
+            if (!p.ok) throw new Error(`Couldn't paste the image into ${t.label}: ${p.error}`);
           }
           if (!typed) {
-            const k = await hc(["keys", t.address, "enter"]);
+            const k = await pressKeys(t, ["enter"]);
             if (k.code !== 0) throw new Error(k.stderr || "Send failed");
             this.forget(attached.map(a => a.file));
             this.follow();
             return;
           }
         }
-        const message = withImages(t.app, placed, typed);
-        const force = t.status === "blocked" ? ["--force"] : [];
-        const r = t.remote
-          ? await exec("sh", ["-c", 'h=$(command -v hc || echo "$HOME/.local/bin/hc"); exec env -u HC_TERMINAL_ID -u HC_SCOPE "$h" send "$@"',
-              "hc-send", ...force, t.address.slice(t.address.indexOf("/") + 1), message], { on: t.machine })
-          : onWindows()
-          ? await exec("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-              `${appHome()}\\mods\\herdr-chat\\send.ps1`, "-Address", t.address, "-Text64", base64Utf8(message),
-              ...(force.length ? ["-Force"] : [])])
-          : await exec("env", ["-u", "HC_TERMINAL_ID", "-u", "HC_SCOPE", "hc", "send", ...force, t.address, message]);
+        const r = await sendMessage(t, withImages(t.app, placed, typed), t.status === "blocked");
         if (r.code !== 0) throw new Error(r.stderr || "Send failed");
-        this.mirror = { session: `${t.address}:${t.created}`, sig: "\u0000", images: [], paths: [], pasted: "", textBox: "", box: "", foreign: false };
+        this.mirror = { session: sessionOf(t), sig: "\u0000", images: [], paths: [], pasted: "", textBox: "", box: "", foreign: false };
         this.forget(attached.map(a => a.file));
         this.follow();
       } catch (e) { this.note = String(e); restore(); }
@@ -745,7 +656,7 @@ export default class HerdrChat extends View {
   /** `hc put` each image beside the agent's terminal (this computer or another) and return where they landed. */
   async placeImages(t, attached) {
     const placed = [];
-    const where = `${t.address}:${t.created}`;
+    const where = sessionOf(t);
     for (const a of attached) {
       if (a.placed?.[where]) { placed.push(a.placed[where]); continue; }
       const r = await hc(["put", "--json", t.address, a.file]);
@@ -787,20 +698,10 @@ export default class HerdrChat extends View {
   }
 
   /** Deletes preview copies: after a send, or when one is removed from the box. */
-  forget(files) {
-    if (!files.length) return;
-    (onWindows()
-      ? exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath ${files.map(psQuote).join(", ")}`])
-      : exec("rm", ["-f", "--", ...files])).catch(() => null);
-  }
+  forget(files) { removeFiles(files); }
 
   /** Preview copies left by a copy that closed before sending them: anything older than a day. */
-  pruneCache() {
-    (onWindows()
-      ? exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
-          `Get-ChildItem -LiteralPath ${psQuote(attachDir())} -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) } | Remove-Item -Force`])
-      : exec("sh", ["-c", '[ -d "$1" ] && find "$1" -type f -mmin +1440 -delete; exit 0', "sh", attachDir()])).catch(() => null);
-  }
+  pruneCache() { pruneOld(attachDir()); }
 
   /** Dropped files: images get a preview copy (shrunk when big) and are attached; anything else is ignored. */
   dropFiles(paths, cx) {
@@ -863,9 +764,8 @@ export default class HerdrChat extends View {
    */
   async promptStillCurrent(t) {
     if (target()?.address !== t.address) return false;
-    const read = await hc(["read", t.address, "--lines", "26"]);
-    if (read.code !== 0) return false;
-    const text = read.stdout.trim().slice(-4000);
+    const text = await readPrompt(t);
+    if (text == null) return false;
     if (this.choices) return parseChoices(text)?.sig === this.choices.sig;
     return target()?.status === "blocked" && Boolean(this.screen) && text === this.screen;
   }
@@ -877,12 +777,12 @@ export default class HerdrChat extends View {
     this.sending = true; cx.notify();
     cx.spawn(async cx => {
       try {
-        const read = await hc(["read", t.address, "--lines", "26"]);
-        const now = read.code === 0 ? parseChoices(read.stdout.trim().slice(-4000)) : null;
+        const text = await readPrompt(t);
+        const now = text != null ? parseChoices(text) : null;
         if (!now || now.sig !== shown.sig || target()?.address !== t.address) throw new Error("The question changed. Review it again before answering.");
         const from = now.options.findIndex(o => o.selected);
         const moves = Array(Math.abs(index - from)).fill(index > from ? "down" : "up");
-        const r = await hc(["keys", t.address, ...moves, "enter"]);
+        const r = await pressKeys(t, [...moves, "enter"]);
         if (r.code !== 0) throw new Error(r.stderr || "Key send failed");
         this.choices = null; this.screen = "";
       } catch (e) { this.note = String(e?.message ?? e); }
@@ -897,7 +797,7 @@ export default class HerdrChat extends View {
     cx.spawn(async cx => {
       try {
         if (key !== "esc" && !(await this.promptStillCurrent(t))) throw new Error("The prompt changed. Review it again before answering.");
-        const r = await hc(["keys", t.address, key]);
+        const r = await pressKeys(t, [key]);
         if (r.code !== 0) throw new Error(r.stderr || "Key send failed");
       } catch (e) { this.note = String(e); }
       finally { this.sending = false; cx.notify(); }
@@ -980,7 +880,7 @@ export default class HerdrChat extends View {
       .when(active?.status === "done", el => el.child(div().size(7).flex_none().rounded(4).bg(t.done)))
       .child(h_flex().flex_none().p(2).gap(2).rounded(8).bg(t.surface).border_1().border_color(t.border)
         .child(segment("view-chat", "Chat", true, null))
-        .child(segment("view-terminal", "Terminal", false, () => switchTo("terminal", active ? `${active.address}:${active.created}` : ""))));
+        .child(segment("view-terminal", "Terminal", false, () => switchTo("terminal", active ? sessionOf(active) : ""))));
   }
 
   status(t, active) {
@@ -988,7 +888,7 @@ export default class HerdrChat extends View {
     if (active?.status === "blocked" || q) {
       const key = (id, label, k) => div().id(id).h(30).px(12).flex().items_center().rounded(8).cursor_pointer()
         .border_1().border_color(t.border).bg(t.background).text_size(12.5).text_color(t.foreground)
-        .hover(s => s.bg(t.hover)).on_click((_e, cx) => k === "terminal" ? switchTo("terminal", active ? `${active.address}:${active.created}` : "") : this.press(k, cx)).child(label);
+        .hover(s => s.bg(t.hover)).on_click((_e, cx) => k === "terminal" ? switchTo("terminal", active ? sessionOf(active) : "") : this.press(k, cx)).child(label);
       return v_flex().w_full().max_w(COLUMN).p(14).gap(10).rounded(14).border_1().border_color(t.blocked).bg(t.surface)
         .child(h_flex().gap(8).items_center()
           .child(div().size(8).rounded(4).bg(t.blocked))
