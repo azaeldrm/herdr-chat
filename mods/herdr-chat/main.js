@@ -11,6 +11,7 @@ import { ImageMethods } from "./images.js";
 import { DraftMethods } from "./draft.js";
 import { TranscriptMethods, foldActivity, keyRows, CALL_SOURCE } from "./transcript.js";
 import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle } from "./ui.js";
+import { diagramFor, diagramsVersion, toggleSource, renderNextDiagram, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
 import { imageStyle, canMirror, withImages } from "./agents.js";
 import { isHeader, terminalHeader } from "./header.js";
 
@@ -103,6 +104,11 @@ export default class HerdrChat extends View {
       if ((t ? `${sessionOf(t)}:${t.app}` : "") !== this.key) this.refresh(cx);
       this.noticeVisit();
       if (shared("herdr-chat.mode") !== "chat") return;
+      // Diagrams draw one per tick, off the render path, while the chat is showing.
+      if (hasQueuedDiagrams() && !this.drawingDiagram) {
+        this.drawingDiagram = true;
+        cx.spawn(async cx => { try { if (await renderNextDiagram()) cx.notify(); } finally { this.drawingDiagram = false; } });
+      }
       if (this.following && this.needsScroll) {
         const drawn = (this.laidOut ?? 0) >= this.lastAsk;
         if (drawn && (this.pendingCount === 0 || Date.now() - this.scrollAskedAt > 1500)) {
@@ -420,14 +426,20 @@ export default class HerdrChat extends View {
     if (this.asHeader) return terminalHeader(this);
     const t = theme();
     const active = target();
-    const rows = this.messages.slice();
+    // An assistant reply with ```mermaid blocks becomes its text and a row per diagram, so a
+    // diagram can be clicked (rows take clicks only as a whole: on_item_click).
+    const rows = this.messages.flatMap(m => {
+      const parts = m.kind === "message" && m.role !== "user" && m.text?.includes("```mermaid") ? splitDiagrams(m.text) : null;
+      return parts ? parts.map(p => p.kind === "diagram" ? { kind: "diagram", text: p.text } : { ...m, text: p.text }) : [m];
+    });
     if (this.note) rows.push({ kind: "note", text: this.note });
     const empty = rows.length === 0 || (rows.length === 1 && rows[0].kind === "note" && !this.messages.length);
     this.isEmpty = empty;
     keyRows(rows);
     const inner = Math.min(COLUMN, Math.max(280, Math.floor(this.width) - 50));
     if (inner !== this.measuredAt) { this.heights = {}; this.changedAt = {}; this.measuredAt = inner; }
-    const hkey = m => `${m.key}${this.open[m.key] ? ":open" : ""}`;
+    // a diagram row's height changes when it finishes drawing or flips to its source: measure it again
+    const hkey = m => `${m.key}${this.open[m.key] ? ":open" : ""}${m.kind === "diagram" ? `:d${diagramsVersion()}` : ""}`;
     const unmeasured = rows.filter(m => !(hkey(m) in this.heights)).slice(-40);
     this.pendingCount = unmeasured.length;
     // A row stays in the measure until its height has held for a while: a long reply's
@@ -461,6 +473,7 @@ export default class HerdrChat extends View {
       }).track_scroll(this.scroll).on_item_click((key, cx) => {
         const kind = rows.find(r => r.key === key)?.kind;
         if (kind === "tools" || kind === "reasoning") { this.open[key] = !this.open[key]; cx.notify(); }
+        if (kind === "diagram") { const d = diagramFor(rows.find(r => r.key === key).text, theme()); if (d.state === "ready") { toggleSource(d); cx.notify(); } }
       }).size_full())
         // Strips of the background, each more opaque than the one above (a gradient, from
         // parts that draw everywhere; Background.linear_gradient threw while rendering).
