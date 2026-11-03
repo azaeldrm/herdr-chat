@@ -9,7 +9,7 @@ import { parseChoices } from "./prompts.js";
 import { ChoiceMethods } from "./choices.js";
 import { ImageMethods } from "./images.js";
 import { DraftMethods } from "./draft.js";
-import { TranscriptMethods, foldActivity, keyRows, CALL_SOURCE } from "./transcript.js";
+import { TranscriptMethods, foldActivity, keyRows, CALL_SOURCE, withoutRetracted } from "./transcript.js";
 import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle } from "./ui.js";
 import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
 import { caretOf, lineMove } from "./caret.js";
@@ -352,7 +352,14 @@ export default class HerdrChat extends View {
         const r = await interruptAgent(t);
         if (r.outcome === "failed") throw new Error(r.error || `Couldn't stop ${t.label}.`);
         await cx.sleep(600); // the agent puts the message back after it has stopped
-        if (canMirror(t.app) && !this.input.value().trim() && !this.attachments.length) this.pullDraft(t, sessionOf(t), cx);
+        if (canMirror(t.app)) {
+          // its box holding exactly the last message means the agent took it back (Claude Code):
+          // hide it now, rather than when the next message finally branches off before it
+          const box = (await inputBox("read", t, t.app)).box;
+          const last = [...this.messages].reverse().find(m => m.kind === "message");
+          if (box && last?.role === "user" && box.trim() === last.text.trim()) this.retracted = { key: this.key, text: last.text };
+          if (!this.input.value().trim() && !this.attachments.length) this.pullDraft(t, sessionOf(t), cx);
+        }
       } catch (e) { this.note = String(e?.message ?? e); }
       finally { this.stopping = false; cx.notify(); }
     });
@@ -487,7 +494,9 @@ export default class HerdrChat extends View {
     const active = target();
     // An assistant reply with ```mermaid blocks becomes its text and a row per diagram, so a
     // diagram is measured, and measured again once drawn, on its own.
-    const rows = this.messages.flatMap(m => {
+    const shown = withoutRetracted(this.messages, this.retracted?.key === this.key ? this.retracted.text : null);
+    if (!shown.retracted && this.retracted?.key === this.key) this.retracted = null; // the conversation moved on
+    const rows = shown.rows.flatMap(m => {
       const parts = m.kind === "message" && m.role !== "user" && m.text?.includes("```mermaid") ? splitDiagrams(m.text) : null;
       return parts ? parts.map(p => p.kind === "diagram" ? { kind: "diagram", text: p.text } : { ...m, text: p.text }) : [m];
     });
