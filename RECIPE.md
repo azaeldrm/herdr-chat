@@ -57,6 +57,9 @@ runs in. Icons are the mod's own SVGs drawn in the theme's text colour.
   stays in the chat, also after a restart, until switched back. A session is the agent's terminal
   address plus its start time; the latest 200 are remembered (shared key `herdr-chat.views`).
   Moving to another tab or agent shows that session's remembered view.
+- **↑ and ↓ in the reply box.** The line above or below at the same column (a run of them keeps the
+  column it started from), the start on the first line, the end on the last. Lines are those between
+  line breaks: a long line that wraps counts as one. Shift+↑/↓ keep the textarea's own selection.
 - **Sending.** Enter sends, Shift+Enter is a new line; Enter never leaves a new line in the box
   (the textarea's own one is taken out again). The box empties at once, and a send that fails puts
   the text and images back. The text is typed into the agent's live
@@ -176,6 +179,12 @@ Things a fresh build would get wrong:
 - **Nothing clickable inside a list row.** A handler registered in `v_virtual_list`'s item renderer
   throws; the list's `on_item_click` gets a row's key. A diagram is a row of its own (its reply is
   split around it), so it's measured on its own and again once drawn.
+- **↑/↓ never reach a handler outside the textarea**, not even at its first or last line, and it can
+  neither say where its cursor is nor be asked to move it by action name (`dispatch_action` reaches
+  only handlers a script registered). So the chat binds `up`/`down` in context
+  `HerdrChatReply > Input` (the textarea's context is `Input`) to its own actions, reads the cursor
+  by typing an invisible marker at it with `replace()` and putting the text back (`caret.js`), and
+  moves it with `set_selected_range`. Bind once per engine: the keymap is the app's.
 - **Pele is copied, not installed.** A mod imports only from its own folder and herdr has no npm,
   so `vendor/pele/` is committed; `npm install && npm run vendor:pele` updates it from the pin and
   `node scripts/vendor-pele.mjs --check` tells whether it matches.
