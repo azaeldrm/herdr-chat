@@ -57,7 +57,9 @@ runs in. Icons are the mod's own SVGs drawn in the theme's text colour.
   stays in the chat, also after a restart, until switched back. A session is the agent's terminal
   address plus its start time; the latest 200 are remembered (shared key `herdr-chat.views`).
   Moving to another tab or agent shows that session's remembered view.
-- **Sending.** Enter sends, Shift+Enter is a new line. The text is typed into the agent's live
+- **Sending.** Enter sends, Shift+Enter is a new line; Enter never leaves a new line in the box
+  (the textarea's own one is taken out again). The box empties at once, and a send that fails puts
+  the text and images back. The text is typed into the agent's live
   terminal with `hc send`, from the agent's own machine and without hc's terminal identity, so it
   arrives as plain typing rather than wrapped in `<hc from="…">`. Sending to a terminal that is
   waiting on a question needs `--force`; the chat only does that after checking the question on
