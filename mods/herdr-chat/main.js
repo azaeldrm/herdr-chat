@@ -400,7 +400,8 @@ export default class HerdrChat extends View {
     // The keyboard follows the view: otherwise the hidden terminal keeps it, and Ctrl+V there pastes
     // an image into the agent's own box (herdr's terminal.paste_image) instead of the chat.
     if (mode === "chat" && was !== "chat") this.input.focus();
-    if (mode === was || !t || session !== wasSession || !DRAFT_MIRROR[t.app] || onWindows() || this.sending) return;
+    // a question card on screen means the agent's box isn't: nothing to carry either way
+    if (mode === was || !t || session !== wasSession || !DRAFT_MIRROR[t.app] || onWindows() || this.sending || this.choices) return;
     if (was === "chat" && mode === "terminal") this.pushDraft(t, session, cx);
     else if (was === "terminal" && mode === "chat") this.pullDraft(t, session, cx);
   }

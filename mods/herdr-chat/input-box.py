@@ -186,9 +186,16 @@ def join(lines, width):
     return out
 
 
+# A choice prompt's key line (a question, a permission request, an approval). While one is up the
+# agent's input box isn't on screen: Pi's question even sits between the same rules as its editor.
+PROMPT_KEYS = re.compile(r"enter to (select|confirm)|↑/↓|to navigate|esc to cancel", re.I)
+
+
 def box(grid, app):
     rows, cols = len(grid), len(grid[0]) if grid else 0
     texts = [text_of(row) for row in grid]
+    if any(PROMPT_KEYS.search(line) for line in [x for x in texts if x.strip()][-6:]):
+        return None
     if app in ("claude-code", "codex"):
         mark = "❯" if app == "claude-code" else "›"
         start = next((y for y in range(rows - 1, -1, -1) if texts[y].startswith(mark + " ") or texts[y] == mark), None)
