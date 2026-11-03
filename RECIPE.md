@@ -185,6 +185,12 @@ Things a fresh build would get wrong:
   `HerdrChatReply > Input` (the textarea's context is `Input`) to its own actions, reads the cursor
   by typing an invisible marker at it with `replace()` and putting the text back (`caret.js`), and
   moves it with `set_selected_range`. Bind once per engine: the keymap is the app's.
+- **Every agent's chat is kept read in the background.** Every 4 s, `warm()` reads each listed
+  agent's log from where it last stopped, all of a machine's agents in one Python run
+  (`batchProgram` in session.js runs the reader once per session and separates their output), so a
+  switch shows the conversation at once. The chat shows once its bottom screenful is measured; older
+  rows are measured after. A slow read of a stale conversation shows "Checking for new messages…"
+  after 300 ms, and after 5 s (or a failed read) "<machine> isn't answering", with Retry.
 - **A Codex terminal's log isn't always the one started with it.** `codex resume <id>` goes on in
   that session's own logs, started days before the terminal, and Codex continues a long session in
   `rollout-<time>-<id>_<part>.jsonl`; the reader takes the id from the command line and opens the

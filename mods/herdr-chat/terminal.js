@@ -10,8 +10,17 @@ export function target() {
   if (!f) return null;
   const mine = agents().filter(x => x.tab === f.tab && x.space === f.space && SUPPORTED[x.app]);
   const a = mine.find(x => x.address === f.terminal) ?? mine[0];
-  if (!a) return null;
-  const term = terminals().find(x => x.address === a.address);
+  return a ? agentTarget(a, terminals()) : null;
+}
+
+/** Every agent the chat can show, as target() describes one (the background keeps them read). */
+export function agentTargets() {
+  const terms = terminals();
+  return agents().filter(x => SUPPORTED[x.app]).map(a => agentTarget(a, terms));
+}
+
+function agentTarget(a, terms) {
+  const term = terms.find(x => x.address === a.address);
   return {
     address: a.address, pane: a.pane, app: a.app, label: SUPPORTED[a.app], program: a.program,
     status: a.status, title: a.title, remote: a.address.includes("/"),
