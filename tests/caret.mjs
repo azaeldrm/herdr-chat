@@ -1,0 +1,19 @@
+// lineMove: where ↑/↓ take the reply box's cursor.   node tests/caret.mjs
+import { lineMove } from "../mods/herdr-chat/caret.js";
+let failed = 0;
+const check = (got, want, what) => { const ok = JSON.stringify(got) === JSON.stringify(want); console.log(`${ok ? "PASS" : "FAIL"} ${what}${ok ? "" : `  got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`}`); if (!ok) failed++; };
+const t = "first line\nsecond, longer line\nend";
+check(lineMove(t, 4, -1).at, 0, "↑ on the first line goes to the start");
+check(lineMove(t, 35, 1).at, t.length, "↓ on the last line goes to the end");
+check(lineMove(t, 4, 1).at, 15, "↓ keeps the column on the next line");
+check(lineMove(t, 15, -1).at, 4, "↑ keeps the column on the line above");
+check(lineMove(t, 28, 1), { at: 34, column: 17 }, "a longer column stops at the end of a shorter line, and remembers itself");
+check(lineMove(t, 34, -1, 17).at, 28, "the remembered column comes back on a longer line");
+check(lineMove("one line only", 6, -1).at, 0, "one line: ↑ to the start");
+check(lineMove("one line only", 6, 1).at, 13, "one line: ↓ to the end");
+check(lineMove("", 0, 1).at, 0, "empty box");
+check(lineMove("ab\n\ncd", 1, 1).at, 3, "an empty line in between");
+const emoji = "x😀y\nabc";
+check(lineMove(emoji, 6, -1).at, 1, "↑ to a column before an emoji");
+check(lineMove(emoji, 7, -1).at, 1, "never lands between an emoji's two halves (column 2 is inside it)");
+if (failed) process.exit(1);

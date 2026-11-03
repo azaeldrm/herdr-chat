@@ -12,6 +12,7 @@ import { DraftMethods } from "./draft.js";
 import { TranscriptMethods, foldActivity, keyRows, CALL_SOURCE } from "./transcript.js";
 import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle } from "./ui.js";
 import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
+import { caretOf, lineMove } from "./caret.js";
 import { imageStyle, canMirror, withImages } from "./agents.js";
 import { isHeader, terminalHeader } from "./header.js";
 
@@ -78,6 +79,15 @@ export default class HerdrChat extends View {
       }
       cx.notify();
     });
+    // ↑/↓ in the reply box: herdr's textarea keeps them (and can't move to the start or end), so a
+    // binding scoped to this box ("HerdrChatReply > Input": the textarea's own context is "Input")
+    // turns them into the chat's actions. The keymap is the app's, so bind once per engine.
+    if (!globalThis.herdrChatLineKeys) {
+      globalThis.herdrChatLineKeys = cx.bind_keys([
+        { keystroke: "up", action: "herdr_chat::LineUp", context: "HerdrChatReply > Input" },
+        { keystroke: "down", action: "herdr_chat::LineDown", context: "HerdrChatReply > Input" },
+      ]);
+    }
     // A paste with no text in it (an image) that didn't come through Ctrl+V below: right-click, say.
     this.input.on("paste_other", (_e, cx) => { if (Date.now() - (this.imagePasteAt ?? 0) > 800) this.pasteImage(cx); });
     this.following = true; this.visibleEnd = 0; this.rowCount = 0;
@@ -310,6 +320,20 @@ export default class HerdrChat extends View {
     if (id !== this.lastId) { this.lastId = id; if (this.following) this.follow(); }
   }
 
+  /**
+   * ↑ (dir -1) or ↓ (+1) in the reply box: the line above or below at the same column, the start on
+   * the first line, the end on the last. Lines are the ones between line breaks (the textarea can't
+   * say where it wraps a long line). A run of ↑/↓ keeps the column it started from.
+   */
+  lineKey(dir) {
+    const { start, end } = caretOf(this.input);
+    const from = dir < 0 ? start : end;
+    const goal = this.lineGoal && this.lineGoal.at === from ? this.lineGoal.column : null;
+    const { at, column } = lineMove(this.input.value(), from, dir, goal);
+    this.input.set_selected_range({ start: at, end: at });
+    this.lineGoal = { at, column };
+  }
+
   /** Enter (without Shift): sends, and never leaves a new line in the box. */
   enter(cx) {
     this.enterAt = Date.now();
@@ -400,7 +424,9 @@ export default class HerdrChat extends View {
       .child(h_flex().id("composer-box").w_full().pl(16).pr(8).py(8).gap(8).items_end().rounded(18).border_1().border_color(t.input).bg(t.surface)
         .child(v_flex().flex_1().min_w(0)
           .when(this.attachments.length > 0, el => el.child(this.attachmentStrip(t)))
-          .child(div().id("composer-input").w_full().min_w(0).py(4)
+          .child(div().id("composer-input").w_full().min_w(0).py(4).key_context("HerdrChatReply")
+          .on_action("herdr_chat::LineUp", () => this.lineKey(-1))
+          .on_action("herdr_chat::LineDown", () => this.lineKey(1))
           .on_key_down((e, cx) => {
             const paste = e.key === "v" && (e.modifiers.control || e.modifiers.platform) && !e.modifiers.alt;
             if (paste && cx.read_from_clipboard() === undefined) { cx.stop_propagation(); this.imagePasteAt = Date.now(); this.pasteImage(cx); return; }
