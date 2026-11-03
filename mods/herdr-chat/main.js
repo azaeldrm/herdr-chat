@@ -273,8 +273,16 @@ export default class HerdrChat extends View {
     this.input.set_soft_wrap(true);
     this.input.set_auto_grow(1, 4);
     this.scroll = VirtualListScrollHandle.new();
-    this.input.on("submit", (e, cx) => { if (!e?.shift) this.send(cx); });
-    this.input.on("change", (_e, cx) => cx.notify());
+    this.input.on("submit", (e, cx) => { if (!e?.shift) this.enter(cx); });
+    this.input.on("change", (_e, cx) => {
+      // The textarea's own Enter adds a line whether or not the chat's handler ran first: a line it
+      // added just after an Enter that sent goes again, so Enter only ever sends.
+      if (Date.now() - (this.enterAt ?? 0) < 400) {
+        const v = this.input.value(), s = v.replace(/\r?\n$/, "");
+        if (s !== v) this.input.set_value(s);
+      }
+      cx.notify();
+    });
     // A paste with no text in it (an image) that didn't come through Ctrl+V below: right-click, say.
     this.input.on("paste_other", (_e, cx) => { if (Date.now() - (this.imagePasteAt ?? 0) > 800) this.pasteImage(cx); });
     this.following = true; this.visibleEnd = 0; this.rowCount = 0;
@@ -580,10 +588,26 @@ export default class HerdrChat extends View {
     if (id !== this.lastId) { this.lastId = id; if (this.following) this.follow(); }
   }
 
+  /** Enter (without Shift): sends, and never leaves a new line in the box. */
+  enter(cx) {
+    this.enterAt = Date.now();
+    const v = this.input.value(), s = v.replace(/\r?\n$/, "");
+    if (s !== v) this.input.set_value(s);
+    this.send(cx);
+  }
+
   send(cx) {
     const t = target(), typed = this.input.value().trim(), attached = this.attachments.slice();
     if (!t || (!typed && !attached.length) || this.sending) return;
-    this.sending = true; cx.notify();
+    this.sending = true;
+    // The box empties at once, as in any chat; a send that fails puts the draft back.
+    this.input.set_value("");
+    this.attachments = this.attachments.filter(a => !attached.includes(a));
+    cx.notify();
+    const restore = () => {
+      if (!this.input.value().trim()) this.input.set_value(typed);
+      this.attachments = [...attached.filter(a => !this.attachments.includes(a)), ...this.attachments];
+    };
     cx.spawn(async cx => {
       try {
         if (t.status === "blocked" && !(await this.promptStillCurrent(t))) throw new Error("The prompt changed. Review it again before answering.");
@@ -605,7 +629,6 @@ export default class HerdrChat extends View {
           if (!typed) {
             const k = await hc(["keys", t.address, "enter"]);
             if (k.code !== 0) throw new Error(k.stderr || "Send failed");
-            this.attachments = this.attachments.filter(a => !attached.includes(a));
             this.forget(attached.map(a => a.file));
             this.follow();
             return;
@@ -622,12 +645,10 @@ export default class HerdrChat extends View {
               ...(force.length ? ["-Force"] : [])])
           : await exec("env", ["-u", "HC_TERMINAL_ID", "-u", "HC_SCOPE", "hc", "send", ...force, t.address, message]);
         if (r.code !== 0) throw new Error(r.stderr || "Send failed");
-        if (this.key?.startsWith(`${t.address}:`)) this.input.set_value("");
         this.mirror = { session: `${t.address}:${t.created}`, sig: "\u0000", images: [], paths: [], pasted: "", textBox: "", box: "", foreign: false };
-        this.attachments = this.attachments.filter(a => !attached.includes(a));
         this.forget(attached.map(a => a.file));
         this.follow();
-      } catch (e) { this.note = String(e); }
+      } catch (e) { this.note = String(e); restore(); }
       finally { this.sending = false; cx.notify(); }
     });
   }
@@ -874,7 +895,7 @@ export default class HerdrChat extends View {
             if (paste && cx.read_from_clipboard() === undefined) { cx.stop_propagation(); this.imagePasteAt = Date.now(); this.pasteImage(cx); return; }
             if (e.key !== "enter" || e.modifiers.shift || e.modifiers.alt) return;
             cx.stop_propagation();
-            this.send(cx);
+            this.enter(cx);
           })
           .child(Textarea.new(this.input).w_full().text_size(15).text_color(t.foreground))))
         .child(div().id("send").size(32).flex_none().flex().items_center().justify_center().rounded(16)
