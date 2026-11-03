@@ -185,6 +185,11 @@ Things a fresh build would get wrong:
   `HerdrChatReply > Input` (the textarea's context is `Input`) to its own actions, reads the cursor
   by typing an invisible marker at it with `replace()` and putting the text back (`caret.js`), and
   moves it with `set_selected_range`. Bind once per engine: the keymap is the app's.
+- **A Codex terminal's log isn't always the one started with it.** `codex resume <id>` goes on in
+  that session's own logs, started days before the terminal, and Codex continues a long session in
+  `rollout-<time>-<id>_<part>.jsonl`; the reader takes the id from the command line and opens the
+  newest part. "Approve for me" runs a reviewer that writes its own logs in the same folder, marked
+  `source: {"subagent": ...}`: never read one, even when the chat remembers it.
 - **Messages sent while Claude Code works aren't "user" entries.** Claude logs a steer as an
   `attachment` of type `queued_command` (its text in `prompt`) in the conversation chain, so the
   reader shows those too (human origin, prompt mode). Codex and Pi log a steer as an ordinary user
