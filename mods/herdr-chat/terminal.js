@@ -46,6 +46,12 @@ export function sendMessage(t, text, force) {
   return exec("env", ["-u", "HC_TERMINAL_ID", "-u", "HC_SCOPE", "hc", "send", ...forced, t.address, text]);
 }
 
+/** Presses the agent's stop key (Esc for an agent, Ctrl+C otherwise) and reports what happened. */
+export async function interruptAgent(t) {
+  const r = await hc(["interrupt", "--json", "--timeout", "5", t.address]);
+  try { return JSON.parse(r.stdout); } catch { return { outcome: r.code === 0 ? "unknown" : "failed", error: (r.stderr || "").trim() }; }
+}
+
 /** Presses named keys in the terminal (up, down, enter, esc, …). */
 export function pressKeys(t, keys) { return hc(["keys", t.address, ...keys]); }
 

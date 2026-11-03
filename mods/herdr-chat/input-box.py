@@ -151,7 +151,11 @@ def render(paint, rows, cols):
         if ch == "\r":
             c = 0
         elif ch == "\n":
-            r = min(rows - 1, r + 1)
+            if r == rows - 1:  # a line break on the bottom row scrolls the screen up, as a terminal does
+                grid.pop(0)
+                grid.append([blank] * cols)
+            else:
+                r += 1
         elif ch == "\b":
             c = max(0, c - 1)
         elif ord(ch) >= 32:
@@ -223,14 +227,23 @@ def box(grid, app):
             lines.pop()
         while lines and not lines[0][0]:
             lines.pop(0)
+        # Some Pi setups draw a prompt in the box: " > " before the first line and three spaces
+        # before the rest. Strip exactly that (a ">" typed in the draft stays).
+        if lines and (lines[0][0] == " >" or lines[0][0].startswith(" > ")):
+            lines = [(line[3:] if k == 0 or line.startswith("   ") else line, full) for k, (line, full) in enumerate(lines)]
         return join(lines)
     return None
+
+
+def quiet_for(terminal):
+    """How long the paint must pause before it's taken as whole: another machine's arrives in bursts."""
+    return 0.5 if "/" in terminal else 0.15
 
 
 def read(terminal, app):
     rows, cols = size(terminal)
     pid, fd = attach(terminal, True, rows, cols)
-    paint = drain(fd, 0.15, 2.5).decode("utf-8", "replace")
+    paint = drain(fd, quiet_for(terminal), 4.0).decode("utf-8", "replace")
     detach(pid, fd)
     return box(render(paint, rows, cols), app) if paint else None
 
@@ -239,7 +252,7 @@ def type_into(terminal, erase, pastes):
     """One attach: `erase` Deletes and Backspaces (empties the box wherever the cursor is), then each paste."""
     rows, cols = size(terminal)
     pid, fd = attach(terminal, False, rows, cols)
-    if not drain(fd, 0.15, 2.5):
+    if not drain(fd, quiet_for(terminal), 4.0):
         detach(pid, fd)
         sys.exit("hc attach printed nothing")
     if erase:
