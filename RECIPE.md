@@ -36,6 +36,8 @@ the chat and the live terminal.
     clicking it lists each step with its command or file name and up to six lines of output;
   - 28 px of extra space where you and the agent take turns;
   - at the bottom, while the agent works, an accent-coloured spark and its live status message;
+  - messages fade out over the last 20 px above the reply area as they scroll under it, and the
+    newest message has 32 px of room below it;
   - a rounded reply box that grows from one to four lines as you type, with a round send button in
     the theme's accent, and a line under it saying which terminal it sends to;
   - a round "jump to bottom" button when the newest message is off screen.
