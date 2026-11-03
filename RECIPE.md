@@ -185,6 +185,10 @@ Things a fresh build would get wrong:
   `HerdrChatReply > Input` (the textarea's context is `Input`) to its own actions, reads the cursor
   by typing an invisible marker at it with `replace()` and putting the text back (`caret.js`), and
   moves it with `set_selected_range`. Bind once per engine: the keymap is the app's.
+- **Messages sent while Claude Code works aren't "user" entries.** Claude logs a steer as an
+  `attachment` of type `queued_command` (its text in `prompt`) in the conversation chain, so the
+  reader shows those too (human origin, prompt mode). Codex and Pi log a steer as an ordinary user
+  message.
 - **Pele is copied, not installed.** A mod imports only from its own folder and herdr has no npm,
   so `vendor/pele/` is committed; `npm install && npm run vendor:pele` updates it from the pin and
   `node scripts/vendor-pele.mjs --check` tells whether it matches.

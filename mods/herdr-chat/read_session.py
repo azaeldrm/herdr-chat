@@ -215,6 +215,15 @@ def claude_records(lines):
                 shows = isinstance(content, str) or any(isinstance(c, dict) and c.get("type") == "text" for c in content or [])
                 recs.append({"u": o["uuid"], "p": o.get("parentUuid") or o.get("logicalParentUuid"), "o": o, "v": shows and not o.get("isMeta")})
                 continue
+        # A message sent while Claude works (a steer) isn't a "user" entry: when Claude takes it in,
+        # it logs an attachment of type queued_command in the chain, holding the text as `prompt`.
+        if '"queued_command"' in line and '"type":"attachment"' in line:
+            o = loads(line)
+            a = (o or {}).get("attachment") or {}
+            if a.get("type") == "queued_command" and a.get("commandMode", "prompt") == "prompt" and (a.get("origin") or {}).get("kind", "human") == "human" and o.get("uuid"):
+                said = {"type": "user", "uuid": o["uuid"], "message": {"role": "user", "content": str(a.get("prompt") or "")}}
+                recs.append({"u": o["uuid"], "p": o.get("parentUuid") or o.get("logicalParentUuid"), "o": said, "v": bool(str(a.get("prompt") or "").strip())})
+                continue
         ids = re.findall(r'"uuid":"([0-9a-f-]{36})"', line)
         if not ids: continue
         parent = re.match(r'\{"parentUuid":(?:null|"([^"]+)")', line).group(1)
