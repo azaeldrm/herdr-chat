@@ -40,6 +40,21 @@ function summary(steps) {
   return parts.length ? text[0].toUpperCase() + text.slice(1).replace(/, (\w)/g, (_m, c) => `, ${c.toLowerCase()}`) : "";
 }
 
+/**
+ * The rows without a message the agent handed back. Stopped before answering, Claude Code puts the
+ * message back in its input box and drops it from the conversation; its log still ends with it
+ * until the next message branches off before it. `retracted` is that message's text: hidden while
+ * it's still the last thing said, shown again (and the mark spent) once anything follows it.
+ */
+export function withoutRetracted(messages, retracted) {
+  if (!retracted) return { rows: messages, retracted: null };
+  let last = messages.length - 1;
+  while (last >= 0 && messages[last].kind !== "message") last--;
+  const m = messages[last];
+  if (!m || m.role !== "user" || m.text.trim() !== retracted.trim() || last !== messages.length - 1) return { rows: messages, retracted: null };
+  return { rows: messages.slice(0, last), retracted };
+}
+
 export function foldActivity(messages) {
   const out = [];
   for (const m of messages) {
