@@ -26,10 +26,6 @@ const DIR = "cache/herdr-chat/diagrams";
 const KEPT = 200;
 const entries = new Map(); // key -> { key, source, colors, state: "queued" | "ready" | "failed", rel, width, height, error }
 const queue = [];
-let version = 0;
-
-/** Changes whenever a diagram finishes drawing (or fails): rows holding one are measured again. */
-export function diagramsVersion() { return version; }
 
 // herdr's SVG renderer finds only fonts installed on the system, not the Geist herdr draws its own
 // text with: a lone "Geist" fell back to a symbol font (Latin letters drawn as Greek). So each family
@@ -80,21 +76,28 @@ export function diagramFor(source, t) {
 export function hasQueuedDiagrams() { return queue.length > 0; }
 
 
-/** Draws the next queued diagram; resolves true when one finished (drawn or failed). */
-export async function renderNextDiagram() {
-  const e = queue.shift();
-  if (!e) return false;
-  try {
-    const r = render(e.source, { fontFamily: "Geist" });
-    const dir = onWindows() ? `${appHome()}\\cache\\herdr-chat\\diagrams` : `${appHome()}/${DIR}`;
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(onWindows() ? `${dir}\\${e.key}.svg` : `${dir}/${e.key}.svg`, bake(r.svg, e.colors));
-    Object.assign(e, { state: "ready", rel: `${DIR}/${e.key}.svg`, width: r.width, height: r.height });
-  } catch (err) {
-    Object.assign(e, { state: "failed", error: String(err?.message ?? err).split("\n")[0] });
+/**
+ * Draws the queued diagrams: as many as Pele renders within `budgetMs` (it takes milliseconds per
+ * diagram), their files written together, so a reply with many diagrams settles in one or two
+ * layout changes rather than one per diagram. Resolves with how many finished (drawn or failed).
+ */
+export async function renderQueuedDiagrams(budgetMs = 40) {
+  const start = Date.now(), done = [];
+  while (queue.length && (done.length === 0 || Date.now() - start < budgetMs)) {
+    const e = queue.shift();
+    try { done.push([e, render(e.source, { fontFamily: "Geist" })]); }
+    catch (err) { Object.assign(e, { state: "failed", error: String(err?.message ?? err).split("\n")[0] }); done.push([e, null]); }
   }
-  version++;
-  return true;
+  if (!done.length) return 0;
+  const dir = onWindows() ? `${appHome()}\\cache\\herdr-chat\\diagrams` : `${appHome()}/${DIR}`;
+  await fs.mkdir(dir, { recursive: true }).catch(() => {});
+  await Promise.all(done.filter(([, r]) => r).map(async ([e, r]) => {
+    try {
+      await fs.writeFile(onWindows() ? `${dir}\\${e.key}.svg` : `${dir}/${e.key}.svg`, bake(r.svg, e.colors));
+      Object.assign(e, { state: "ready", rel: `${DIR}/${e.key}.svg`, width: r.width, height: r.height });
+    } catch (err) { Object.assign(e, { state: "failed", error: String(err?.message ?? err).split("\n")[0] }); }
+  }));
+  return done.length;
 }
 
 /** An assistant message split around its ```mermaid blocks: text, a diagram row, text, … */
