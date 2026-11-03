@@ -1,14 +1,17 @@
 import { run, shared, setShared, terminals } from "herdr";
 
-export const SUPPORTED = { "claude-code": "Claude Code", codex: "Codex", pi: "Pi" };
+export { SUPPORTED } from "./agents.js";
 export const ICONS = "mods/herdr-chat/icons";
 
 const VIEWS_KEY = "herdr-chat.views";
 const VIEWS_KEPT = 200;
 
+/** A session: one program's run in a terminal (an address is reused once its terminal ends). */
+export function sessionOf(t) { return t ? `${t.address}:${t.created}` : ""; }
+
 export function sessionKey(address) {
   const term = terminals().find(x => x.address === address);
-  return term ? `${address}:${term.created_ms ?? 0}` : "";
+  return term ? sessionOf({ address, created: term.created_ms ?? 0 }) : "";
 }
 
 export function preferredView(key) {
