@@ -6,16 +6,22 @@
 const MARK = "⁣"; // invisible separator
 
 /**
- * Where the cursor (and selection) is: a marker typed at it with replace(), found, then the text
- * and the selection put back as they were. The probe showed the text intact and no change events.
+ * Where the cursor (and selection) is: a marker typed at it with replace(), located, then the text
+ * and the selection put back as they were. The text is put back even if a step throws (finally),
+ * and the marker is found where the text first differs, so one already in the text can't mislead.
+ * It all runs within one key event, so nothing else (drawing, the draft mirror, sending) sees it.
  */
 export function caretOf(state) {
   const before = state.value();
-  state.replace(MARK);
-  const marked = state.value();
-  const at = marked.indexOf(MARK);
-  const selected = Math.max(0, before.length + 1 - marked.length);
-  state.set_value(before);
+  let at = 0, selected = 0;
+  try {
+    state.replace(MARK);
+    const marked = state.value();
+    while (at < before.length && before[at] === marked[at]) at++;
+    selected = Math.max(0, before.length + 1 - marked.length);
+  } finally {
+    if (state.value() !== before) state.set_value(before);
+  }
   state.set_selected_range({ start: at, end: at + selected });
   return { start: at, end: at + selected };
 }
