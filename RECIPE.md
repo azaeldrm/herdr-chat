@@ -36,8 +36,11 @@ the chat and the live terminal.
     clicking it lists each step with its command or file name and up to six lines of output;
   - 28 px of extra space where you and the agent take turns;
   - at the bottom, while the agent works, an accent-coloured spark and its live status message;
+  - messages fade out over the last 20 px above the reply area as they scroll under it, and the
+    newest message has 32 px of room below it;
   - a rounded reply box that grows from one to four lines as you type, with a round send button in
-    the theme's accent, and a line under it saying which terminal it sends to;
+    the theme's accent, and a line under it saying which terminal it sends to; attached images sit
+    above the text as 64 px thumbnails, each with a remove button;
   - a round "jump to bottom" button when the newest message is off screen.
 - **Empty chat.** Herdr's own logo (`frame/welcome/herdr.png`) with a message: "Opening this Pi
   conversation…" (the logo pulses), "Waiting for this … conversation to start.", or "No messages in
@@ -54,11 +57,29 @@ runs in. Icons are the mod's own SVGs drawn in the theme's text colour.
   stays in the chat, also after a restart, until switched back. A session is the agent's terminal
   address plus its start time; the latest 200 are remembered (shared key `herdr-chat.views`).
   Moving to another tab or agent shows that session's remembered view.
-- **Sending.** Enter sends, Shift+Enter is a new line. The text is typed into the agent's live
+- **Sending.** Enter sends, Shift+Enter is a new line; Enter never leaves a new line in the box
+  (the textarea's own one is taken out again). The box empties at once, and a send that fails puts
+  the text and images back. The text is typed into the agent's live
   terminal with `hc send`, from the agent's own machine and without hc's terminal identity, so it
   arrives as plain typing rather than wrapped in `<hc from="…">`. Sending to a terminal that is
   waiting on a question needs `--force`; the chat only does that after checking the question on
   screen hasn't changed since it was shown.
+- **Images.** Drop image files (png, jpg, gif, webp) anywhere on the chat, or press Ctrl+V with an
+  image on the clipboard (wl-paste, xclip or pngpaste; PowerShell on Windows). Each is shrunk to a
+  JPEG under 240 KB when it's bigger (Claude Code drops an @-mentioned image over about 256 KB),
+  kept as a preview copy in `~/.config/herdr-app/cache/herdr-chat/` until it's sent or removed
+  (`image()` draws only from the herdr home), and sent with `hc put` beside the agent's terminal,
+  here or on another machine, in a folder herdr-core removes with the terminal. The message carries
+  it the way each agent attaches an image itself: Claude Code an `@path` mention; Codex the path
+  pasted alone first (it makes `[Image #N]` of that), then the text; Pi the plain path, as its own
+  Ctrl+V leaves (its model opens it with `read`).
+- **One draft.** The chat box and the agent's own input box hold the same draft. Switching a
+  session to Terminal types the chat's draft, images included, into the agent's box without
+  sending it (an empty draft empties the box); switching back reads the box into the chat, turning
+  the chat's own image entries back into thumbnails and a long paste's placeholder (`[Pasted text
+  #1 +7 lines]`) back into its text. An image pasted in the terminal itself stays there with a note:
+  the agent keeps it where the chat can't read it. A chat send empties the agent's box first.
+  Switching to Chat puts the keyboard in the reply box.
 - **Questions.** When an agent is blocked the chat shows "<Agent> needs your input" with the last
   twelve lines of its screen and ↑ ↓ Enter Esc buttons (sent as keys through `hc keys`) and an Open
   terminal button. Each key is only sent if the screen still shows the same question.
@@ -101,6 +122,8 @@ Mod (`mods/herdr-chat/`, `mod.json` is `{"place":"none"}`):
 | `read-session.ps1` | session reader on Windows (PowerShell 5.1) |
 | `read_session.py` | the same reader for Linux, macOS and other machines (Python 3.6+) |
 | `send.ps1` | sends text on Windows without hc's terminal identity |
+| `prepare-image.sh` / `prepare-image.ps1` | copy an image into the preview folder, shrunk under 240 KB |
+| `input-box.py` | reads, sets or pastes into an agent's own input box without Enter, through `hc attach` in a pty (the one draft, Codex images) |
 | `icons/` | the mod's own SVG icons |
 
 Herdr functions used: `agents()`, `terminals()`, `panes()`, `focused()`, `props()`, `theme()`,
@@ -113,13 +136,15 @@ with `set_theme` from `gpui-base`. UI parts: `v_virtual_list` with a `VirtualLis
 
 **Before adding it, tell the person what it does** (herdr's rule for shared mods). This mod:
 
-- runs programs: `powershell.exe` (Windows), `python3`, `sh`, `env` and `hc`, including on other
+- runs programs: `powershell.exe` (Windows), `python3`, `sh`, `env`, `hc` (also `hc attach`,
+  `hc put`), `wl-paste` / `xclip` / `pngpaste` and ImageMagick (`magick`) or `sips`, including on other
   machines through `exec(…, { on: machine })`; the Python reader is passed to `python3 -c`, so
   nothing is installed on the other machine, but `python3` and `hc` must be there;
 - reads files outside its own folder: the agents' session logs under `~/.claude/projects`,
   `~/.claude/sessions`, `~/.codex/sessions` and `~/.pi/agent/sessions`, and reads the terminal's
   screen with `hc read`;
-- types into terminals (`hc send`, `hc keys`);
+- types into terminals (`hc send`, `hc keys`, and pastes and Delete/Backspace through `hc attach`);
+- writes image copies under `~/.config/herdr-app/cache/herdr-chat/` (removed once sent or after a day);
 - changes one colour in herdr's shared palette for the whole app while it runs: `set_theme` with
   the palette's `accent` (and `selection`) set to a dimmed version of the theme's accent. It's the
   only way to make selected text visible in herdr's built-in text boxes; it follows the theme and
@@ -128,6 +153,21 @@ with `set_theme` from `gpui-base`. UI parts: `v_virtual_list` with a `VirtualLis
 It does not use the network.
 
 Things a fresh build would get wrong:
+
+- **Pasting without Enter.** `hc send` always presses Enter and `hc keys` takes only named keys, so
+  a paste that waits (an image path for Codex, the mirrored draft) goes through `hc attach` in a
+  pty at the terminal's own size, as one bracketed paste, then ctrl+\ to detach. `hc attach` asks
+  the terminal for its colours, cell size and device attributes before its first paint: answer them
+  or every look waits about a second. Unix only.
+- **Reading the input box.** `hc read` is plain text, and an empty box shows a dim placeholder
+  (Claude Code's `Try "…"`, Codex's rotating hints). `hc attach --observe`'s first paint keeps the
+  styles: rebuild the rows from it and leave dim characters out. Claude Code puts a no-break space
+  after its `❯`. Empty the box with Delete and Backspace, never Esc (it interrupts, or opens Claude
+  Code's rewind) or up/down (history); `hc keys` waits about 3 s after any typing, so send them in
+  the same attach.
+- **Ctrl+V belongs to the terminal.** herdr binds it to `terminal.paste_image` while a terminal has
+  the keyboard, and the hidden terminal keeps it after switching to Chat unless the reply box is
+  focused: the image then lands in the agent's box, not the chat.
 
 - **Escaping.** `\\` in a JavaScript template string is one backslash; the Windows paths to the
   `.ps1` files need it doubled, and a missed one makes `\r` a carriage return and the reader never
@@ -176,4 +216,8 @@ Limits and gaps:
   and ↓ then Enter in the chat answers it in the terminal.
 - An agent on another machine (`machine/tN`) shows its conversation the same way.
 - Selecting text in the chat and in the reply box shows a visible highlight.
+- A screenshot pasted into the reply box shows as a thumbnail; sent to Claude Code, Codex or Pi it
+  reaches the agent as an image (Claude Code's and Codex's session logs hold the image itself).
+- A draft typed in the chat appears, unsent, in the agent's box after switching to Terminal; edited
+  there, it comes back edited after switching to Chat, thumbnails included.
 - Changing the theme changes the chat's colours, including the send button and the working spark.
