@@ -213,6 +213,8 @@ Limits and gaps:
 
 - `herdr-app check ~/.config/herdr-app/mods/herdr-chat` passes and `herdr-app status` shows no errors
   after switching to the `herdr-chat` layout.
+- `node tests/sweep.mjs` finds no undefined names (it calls every function under stand-ins for herdr)
+  and `python3 tests/prompt-keys.py` finds the two prompt key patterns alike.
 - On a Claude Code, Codex or Pi tab the pane header shows the Chat | Terminal toggle at the far
   right, also while the hover buttons are showing, and the terminal is selected.
 - Clicking Chat shows that agent's conversation within a second or two, scrolled to the newest
