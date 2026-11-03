@@ -3,8 +3,28 @@
 # Claude Code attaches an @-mentioned image only up to about 256 KB, so a bigger one is
 # re-encoded as a JPEG under 240 KB (ImageMagick, or sips on macOS).
 #   prepare-image.sh <image> <folder> <name without extension>
-# Exit 5: it's too big and nothing here can shrink it (the copy is made anyway).
-src=$1 dir=$2 base=$3
+#   prepare-image.sh --clipboard <folder> <name without extension>   (the clipboard's image)
+# Exit 3: the clipboard holds no image. Exit 4: nothing here can read it (wl-paste, xclip or
+# pngpaste). Exit 5: it's too big and nothing here can shrink it (the copy is made anyway).
+if [ "$1" = --clipboard ]; then
+  dir=$2 base=$3 src="$2/$3-clipboard.png"
+  mkdir -p "$dir" || exit 1
+  trap 'rm -f "$src"' EXIT
+  if command -v wl-paste >/dev/null 2>&1 && [ -n "$WAYLAND_DISPLAY" ]; then
+    wl-paste --list-types 2>/dev/null | grep -qx image/png || exit 3
+    wl-paste --type image/png > "$src"
+  elif command -v xclip >/dev/null 2>&1; then
+    xclip -selection clipboard -t TARGETS -o 2>/dev/null | grep -qx image/png || exit 3
+    xclip -selection clipboard -t image/png -o > "$src"
+  elif command -v pngpaste >/dev/null 2>&1; then
+    pngpaste "$src" || exit 3
+  else
+    exit 4
+  fi
+  [ -s "$src" ] || exit 3
+else
+  src=$1 dir=$2 base=$3
+fi
 mkdir -p "$dir" || exit 1
 limit=250000
 size=$(wc -c < "$src") || exit 1
