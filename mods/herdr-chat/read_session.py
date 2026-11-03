@@ -147,25 +147,43 @@ def parent_map():
     except Exception: pass
     return parents
 
+def terminal_pids():
+    """The terminal's process and everything under it, nearest first."""
+    if not A.pid: return []
+    children = {}
+    for pid, ppid in parent_map().items(): children.setdefault(ppid, []).append(pid)
+    todo, seen = [A.pid], []
+    while todo and len(seen) < 200:
+        pid = todo.pop(0)
+        if pid in seen: continue
+        seen.append(pid)
+        todo.extend(children.get(pid, []))
+    return seen
+
+def command_lines():
+    """The command lines running in the terminal: /proc on Linux, ps elsewhere."""
+    lines = []
+    for pid in terminal_pids():
+        try:
+            if os.path.isdir("/proc"):
+                with open("/proc/%d/cmdline" % pid, "rb") as f: lines.append(f.read().replace(b"\0", b" ").decode("utf-8", "replace"))
+            else:
+                import subprocess
+                lines.append(subprocess.run(["ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True).stdout)
+        except Exception: pass
+    return lines
+
 def candidate_cwds():
     """The working folders of the processes running in the terminal (the agent among them), read
     from /proc. Herdr's own record of the terminal's folder can be stale, so it is only the
     fallback, for when the processes can't be read."""
     cwds = []
     if A.pid and os.path.isdir("/proc"):
-        parents = parent_map()
-        children = {}
-        for pid, ppid in parents.items(): children.setdefault(ppid, []).append(pid)
-        todo, seen = [A.pid], set()
-        while todo and len(seen) < 200:
-            pid = todo.pop(0)
-            if pid in seen: continue
-            seen.add(pid)
+        for pid in terminal_pids():
             try:
                 cwd = os.readlink("/proc/%d/cwd" % pid)
                 if cwd not in cwds: cwds.append(cwd)
             except OSError: pass
-            todo.extend(children.get(pid, []))
     return cwds or ([A.cwd] if A.cwd else [])
 
 def find_claude():
@@ -334,29 +352,54 @@ def iso_ms(s):
         return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp() * 1000
     except ValueError: return None
 
+def codex_meta(fp):
+    """A Codex log's session_meta payload, or None."""
+    try:
+        with open(fp, encoding="utf-8") as f: first = json.loads(f.readline())
+    except (OSError, ValueError): return None
+    return (first.get("payload") or {}) if isinstance(first, dict) and first.get("type") == "session_meta" else None
+
+def codex_own(meta):
+    """Whether a log is the person's conversation, not a sub-agent's (the approval reviewer of
+    "Approve for me" writes logs of its own, in the same folder, as source {"subagent": ...})."""
+    return meta is not None and not (isinstance(meta.get("source"), dict) and "subagent" in meta["source"])
+
+def codex_resumed():
+    """For `codex resume [id]` in the terminal: (True, the id or None); otherwise (False, None)."""
+    for line in command_lines():
+        m = re.search(r"(?:^|[\s/'\"])codex['\"]?\s.*?\bresume\b(.*)", line)
+        if m:
+            uid = re.search(r"\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b", m.group(1))
+            return True, uid.group(1) if uid else None
+    return False, None
+
 def find_codex():
-    if A.known and os.path.isfile(A.known): return A.known
     root = os.environ.get("CODEX_HOME") or os.path.join(HOME, ".codex")
     sessions = os.path.join(root, "sessions")
+    resumed, uid = codex_resumed()
+    if uid:
+        # a resumed session goes on in its own logs, started before this terminal: the first is
+        # rollout-<time>-<id>.jsonl, and Codex continues a long one in rollout-<time>-<id>_<part>.jsonl
+        logs = glob.glob(os.path.join(sessions, "**", "rollout-*%s*.jsonl" % uid), recursive=True)
+        if logs: return max(logs, key=os.path.getmtime)
+    if A.known and os.path.isfile(A.known) and codex_own(codex_meta(A.known)): return A.known
     if not os.path.isdir(sessions): return None
     since = A.created / 1000 - 10
     cwds = candidate_cwds()
     candidates = [p for p in glob.glob(os.path.join(sessions, "**", "rollout-*.jsonl"), recursive=True) if os.path.getmtime(p) >= since]
     candidates.sort(key=os.path.getmtime, reverse=True)
-    later = None
+    later = newest = None
     for fp in candidates:
-        try:
-            with open(fp, encoding="utf-8") as f: first = json.loads(f.readline())
-        except (OSError, ValueError): continue
-        if first.get("type") != "session_meta": continue
-        p = first.get("payload") or {}
-        if str(p.get("cwd", "")) not in cwds: continue
+        p = codex_meta(fp)
+        if not codex_own(p) or str(p.get("cwd", "")) not in cwds: continue
+        if not newest: newest = fp
         t = iso_ms(str(p.get("timestamp", "")))
         if t is None: continue
         delta = (t - A.created) / 1000
         if abs(delta) <= 8: return fp
         if delta > 0 and not later: later = fp
-    return later
+    # `codex resume --last` or its picker: the session written to most lately, in this folder
+    return later or (newest if resumed else None)
 
 def parse_codex(path):
     for line in read_tail(path):
