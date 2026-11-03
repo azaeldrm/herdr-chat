@@ -1,0 +1,13 @@
+{
+  "name": "herdr-chat-dev",
+  "private": true,
+  "description": "Tooling only: the mod itself needs no npm. Pele is pinned here and copied into mods/herdr-chat/vendor/pele by `npm run vendor:pele`.",
+  "type": "module",
+  "devDependencies": {
+    "pele": "1.13.0"
+  },
+  "scripts": {
+    "vendor:pele": "node scripts/vendor-pele.mjs",
+    "test": "node tests/sweep.mjs && node scripts/vendor-pele.mjs --check && python3 tests/prompt-keys.py"
+  }
+}
