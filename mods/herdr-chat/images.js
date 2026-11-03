@@ -4,6 +4,7 @@ import { div, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { appHome, exec, hc } from "herdr";
 import { onWindows, modFile, removeFiles, pruneOld } from "./platform.js";
+import { sessionOf } from "./common.js";
 import { icon } from "./ui.js";
 
 // Images attached in the reply box. Each gets a short-lived preview copy in the herdr
