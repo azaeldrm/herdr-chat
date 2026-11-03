@@ -5,6 +5,7 @@
 // null when the screen has none.
 export function parseChoices(screen) {
   const lines = screen.replace(/ /g, " ").split("\n").map(l => l.replace(/\s+$/, ""));
+  // the same key hints as PROMPT_KEYS in input-box.py: keep the two alike (tests/prompt-keys.py)
   const FOOTER = /enter to (select|confirm)|↑\/↓|to navigate|esc to cancel/i;
   const RULE = /^\s*[─━═]{8,}\s*$/;
   const SOFT_RULE = /^\s*[╌┄┈-]{8,}\s*$/;
@@ -60,5 +61,5 @@ export function parseChoices(screen) {
     question.unshift(line.trim());
   }
   const sig = JSON.stringify([question, options.map(o => o.label)]);
-  return { question, tabs, options, footer: lines[footer].trim(), more, sig };
+  return { question, tabs, options, more, sig };
 }

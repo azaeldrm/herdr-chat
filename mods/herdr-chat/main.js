@@ -481,7 +481,7 @@ export default class HerdrChat extends View {
                 this.heights[k] = size.height; this.changedAt[k] = Date.now();
                 if (this.following) this.follow();
                 cx.notify();
-                cx.timer.after?.(2100, cx => cx.notify());
+                cx.timer.after(2100, cx => cx.notify());
               }
             })
             .child(this.row(m, m.key, t));

@@ -94,16 +94,7 @@ export const ImageMethods = {
     cx.spawn(async cx => {
       const name = attachName("pasted");
       const file = await this.prepare({
-        unix: ["-c",
-          'dir=$1 name=$2 raw="$1/$2-clipboard.png"; mkdir -p "$dir" || exit 1; ' +
-          'if command -v wl-paste >/dev/null 2>&1 && [ -n "$WAYLAND_DISPLAY" ]; then ' +
-          '  wl-paste --list-types 2>/dev/null | grep -qx image/png || exit 3; wl-paste --type image/png > "$raw"; ' +
-          'elif command -v xclip >/dev/null 2>&1; then ' +
-          '  xclip -selection clipboard -t TARGETS -o 2>/dev/null | grep -qx image/png || exit 3; xclip -selection clipboard -t image/png -o > "$raw"; ' +
-          'elif command -v pngpaste >/dev/null 2>&1; then pngpaste "$raw" || exit 3; ' +
-          'else exit 4; fi; [ -s "$raw" ] || { rm -f "$raw"; exit 3; }; ' +
-          'sh "$3" "$raw" "$dir" "$name"; code=$?; rm -f "$raw"; exit $code',
-          "sh", attachDir(), name, modFile("prepare-image.sh")],
+        unix: [modFile("prepare-image.sh"), "--clipboard", attachDir(), name],
         windows: ["-Clipboard", "-Folder", attachDir(), "-Name", name],
       }, "the pasted image");
       if (file) this.attach(file, "Pasted image", cx, owner);
