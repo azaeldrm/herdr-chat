@@ -11,6 +11,7 @@ import { ImageMethods } from "./images.js";
 import { DraftMethods } from "./draft.js";
 import { TranscriptMethods, foldActivity, keyRows, CALL_SOURCE } from "./transcript.js";
 import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle } from "./ui.js";
+import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
 import { imageStyle, canMirror, withImages } from "./agents.js";
 import { isHeader, terminalHeader } from "./header.js";
 
@@ -83,6 +84,7 @@ export default class HerdrChat extends View {
     this.messages = []; this.open = {};
     this.width = 900; this.needsScroll = true; this.scrollAskedAt = Date.now(); this.lastAsk = Date.now(); this.laidOut = 0; this.pendingCount = -1; this.settling = true; this.isEmpty = true;
     this.heights = {}; this.changedAt = {}; this.measuredAt = 0;
+    this.lastHeight = {}; // each row's latest height, whatever key it was measured under
     this.attachments = []; // { name, file (absolute preview copy), rel (for image()) }
     // The draft mirror: what the chat box and the agent's own input box last agreed on.
     this.mirror = null; // { session: "address:created", text, box (as the agent draws it) }
@@ -103,6 +105,11 @@ export default class HerdrChat extends View {
       if ((t ? `${sessionOf(t)}:${t.app}` : "") !== this.key) this.refresh(cx);
       this.noticeVisit();
       if (shared("herdr-chat.mode") !== "chat") return;
+      // Diagrams draw off the render path, a batch per tick, while the chat is showing.
+      if (hasQueuedDiagrams() && !this.drawingDiagram) {
+        this.drawingDiagram = true;
+        cx.spawn(async cx => { try { if (await renderQueuedDiagrams()) cx.notify(); } finally { this.drawingDiagram = false; } });
+      }
       if (this.following && this.needsScroll) {
         const drawn = (this.laidOut ?? 0) >= this.lastAsk;
         if (drawn && (this.pendingCount === 0 || Date.now() - this.scrollAskedAt > 1500)) {
@@ -420,23 +427,35 @@ export default class HerdrChat extends View {
     if (this.asHeader) return terminalHeader(this);
     const t = theme();
     const active = target();
-    const rows = this.messages.slice();
+    // An assistant reply with ```mermaid blocks becomes its text and a row per diagram, so a
+    // diagram is measured, and measured again once drawn, on its own.
+    const rows = this.messages.flatMap(m => {
+      const parts = m.kind === "message" && m.role !== "user" && m.text?.includes("```mermaid") ? splitDiagrams(m.text) : null;
+      return parts ? parts.map(p => p.kind === "diagram" ? { kind: "diagram", text: p.text } : { ...m, text: p.text }) : [m];
+    });
     if (this.note) rows.push({ kind: "note", text: this.note });
     const empty = rows.length === 0 || (rows.length === 1 && rows[0].kind === "note" && !this.messages.length);
     this.isEmpty = empty;
     keyRows(rows);
     const inner = Math.min(COLUMN, Math.max(280, Math.floor(this.width) - 50));
-    if (inner !== this.measuredAt) { this.heights = {}; this.changedAt = {}; this.measuredAt = inner; }
-    const hkey = m => `${m.key}${this.open[m.key] ? ":open" : ""}`;
+    if (inner !== this.measuredAt) { this.heights = {}; this.changedAt = {}; this.lastHeight = {}; this.measuredAt = inner; }
+    // a diagram row's height changes when it finishes drawing (or fails): only that row is measured
+    // again, keyed by its own state, not every diagram whenever any of them finishes
+    const t0 = theme();
+    const hkey = m => `${m.key}${this.open[m.key] ? ":open" : ""}${m.kind === "diagram" ? `:${diagramFor(m.text, t0).state}` : ""}`;
     const unmeasured = rows.filter(m => !(hkey(m) in this.heights)).slice(-40);
-    this.pendingCount = unmeasured.length;
+    // diagrams still drawing count as unsettled too: shown before they finish, they grow above the
+    // bottom and the view jumps into them before the scroll catches up
+    this.pendingCount = unmeasured.length + rows.filter(m => m.kind === "diagram" && diagramFor(m.text, t0).state === "queued").length;
     // A row stays in the measure until its height has held for a while: a long reply's
     // markdown can finish wrapping after its first size is reported, and a row kept at
     // that first, shorter height draws over the rows below it.
     const now = Date.now();
     const settling = rows.filter(m => { const k = hkey(m); return k in this.heights && now - (this.changedAt[k] ?? 0) < 2000; });
     const pending = [...settling, ...unmeasured];
-    const sizes = rows.map((m, i) => (this.heights[hkey(m)] ?? 40) + 16 + (i === rows.length - 1 ? TAIL : 0));
+    // a row being measured again keeps its last height meanwhile: collapsing it to the 40 px guess
+    // makes the whole list shrink and grow back, and the view jumps
+    const sizes = rows.map((m, i) => (this.heights[hkey(m)] ?? this.lastHeight[m.key] ?? 40) + 16 + (i === rows.length - 1 ? TAIL : 0));
     this.sig = `${rows.length}:${sizes.reduce((a, b) => a + b, 0)}`;
     this.noticeVisit();
     const status = this.status(t, active);
@@ -478,7 +497,7 @@ export default class HerdrChat extends View {
           return div().id(`measure-${k}`).w(inner).flex_none()
             .on_size_change((size, cx) => {
               if (this.heights[k] !== size.height) {
-                this.heights[k] = size.height; this.changedAt[k] = Date.now();
+                this.heights[k] = size.height; this.lastHeight[m.key] = size.height; this.changedAt[k] = Date.now();
                 if (this.following) this.follow();
                 cx.notify();
                 cx.timer.after(2100, cx => cx.notify());

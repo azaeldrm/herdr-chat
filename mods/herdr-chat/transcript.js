@@ -1,9 +1,11 @@
 // The conversation as rows: folding tool calls and thinking into one line per run, keying rows by
 // their content, and drawing messages, tool runs and thinking. The row methods are mixed into the
 // chat's View (main.js), so `this` is the view.
-import { div } from "gpui-kit";
+import { div, image } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { COLUMN, icon, mono } from "./ui.js";
+import { hash } from "./common.js";
+import { diagramFor } from "./diagrams.js";
 
 const TURN_GAP = 28;
 const KINDS = {
@@ -55,11 +57,6 @@ function outputLines(o) {
   return { shown: lines.slice(0, 6), more: Math.max(0, lines.length - 6) };
 }
 
-function hash(text) {
-  let h = 5381;
-  for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
-  return (h >>> 0).toString(36);
-}
 const DIGESTS = new WeakMap();
 const CALL_DIGESTS = new WeakMap();
 export const CALL_SOURCE = new WeakMap();
@@ -161,10 +158,26 @@ export const TranscriptMethods = {
     return div().w_full().text_size(15).text_color(t.foreground).child(markdown(`body-${i}`, m.text, t));
   },
 
+  /**
+   * A ```mermaid block from a reply, as its own row: the picture alone, in the reply's column. While
+   * it draws, a short note in its place; when Pele can't parse it, its source as a code block.
+   */
+  diagramRow(m, i, t) {
+    const d = diagramFor(m.text, t);
+    if (d.state === "queued") return div().w_full().h(24).flex().items_center().text_size(12.5).text_color(t.dim).child("Drawing diagram…");
+    if (d.state === "failed") return v_flex().w_full().gap(6)
+      .child(markdown(`diagram-src-${i}`, "```mermaid\n" + m.text + "\n```", t))
+      .child(div().text_size(12).text_color(t.dim).child(`Couldn't draw this diagram: ${d.error}`));
+    const room = Math.min(COLUMN, Math.max(280, Math.floor(this.width) - 50));
+    const w = Math.min(d.width, room), h = Math.round(d.height * w / d.width);
+    return div().w_full().child(image(d.rel).w(w).h(h));
+  },
+
   row(m, i, t) {
     const body = m.kind === "tools" ? this.toolsRow(m, i, t)
       : m.kind === "reasoning" ? this.reasoningRow(m, i, t)
       : m.kind === "note" ? div().w_full().text_size(12.5).text_color(t.dim).child(m.text)
+      : m.kind === "diagram" ? this.diagramRow(m, i, t)
       : this.messageRow(m, i, t);
     return m.turnGap ? v_flex().w_full().pt(TURN_GAP).child(body) : body;
   },
