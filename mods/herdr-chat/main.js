@@ -361,6 +361,8 @@ export default class HerdrChat extends View {
     this.visit = shared("herdr-chat.visit");
     this.path = ""; this.hint = ""; this.note = "Loading conversation…"; this.screen = "";
     this.raw = []; this.calls = new Map(); this.offset = 0; this.leaf = ""; this.lastRead = 0; this.sessions = new Map();
+    // Each session's unsent reply: its text and attached images, kept while you look at another one.
+    this.drafts = new Map();
     this.refresh(cx);
     cx.timer.every(1500, cx => { inputHighlight(cx); this.refresh(cx); });
     cx.timer.every(100, cx => {
@@ -498,6 +500,19 @@ export default class HerdrChat extends View {
     this.follow(true);
   }
 
+  /** The reply box belongs to a session: leaving one keeps its draft, and the next one gets its own back. */
+  swapDraft(key) {
+    if (this.key) {
+      const text = this.input.value(), attachments = this.attachments;
+      if (text || attachments.length) this.drafts.set(this.key, { text, attachments });
+      else this.drafts.delete(this.key);
+    }
+    const draft = key ? this.drafts.get(key) : null;
+    this.input.set_value(draft?.text ?? "");
+    this.attachments = draft?.attachments ?? [];
+    this.mirror = null;
+  }
+
   stash() {
     if (!this.key || !this.path) return;
     const { raw, calls, offset, leaf, path, hint, messages, clipped, note, open } = this;
@@ -524,7 +539,8 @@ export default class HerdrChat extends View {
     const switched = key !== this.key;
     if (switched) {
       this.stash();
-      this.key = key; this.needsScroll = false; this.settling = true; this.pendingCount = -1; this.follow(); this.screen = ""; this.lastId = ""; this.screenAskedAt = 0;
+      this.swapDraft(key);
+      this.key = key; this.needsScroll = false; this.settling = true; this.pendingCount = -1; this.follow(); this.screen = ""; this.choices = null; this.lastId = ""; this.screenAskedAt = 0;
       this.watchToken = (this.watchToken ?? 0) + 1; this.watchedPath = "";
       const kept = key ? this.sessions.get(key) : null;
       if (kept) Object.assign(this, kept);
@@ -670,7 +686,14 @@ export default class HerdrChat extends View {
     this.input.set_value("");
     this.attachments = this.attachments.filter(a => !attached.includes(a));
     cx.notify();
+    const owner = this.key;
     const restore = () => {
+      // back into the session it was written for, even if another one is showing now
+      if (this.key !== owner) {
+        const d = this.drafts.get(owner) ?? { text: "", attachments: [] };
+        this.drafts.set(owner, { text: d.text.trim() ? d.text : typed, attachments: [...attached, ...d.attachments] });
+        return;
+      }
       if (!this.input.value().trim()) this.input.set_value(typed);
       this.attachments = [...attached.filter(a => !this.attachments.includes(a)), ...this.attachments];
     };
@@ -752,8 +775,14 @@ export default class HerdrChat extends View {
     return null;
   }
 
-  attach(file, name, cx) {
-    this.attachments.push({ name, file, rel: `${ATTACH_DIR}/${file.split(/[\\/]/).pop()}` });
+  /** Adds an image to the draft of `owner`, the session it was added in, even if another one shows now. */
+  attach(file, name, cx, owner = this.key) {
+    const a = { name, file, rel: `${ATTACH_DIR}/${file.split(/[\\/]/).pop()}` };
+    if (owner === this.key) this.attachments.push(a);
+    else {
+      const d = this.drafts.get(owner) ?? { text: "", attachments: [] };
+      this.drafts.set(owner, { ...d, attachments: [...d.attachments, a] });
+    }
     cx.notify();
   }
 
@@ -777,6 +806,7 @@ export default class HerdrChat extends View {
   dropFiles(paths, cx) {
     const images = paths.filter(p => IMAGE_FILE.test(p));
     if (!images.length) { this.note = "Only images can be attached (png, jpg, gif, webp)."; cx.notify(); return; }
+    const owner = this.key;
     cx.spawn(async cx => {
       for (const source of images) {
         const label = source.split(/[\\/]/).pop(), name = attachName(source);
@@ -784,7 +814,7 @@ export default class HerdrChat extends View {
           unix: [modFile("prepare-image.sh"), source, attachDir(), name],
           windows: ["-Source", source, "-Folder", attachDir(), "-Name", name],
         }, label);
-        if (file) this.attach(file, label, cx);
+        if (file) this.attach(file, label, cx, owner);
         else cx.notify();
       }
     });
@@ -792,6 +822,7 @@ export default class HerdrChat extends View {
 
   /** Ctrl+V with an image (and no text) on the clipboard: attached like a dropped file. */
   pasteImage(cx) {
+    const owner = this.key;
     cx.spawn(async cx => {
       const name = attachName("pasted");
       const file = await this.prepare({
@@ -807,7 +838,7 @@ export default class HerdrChat extends View {
           "sh", attachDir(), name, modFile("prepare-image.sh")],
         windows: ["-Clipboard", "-Folder", attachDir(), "-Name", name],
       }, "the pasted image");
-      if (file) this.attach(file, "Pasted image", cx);
+      if (file) this.attach(file, "Pasted image", cx, owner);
       else cx.notify();
     });
   }
