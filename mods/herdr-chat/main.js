@@ -7,6 +7,11 @@ import { isHeader, terminalHeader } from "./header.js";
 
 const TURN_GAP = 28;
 const COLUMN = 740;
+// Room under the newest message, inside the list, so older text can scroll right up to the
+// reply box instead of stopping at a padded band above it.
+const TAIL = 32;
+// How far above the reply box messages fade out as they scroll under it.
+const FADE = 20;
 const SESSIONS_KEPT = 12;
 const PATHS_KEY = "herdr-chat.paths";
 function inputHighlight(cx) {
@@ -616,7 +621,7 @@ export default class HerdrChat extends View {
     const now = Date.now();
     const settling = rows.filter(m => { const k = hkey(m); return k in this.heights && now - (this.changedAt[k] ?? 0) < 2000; });
     const pending = [...settling, ...unmeasured];
-    const sizes = rows.map(m => (this.heights[hkey(m)] ?? 40) + 16);
+    const sizes = rows.map((m, i) => (this.heights[hkey(m)] ?? 40) + 16 + (i === rows.length - 1 ? TAIL : 0));
     this.sig = `${rows.length}:${sizes.reduce((a, b) => a + b, 0)}`;
     this.noticeVisit();
     const status = this.status(t, active);
@@ -635,12 +640,16 @@ export default class HerdrChat extends View {
         this.laidOut = Date.now();
         const out = [];
         for (let i = range.start; i < range.end; i++)
-          out.push(h_flex().w_full().justify_center().px(24).py(8).child(div().w_full().max_w(COLUMN).child(this.row(rows[i], rows[i].key, t))));
+          out.push(h_flex().w_full().justify_center().px(24).pt(8).pb(i === rows.length - 1 ? 8 + TAIL : 8).child(div().w_full().max_w(COLUMN).child(this.row(rows[i], rows[i].key, t))));
         return out;
       }).track_scroll(this.scroll).on_item_click((key, cx) => {
         const kind = rows.find(r => r.key === key)?.kind;
         if (kind === "tools" || kind === "reasoning") { this.open[key] = !this.open[key]; cx.notify(); }
       }).size_full())
+        // Strips of the background, each more opaque than the one above (a gradient, from
+        // parts that draw everywhere; Background.linear_gradient threw while rendering).
+        .child(v_flex().absolute().bottom(0).left(0).right(0).h(FADE)
+          .children(Array.from({ length: 8 }, (_, i) => div().w_full().flex_1().bg(t.background).opacity((i + 1) / 8))))
         .when(!this.following && !this.needsScroll, el => el.child(h_flex().absolute().bottom(12).left(0).right(0).justify_center()
           .child(div().id("jump-bottom").size(34).flex().items_center().justify_center().rounded(17).cursor_pointer()
             .bg(t.popover ?? t.surface).border_1().border_color(t.border).shadow_md().text_color(t.foreground)
@@ -661,7 +670,7 @@ export default class HerdrChat extends View {
             })
             .child(this.row(m, m.key, t));
         }))))
-      .child(v_flex().w_full().flex_none().items_center().px(24).pt(44).pb(14).gap(12)
+      .child(v_flex().w_full().flex_none().items_center().px(24).pt(12).pb(14).gap(12)
         .when(Boolean(status), el => el.child(status))
         .child(this.composer(t, active)));
   }
