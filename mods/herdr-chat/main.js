@@ -1,15 +1,17 @@
 import { View, div, svg, image } from "gpui-kit";
 import { set_theme, v_flex, h_flex, TextareaState, Textarea, TextView, VirtualListScrollHandle, v_virtual_list } from "gpui-base";
-import { agents, terminals, panes, focused, props, hc, exec, appHome, run, theme, settings, shared, setShared, watchFolder } from "herdr";
+import { agents, panes, focused, props, hc, exec, appHome, run, theme, settings, shared, setShared, watchFolder } from "herdr";
 import { readFile } from "fs/promises";
-import { SUPPORTED, ICONS, switchTo, showView, preferredView, sessionOf } from "./common.js";
+import { ICONS, switchTo, showView, preferredView, sessionOf } from "./common.js";
 import { onWindows, modFile, base64Utf8, removeFiles, pruneOld } from "./platform.js";
-import { readScreen, readPrompt, sendMessage, pressKeys, inputBox } from "./terminal.js";
+import { target, readScreen, readPrompt, sendMessage, pressKeys, inputBox } from "./terminal.js";
+import { parseChoices } from "./prompts.js";
+import { ChoiceMethods } from "./choices.js";
+import { COLUMN, icon, mono } from "./ui.js";
 import { imageStyle, canMirror, withImages, draftPastes, textOfBox, readBack } from "./agents.js";
 import { isHeader, terminalHeader } from "./header.js";
 
 const TURN_GAP = 28;
-const COLUMN = 740;
 // Room under the newest message, inside the list, so older text can scroll right up to the
 // reply box instead of stopping at a padded band above it.
 const TAIL = 32;
@@ -42,22 +44,6 @@ const KINDS = {
 };
 const STEP = { think: "Thought", shell: "Bash", read: "Read", edit: "Edit", search: "Search", web: "Web", image: "View", agent: "Agent", todo: "Todos", other: "Tool" };
 
-function target() {
-  const f = focused();
-  if (!f) return null;
-  const mine = agents().filter(x => x.tab === f.tab && x.space === f.space && SUPPORTED[x.app]);
-  const a = mine.find(x => x.address === f.terminal) ?? mine[0];
-  if (!a) return null;
-  const term = terminals().find(x => x.address === a.address);
-  return {
-    address: a.address, pane: a.pane, app: a.app, label: SUPPORTED[a.app], program: a.program,
-    status: a.status, title: a.title, remote: a.address.includes("/"),
-    machine: a.address.includes("/") ? a.address.split("/")[0] : null,
-    pid: term?.pid ?? 0, created: term?.created_ms ?? 0, cwd: term?.cwd ?? "",
-    activity: term?.report?.msg ?? term?.status?.msg ?? "",
-  };
-}
-
 // Images attached in the reply box. Each gets a short-lived preview copy in the herdr
 // home (image() draws only from there), deleted once it's sent or removed. On send,
 // `hc put` places the image beside the agent's terminal, here or on another machine,
@@ -70,69 +56,6 @@ function attachName(source) {
   const base = source.split(/[\\/]/).pop().replace(/\.[^.]*$/, "").replace(/[^A-Za-z0-9_-]/g, "-").slice(-40) || "image";
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}-${base}`;
 }
-// A choice prompt on an agent's screen (a permission request, a question tool, an approval):
-// its question, its tabs when there are several questions, and its choices with the one selected.
-// null when the screen has none.
-function parseChoices(screen) {
-  const lines = screen.replace(/ /g, " ").split("\n").map(l => l.replace(/\s+$/, ""));
-  const FOOTER = /enter to (select|confirm)|↑\/↓|to navigate|esc to cancel/i;
-  const RULE = /^\s*[─━═]{8,}\s*$/;
-  const SOFT_RULE = /^\s*[╌┄┈-]{8,}\s*$/;
-  const CURSOR = /^(\s*)([❯›>▸➤])\s+(\S.*)$/;
-  const NUMBERED = /^(\s*)(?:[❯›>▸➤]\s+)?(\d+)[.)]\s+(.+)$/;
-  // the footer: near the bottom, the last line that names the prompt's keys
-  let end = lines.length - 1;
-  while (end >= 0 && !lines[end].trim()) end--;
-  let footer = -1;
-  for (let y = end; y >= Math.max(0, end - 6); y--) if (FOOTER.test(lines[y])) { footer = y; break; }
-  if (footer < 0) return null;
-  // the choices: upward from the footer, past rules, blank lines and a scroll arrow
-  let y = footer - 1;
-  let more = false;
-  while (y >= 0 && (!lines[y].trim() || RULE.test(lines[y]) || /^\s*[↓↑]\s*$/.test(lines[y]))) { if (/↓/.test(lines[y])) more = true; y--; }
-  const block = [];
-  let numbered = null;
-  for (; y >= 0 && footer - y < 40; y--) {
-    const line = lines[y];
-    const n = NUMBERED.exec(line), c = CURSOR.exec(line);
-    if (numbered !== false && n) { numbered = true; block.unshift({ y, line }); continue; }
-    if (numbered === null && c) { numbered = false; block.unshift({ y, line }); continue; }
-    if (numbered === false && block.length) {
-      // unnumbered choices sit at the selected one's text column, with no cursor of their own
-      const col = CURSOR.exec(block.find(b => CURSOR.test(b.line))?.line ?? "")?.[1].length;
-      const text = /^(\s*)(\S.*)$/.exec(line);
-      if (c || (text && col != null && text[1].length === col + 2)) { block.unshift({ y, line }); continue; }
-      break;
-    }
-    // a description: indented under a choice, or a blank line between choices
-    if (block.length && (!line.trim() || /^\s{4,}\S/.test(line))) { block.unshift({ y, line, desc: true }); continue; }
-    break;
-  }
-  const options = [];
-  for (const b of block) {
-    if (b.desc) { if (options.length && b.line.trim()) options.at(-1).desc.push(b.line.trim()); continue; }
-    const n = NUMBERED.exec(b.line), c = CURSOR.exec(b.line);
-    const label = (n ? n[3] : c ? c[3] : b.line.trim()).trim();
-    options.push({ n: n ? Number(n[2]) : options.length + 1, label, desc: [], selected: Boolean(c) || /^\s*[❯›>▸➤]/.test(b.line) });
-  }
-  if (options.length < 2 || options.filter(o => o.selected).length !== 1) return null;
-  // the question: the lines above the choices, up to a rule or an earlier turn, dashed rules let through
-  const question = [];
-  let tabs = null;
-  for (let q = (block[0]?.y ?? footer) - 1, blanks = 0; q >= 0 && question.length < 10; q--) {
-    const line = lines[q];
-    if (RULE.test(line)) break;
-    if (SOFT_RULE.test(line)) continue;
-    if (/^\s*[•●⎿⏺]/.test(line) || /^\s*[❯›]\s/.test(line)) break;
-    if (!line.trim()) { if (++blanks >= 2 && question.length) break; continue; }
-    blanks = 0;
-    if (/[□☐■☑☒✓✔]/.test(line) && /submit/i.test(line)) { tabs = line.trim(); continue; }
-    question.unshift(line.trim());
-  }
-  const sig = JSON.stringify([question, options.map(o => o.label)]);
-  return { question, tabs, options, footer: lines[footer].trim(), more, sig };
-}
-
 let pythonBoot = null;
 async function runReader(t, { path, hint, offset, screen, peers, leaf }) {
   if (!t.remote && onWindows()) {
@@ -154,9 +77,6 @@ async function runReader(t, { path, hint, offset, screen, peers, leaf }) {
   if (leaf) args.push("--leaf", leaf);
   return exec("python3", ["-c", pythonBoot, ...args], t.machine ? { on: t.machine } : undefined);
 }
-
-function icon(name, size, color) { return svg(`${ICONS}/${name}.svg`).size(size).flex_none().text_color(color); }
-function mono() { return settings().font_family || settings().font || "JetBrains Mono"; }
 
 function summary(steps) {
   const calls = steps.filter(c => c.k !== "think");
@@ -757,53 +677,6 @@ export default class HerdrChat extends View {
           .child(icon("close", 10, t.muted)))));
   }
 
-  /**
-   * Whether the prompt shown is still the one on screen. A question card compares the question as
-   * parsed: a working agent's screen also holds a spinner or a timer that changes on every read.
-   * Without a card (a blocked agent's raw screen) the screen itself has to be the same.
-   */
-  async promptStillCurrent(t) {
-    if (target()?.address !== t.address) return false;
-    const text = await readPrompt(t);
-    if (text == null) return false;
-    if (this.choices) return parseChoices(text)?.sig === this.choices.sig;
-    return target()?.status === "blocked" && Boolean(this.screen) && text === this.screen;
-  }
-
-  /** Picks a choice of the prompt on screen: from the selected one, ↑ or ↓ to it, then Enter. */
-  choose(index, cx) {
-    const t = target(), shown = this.choices;
-    if (!t || !shown || this.sending) return;
-    this.sending = true; cx.notify();
-    cx.spawn(async cx => {
-      try {
-        const text = await readPrompt(t);
-        const now = text != null ? parseChoices(text) : null;
-        if (!now || now.sig !== shown.sig || target()?.address !== t.address) throw new Error("The question changed. Review it again before answering.");
-        const from = now.options.findIndex(o => o.selected);
-        const moves = Array(Math.abs(index - from)).fill(index > from ? "down" : "up");
-        const r = await pressKeys(t, [...moves, "enter"]);
-        if (r.code !== 0) throw new Error(r.stderr || "Key send failed");
-        this.choices = null; this.screen = "";
-      } catch (e) { this.note = String(e?.message ?? e); }
-      finally { this.sending = false; cx.notify(); }
-    });
-  }
-
-  press(key, cx) {
-    const t = target();
-    if (!t || this.sending) return;
-    this.sending = true; cx.notify();
-    cx.spawn(async cx => {
-      try {
-        if (key !== "esc" && !(await this.promptStillCurrent(t))) throw new Error("The prompt changed. Review it again before answering.");
-        const r = await pressKeys(t, [key]);
-        if (r.code !== 0) throw new Error(r.stderr || "Key send failed");
-      } catch (e) { this.note = String(e); }
-      finally { this.sending = false; cx.notify(); }
-    });
-  }
-
   disclosure(i, t, glyph, title, open) {
     return h_flex().h(30).gap(8).items_center().text_size(13.5).text_color(open ? t.foreground : t.muted)
       .child(icon(glyph, 14, t.muted))
@@ -884,38 +757,8 @@ export default class HerdrChat extends View {
   }
 
   status(t, active) {
-    const q = active && (active.status === "blocked" || active.status === "working") ? this.choices : null;
-    if (active?.status === "blocked" || q) {
-      const key = (id, label, k) => div().id(id).h(30).px(12).flex().items_center().rounded(8).cursor_pointer()
-        .border_1().border_color(t.border).bg(t.background).text_size(12.5).text_color(t.foreground)
-        .hover(s => s.bg(t.hover)).on_click((_e, cx) => k === "terminal" ? switchTo("terminal", active ? sessionOf(active) : "") : this.press(k, cx)).child(label);
-      return v_flex().w_full().max_w(COLUMN).p(14).gap(10).rounded(14).border_1().border_color(t.blocked).bg(t.surface)
-        .child(h_flex().gap(8).items_center()
-          .child(div().size(8).rounded(4).bg(t.blocked))
-          .child(div().text_size(13.5).font_semibold().text_color(t.foreground).child(q ? `${active.label} is asking` : `${active.label} needs your input`)))
-        .when(Boolean(q), el => el
-          .when(Boolean(q.tabs), el => el.child(div().text_size(11.5).text_color(t.dim).truncate().child(q.tabs)))
-          .when(q.question.length > 1, el => el.child(div().max_h(110).overflow_y_scrollbar().px(10).py(6).rounded(8).bg(t.background)
-            .font_family(mono()).text_size(11.5).text_color(t.muted).child(q.question.slice(0, -1).join("\n"))))
-          .child(div().text_size(14).text_color(t.foreground).child(q.question.at(-1) ?? ""))
-          .child(v_flex().gap(6).children(q.options.map((o, i) => v_flex().id(`choice-${i}`).w_full().px(12).py(8).gap(2).rounded(10)
-            .border_1().border_color(o.selected ? t.accent : t.border).bg(t.background).cursor_pointer()
-            .hover(s => s.bg(t.hover))
-            .on_click((_e, cx) => this.choose(i, cx))
-            .child(h_flex().gap(8).items_start()
-              .child(div().flex_none().text_size(13).text_color(t.dim).child(`${o.n}.`))
-              .child(div().flex_1().min_w(0).text_size(13.5).text_color(t.foreground).child(o.label)))
-            .when(o.desc.length > 0, el => el.child(div().pl(20).text_size(12).text_color(t.muted).child(o.desc.join(" ")))))))
-          .when(q.more, el => el.child(div().text_size(11.5).text_color(t.dim).child("More choices below: use ↓ or open the terminal."))))
-        .when(!q, el => el.child(div().max_h(220).overflow_y_scrollbar().px(10).py(8).rounded(8).bg(t.background)
-          .font_family(mono()).text_size(12).text_color(t.muted)
-          .child(this.screen ? this.screen.split("\n").filter(l => l.trim()).slice(-12).join("\n") : "Open the terminal to review the request.")))
-        .child(h_flex().gap(6).flex_wrap()
-          .child(key("k-up", "↑", "up")).child(key("k-down", "↓", "down"))
-          .child(key("k-enter", "Enter", "enter")).child(key("k-esc", "Esc", "esc"))
-          .child(div().flex_1())
-          .child(key("k-term", "Open terminal", "terminal")));
-    }
+    const card = this.promptCard(t, active);
+    if (card) return card;
     if (active?.status === "working") return h_flex().w_full().max_w(COLUMN).h(26).gap(8).items_center()
       .child(div().w(14).text_size(15).text_color(t.accent).frames(SPARK, 120).child(SPARK[0]))
       .child(div().flex_1().min_w(0).truncate().text_size(13.5).text_color(t.muted)
@@ -1027,3 +870,5 @@ export default class HerdrChat extends View {
         .child(this.composer(t, active)));
   }
 }
+
+Object.assign(HerdrChat.prototype, ChoiceMethods);

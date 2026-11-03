@@ -1,7 +1,25 @@
 // Talking to an agent's terminal through herdr-core: reading its screen, typing as the person, keys,
 // and its own input box (input-box.py).
-import { hc, exec, appHome } from "herdr";
+import { hc, exec, appHome, focused, agents, terminals } from "herdr";
 import { onWindows, modFile, base64Utf8 } from "./platform.js";
+import { SUPPORTED } from "./agents.js";
+
+/** The agent the chat shows: the focused tab's agent, the focused one when there are several. */
+export function target() {
+  const f = focused();
+  if (!f) return null;
+  const mine = agents().filter(x => x.tab === f.tab && x.space === f.space && SUPPORTED[x.app]);
+  const a = mine.find(x => x.address === f.terminal) ?? mine[0];
+  if (!a) return null;
+  const term = terminals().find(x => x.address === a.address);
+  return {
+    address: a.address, pane: a.pane, app: a.app, label: SUPPORTED[a.app], program: a.program,
+    status: a.status, title: a.title, remote: a.address.includes("/"),
+    machine: a.address.includes("/") ? a.address.split("/")[0] : null,
+    pid: term?.pid ?? 0, created: term?.created_ms ?? 0, cwd: term?.cwd ?? "",
+    activity: term?.report?.msg ?? term?.status?.msg ?? "",
+  };
+}
 
 /** The screen plus `lines` of history, or null when it can't be read. */
 export async function readScreen(t, lines) {
