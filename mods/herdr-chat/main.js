@@ -213,7 +213,7 @@ export default class HerdrChat extends View {
     this.following = true; this.visibleEnd = 0; this.rowCount = 0;
     this.messages = []; this.open = {};
     this.width = 900; this.needsScroll = true; this.scrollAskedAt = Date.now(); this.lastAsk = Date.now(); this.laidOut = 0; this.pendingCount = -1; this.settling = true; this.isEmpty = true;
-    this.heights = {}; this.measuredAt = 0;
+    this.heights = {}; this.changedAt = {}; this.measuredAt = 0;
     this.visit = shared("herdr-chat.visit");
     this.path = ""; this.hint = ""; this.note = "Loading conversation…"; this.screen = "";
     this.raw = []; this.calls = new Map(); this.offset = 0; this.leaf = ""; this.lastRead = 0; this.sessions = new Map();
@@ -606,10 +606,16 @@ export default class HerdrChat extends View {
     this.isEmpty = empty;
     keyRows(rows);
     const inner = Math.min(COLUMN, Math.max(280, Math.floor(this.width) - 50));
-    if (inner !== this.measuredAt) { this.heights = {}; this.measuredAt = inner; }
+    if (inner !== this.measuredAt) { this.heights = {}; this.changedAt = {}; this.measuredAt = inner; }
     const hkey = m => `${m.key}${this.open[m.key] ? ":open" : ""}`;
-    const pending = rows.filter(m => !(hkey(m) in this.heights)).slice(-40);
-    this.pendingCount = pending.length;
+    const unmeasured = rows.filter(m => !(hkey(m) in this.heights)).slice(-40);
+    this.pendingCount = unmeasured.length;
+    // A row stays in the measure until its height has held for a while: a long reply's
+    // markdown can finish wrapping after its first size is reported, and a row kept at
+    // that first, shorter height draws over the rows below it.
+    const now = Date.now();
+    const settling = rows.filter(m => { const k = hkey(m); return k in this.heights && now - (this.changedAt[k] ?? 0) < 2000; });
+    const pending = [...settling, ...unmeasured];
     const sizes = rows.map(m => (this.heights[hkey(m)] ?? 40) + 16);
     this.sig = `${rows.length}:${sizes.reduce((a, b) => a + b, 0)}`;
     this.noticeVisit();
@@ -646,7 +652,12 @@ export default class HerdrChat extends View {
           const k = hkey(m);
           return div().id(`measure-${k}`).w(inner).flex_none()
             .on_size_change((size, cx) => {
-              if (this.heights[k] !== size.height) { this.heights[k] = size.height; if (this.following) this.follow(); cx.notify(); }
+              if (this.heights[k] !== size.height) {
+                this.heights[k] = size.height; this.changedAt[k] = Date.now();
+                if (this.following) this.follow();
+                cx.notify();
+                cx.timer.after?.(2100, cx => cx.notify());
+              }
             })
             .child(this.row(m, m.key, t));
         }))))
