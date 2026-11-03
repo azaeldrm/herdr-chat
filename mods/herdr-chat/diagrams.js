@@ -2,7 +2,8 @@
 // Pele colors its SVG through CSS variables, which herdr's SVG renderer ignores (shapes come out
 // black, text missing), so the theme's colors are written into the SVG before it's saved under
 // cache/herdr-chat/diagrams/ for image(), which reads only from the herdr home. Rendering happens
-// from the chat's timer, one diagram per tick, never while drawing.
+// from the chat's timer, one diagram per tick, never while drawing. A diagram shows on its own, in
+// the reply's column; one Pele can't parse shows as its source.
 import { appHome } from "herdr";
 import * as fs from "fs/promises";
 import { register, render } from "./vendor/pele/core.js";
@@ -25,10 +26,9 @@ const DIR = "cache/herdr-chat/diagrams";
 const KEPT = 200;
 const entries = new Map(); // key -> { key, source, colors, state: "queued" | "ready" | "failed", rel, width, height, error }
 const queue = [];
-const sourceShown = new Set();
 let version = 0;
 
-/** Changes whenever a diagram finishes or flips between picture and source: rows holding one re-measure. */
+/** Changes whenever a diagram finishes drawing (or fails): rows holding one are measured again. */
 export function diagramsVersion() { return version; }
 
 // herdr's SVG renderer finds only fonts installed on the system, not the Geist herdr draws its own
@@ -79,8 +79,6 @@ export function diagramFor(source, t) {
 
 export function hasQueuedDiagrams() { return queue.length > 0; }
 
-export function showingSource(e) { return sourceShown.has(e.source); }
-export function toggleSource(e) { sourceShown.has(e.source) ? sourceShown.delete(e.source) : sourceShown.add(e.source); version++; }
 
 /** Draws the next queued diagram; resolves true when one finished (drawn or failed). */
 export async function renderNextDiagram() {

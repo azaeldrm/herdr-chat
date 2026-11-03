@@ -6,7 +6,7 @@ import { join } from "path";
 import { stage } from "./stage.mjs";
 
 const staged = stage();
-const { splitDiagrams, diagramFor, renderNextDiagram, hasQueuedDiagrams, bake, diagramsVersion, toggleSource, showingSource } = await staged.load("diagrams.js");
+const { splitDiagrams, diagramFor, renderNextDiagram, hasQueuedDiagrams, bake, diagramsVersion } = await staged.load("diagrams.js");
 let failed = 0;
 const check = (ok, what, detail = "") => { console.log(`${ok ? "PASS" : "FAIL"} ${what}${ok ? "" : "  " + detail}`); if (!ok) failed++; };
 const theme = { background: "#101215", foreground: "#dededb", muted: "#9a9fa2", surface: "#16191d", raised: "#1c2025", border: "#2a2f35", accent: "#e0a030" };
@@ -37,11 +37,9 @@ check(pie.state === "ready" && !pieSvg.includes("var(") && pieSvg.includes("#4c7
 
 const bad = diagramFor("flowchart LR\n  A -->", theme);
 await renderNextDiagram();
-check(bad.state === "failed" && bad.error, "a diagram Pele can't parse fails with its reason (the source shows)", JSON.stringify(bad));
+check(bad.state === "failed" && bad.error, "a diagram Pele can't parse fails with its reason (its source shows instead)", JSON.stringify(bad));
 
 check(diagramFor(flow.source, { ...theme, foreground: "#000000" }).key !== flow.key, "another theme draws its own copy");
-toggleSource(flow);
-check(showingSource(flow), "clicking flips a diagram to its source");
 
 staged.cleanup();
 if (failed) process.exit(1);
