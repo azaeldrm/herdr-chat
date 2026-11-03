@@ -3,41 +3,11 @@
 // defined or imported (what moving code between modules tends to break; herdr-app check only
 // loads the mod and draws it once). Other errors from the dummy arguments are expected.
 //   node tests/sweep.mjs
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, copyFileSync, rmSync } from "fs";
-import { tmpdir } from "os";
-import { join, dirname } from "path";
-import { fileURLToPath, pathToFileURL } from "url";
+import { readdirSync } from "fs";
+import { stage, MOD } from "./stage.mjs";
 
-const mod = join(dirname(fileURLToPath(import.meta.url)), "..", "mods", "herdr-chat");
-const dir = mkdtempSync(join(tmpdir(), "herdr-chat-sweep-"));
-const pkg = (name, source) => {
-  mkdirSync(join(dir, "node_modules", name), { recursive: true });
-  writeFileSync(join(dir, "node_modules", name, "package.json"), JSON.stringify({ name, type: "module", main: "index.js" }));
-  writeFileSync(join(dir, "node_modules", name, "index.js"), source);
-};
-// an element: every builder method returns another; only .when runs its branch, as gpui-kit's does
-const element = `export const el = () => new Proxy(function () {}, {
-  get: (_t, k) => k === "then" ? undefined : k === "when" ? (c, f) => (c ? f(el()) : el()) : () => el(),
-  apply: () => el(),
-});`;
-writeFileSync(join(dir, "element.js"), element);
-pkg("gpui-kit", `import { el } from "../../element.js";
-export const div = () => el(), svg = () => el(), image = () => el(); export class View {}
-export const Background = { linear_gradient: () => ({}), stop: () => ({}) };`);
-pkg("gpui-base", `import { el } from "../../element.js";
-export const v_flex = () => el(), h_flex = () => el(), TextView = { markdown: () => el() };
-export const TextareaState = { new: () => new Proxy({}, { get: (_t, k) => k === "value" ? () => "" : () => {} }) };
-export const Textarea = { new: () => el() }, VirtualListScrollHandle = { new: () => ({}) }, v_virtual_list = () => el(), set_theme = () => {};`);
-pkg("herdr", `export const appHome = () => "/home/u/.config/herdr-app";
-export const exec = async () => ({ code: 0, stdout: '{"box": ""}', stderr: "" });
-export const hc = async () => ({ code: 0, stdout: '{"path":"/x/placed.png"}' });
-export const run = () => {}, shared = () => null, setShared = () => {}, terminals = () => [], settings = () => ({});
-export const focused = () => ({ tab: "tb", space: "sp", terminal: "t1" });
-export const agents = () => [{ address: "t1", tab: "tb", space: "sp", app: "claude-code", status: "working", pane: "p1" }];
-export const panes = () => [], props = () => ({}), home = () => "/home/u", watchFolder = () => new Promise(() => {});
-export const theme = () => new Proxy({}, { get: () => "#888888" });`);
-const files = readdirSync(mod).filter(f => f.endsWith(".js"));
-for (const f of files) copyFileSync(join(mod, f), join(dir, f));
+const staged = stage();
+const files = readdirSync(MOD).filter(f => f.endsWith(".js"));
 
 const found = new Set();
 const late = e => { if (e instanceof ReferenceError) found.add(`(later) ${e.message}`); };
@@ -57,7 +27,7 @@ const sweep = async (label, fn, self) => {
   }
 };
 const modules = {};
-for (const f of files) modules[f] = await import(pathToFileURL(join(dir, f)).href);
+for (const f of files) modules[f] = await staged.load(f);
 const mixins = Object.values(modules).flatMap(m => Object.entries(m).filter(([k, v]) => /Methods$/.test(k) && v && typeof v === "object").map(([, v]) => v));
 for (const [f, m] of Object.entries(modules)) {
   for (const [name, value] of Object.entries(m)) {
@@ -73,6 +43,6 @@ for (const [f, m] of Object.entries(modules)) {
   }
 }
 await new Promise(r => setTimeout(r, 300));
-rmSync(dir, { recursive: true, force: true });
+staged.cleanup();
 if (found.size) { console.error([...found].join("\n")); process.exit(1); }
 console.log(`no undefined names: ${calls} calls across ${files.length} modules`);
