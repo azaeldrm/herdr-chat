@@ -4,14 +4,15 @@ import { agents, panes, focused, props, hc, exec, appHome, theme, shared, setSha
 import { readFile } from "fs/promises";
 import { ICONS, switchTo, showView, preferredView, sessionOf } from "./common.js";
 import { onWindows, base64Utf8 } from "./platform.js";
-import { target, readScreen, readPrompt, sendMessage, pressKeys, inputBox } from "./terminal.js";
+import { target, readScreen, readPrompt, sendMessage, pressKeys, inputBox, interruptAgent } from "./terminal.js";
 import { parseChoices } from "./prompts.js";
 import { ChoiceMethods } from "./choices.js";
 import { ImageMethods } from "./images.js";
 import { DraftMethods } from "./draft.js";
-import { TranscriptMethods, foldActivity, keyRows, CALL_SOURCE } from "./transcript.js";
+import { TranscriptMethods, foldActivity, keyRows, CALL_SOURCE, withoutRetracted } from "./transcript.js";
 import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle } from "./ui.js";
 import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
+import { caretOf, lineMove } from "./caret.js";
 import { imageStyle, canMirror, withImages } from "./agents.js";
 import { isHeader, terminalHeader } from "./header.js";
 
@@ -78,6 +79,19 @@ export default class HerdrChat extends View {
       }
       cx.notify();
     });
+    // ↑/↓ in the reply box: herdr's textarea keeps them (and can't move to the start or end), so a
+    // binding scoped to this box ("HerdrChatReply > Input": the textarea's own context is "Input")
+    // turns them into the chat's actions. The keymap is the app's, so bind once per engine.
+    if (!globalThis.herdrChatLineKeys) {
+      globalThis.herdrChatLineKeys = cx.bind_keys([
+        { keystroke: "up", action: "herdr_chat::LineUp", context: "HerdrChatReply > Input" },
+        { keystroke: "down", action: "herdr_chat::LineDown", context: "HerdrChatReply > Input" },
+      ]);
+    }
+    // Esc in the reply box stops a working agent, as Esc does in its terminal (bound once per engine).
+    if (!globalThis.herdrChatStopKey) {
+      globalThis.herdrChatStopKey = cx.bind_keys([{ keystroke: "escape", action: "herdr_chat::Stop", context: "HerdrChatReply > Input" }]);
+    }
     // A paste with no text in it (an image) that didn't come through Ctrl+V below: right-click, say.
     this.input.on("paste_other", (_e, cx) => { if (Date.now() - (this.imagePasteAt ?? 0) > 800) this.pasteImage(cx); });
     this.following = true; this.visibleEnd = 0; this.rowCount = 0;
@@ -310,6 +324,47 @@ export default class HerdrChat extends View {
     if (id !== this.lastId) { this.lastId = id; if (this.following) this.follow(); }
   }
 
+  /**
+   * ↑ (dir -1) or ↓ (+1) in the reply box: the line above or below at the same column, the start on
+   * the first line, the end on the last. Lines are the ones between line breaks (the textarea can't
+   * say where it wraps a long line). A run of ↑/↓ keeps the column it started from.
+   */
+  lineKey(dir) {
+    const { start, end } = caretOf(this.input);
+    const from = dir < 0 ? start : end;
+    const goal = this.lineGoal && this.lineGoal.at === from ? this.lineGoal.column : null;
+    const { at, column } = lineMove(this.input.value(), from, dir, goal);
+    this.input.set_selected_range({ start: at, end: at });
+    this.lineGoal = { at, column };
+  }
+
+  /**
+   * Stops the working agent (its own stop key, through hc interrupt). Claude Code then puts the
+   * message it was working on back in its input box; the draft mirror reads that box into the chat's,
+   * so the message is back to edit and send again. Text typed in the chat meanwhile isn't replaced.
+   */
+  stop(cx) {
+    const t = target();
+    if (!t || t.status !== "working" || this.stopping) return;
+    this.stopping = true; cx.notify();
+    cx.spawn(async cx => {
+      try {
+        const r = await interruptAgent(t);
+        if (r.outcome === "failed") throw new Error(r.error || `Couldn't stop ${t.label}.`);
+        await cx.sleep(600); // the agent puts the message back after it has stopped
+        if (canMirror(t.app)) {
+          // its box holding exactly the last message means the agent took it back (Claude Code):
+          // hide it now, rather than when the next message finally branches off before it
+          const box = (await inputBox("read", t, t.app)).box;
+          const last = [...this.messages].reverse().find(m => m.kind === "message");
+          if (box && last?.role === "user" && box.trim() === last.text.trim()) this.retracted = { key: this.key, text: last.text };
+          if (!this.input.value().trim() && !this.attachments.length) this.pullDraft(t, sessionOf(t), cx);
+        }
+      } catch (e) { this.note = String(e?.message ?? e); }
+      finally { this.stopping = false; cx.notify(); }
+    });
+  }
+
   /** Enter (without Shift): sends, and never leaves a new line in the box. */
   enter(cx) {
     this.enterAt = Date.now();
@@ -396,11 +451,16 @@ export default class HerdrChat extends View {
 
   composer(t, active) {
     const ready = (Boolean(this.input.value().trim()) || this.attachments.length > 0) && !this.sending && Boolean(active);
+    // While the agent works and the box is empty, the send button stops it (typing turns it back into Send).
+    const stopping = active?.status === "working" && !this.input.value().trim() && !this.attachments.length;
     return v_flex().w_full().max_w(COLUMN).gap(6)
       .child(h_flex().id("composer-box").w_full().pl(16).pr(8).py(8).gap(8).items_end().rounded(18).border_1().border_color(t.input).bg(t.surface)
         .child(v_flex().flex_1().min_w(0)
           .when(this.attachments.length > 0, el => el.child(this.attachmentStrip(t)))
-          .child(div().id("composer-input").w_full().min_w(0).py(4)
+          .child(div().id("composer-input").w_full().min_w(0).py(4).key_context("HerdrChatReply")
+          .on_action("herdr_chat::LineUp", () => this.lineKey(-1))
+          .on_action("herdr_chat::LineDown", () => this.lineKey(1))
+          .on_action("herdr_chat::Stop", (_e, cx) => this.stop(cx))
           .on_key_down((e, cx) => {
             const paste = e.key === "v" && (e.modifiers.control || e.modifiers.platform) && !e.modifiers.alt;
             if (paste && cx.read_from_clipboard() === undefined) { cx.stop_propagation(); this.imagePasteAt = Date.now(); this.pasteImage(cx); return; }
@@ -409,10 +469,15 @@ export default class HerdrChat extends View {
             this.enter(cx);
           })
           .child(Textarea.new(this.input).w_full().text_size(15).text_color(t.foreground))))
-        .child(div().id("send").size(32).flex_none().flex().items_center().justify_center().rounded(16)
-          .bg(ready ? t.accent : t.raised).text_color(ready ? t.accent_foreground : t.dim)
-          .when(ready, el => el.cursor_pointer().hover(s => s.opacity(0.88)).on_click((_e, cx) => this.send(cx)))
-          .child(svg(`${ICONS}/arrow-up.svg`).size(16))))
+        .child(stopping
+          ? div().id("stop").size(32).flex_none().flex().items_center().justify_center().rounded(16)
+            .bg(t.foreground).text_color(t.background).tooltip("Stop (Esc)")
+            .when(!this.stopping, el => el.cursor_pointer().hover(s => s.opacity(0.85)).on_click((_e, cx) => this.stop(cx)))
+            .child(svg(`${ICONS}/stop.svg`).size(14))
+          : div().id("send").size(32).flex_none().flex().items_center().justify_center().rounded(16)
+            .bg(ready ? t.accent : t.raised).text_color(ready ? t.accent_foreground : t.dim)
+            .when(ready, el => el.cursor_pointer().hover(s => s.opacity(0.88)).on_click((_e, cx) => this.send(cx)))
+            .child(svg(`${ICONS}/arrow-up.svg`).size(16))))
       .child(div().w_full().text_center().text_size(11.5).text_color(t.dim)
         .child(active ? `Sends to the live ${active.label} terminal · drop or paste an image to attach it` : ""));
   }
@@ -429,7 +494,9 @@ export default class HerdrChat extends View {
     const active = target();
     // An assistant reply with ```mermaid blocks becomes its text and a row per diagram, so a
     // diagram is measured, and measured again once drawn, on its own.
-    const rows = this.messages.flatMap(m => {
+    const shown = withoutRetracted(this.messages, this.retracted?.key === this.key ? this.retracted.text : null);
+    if (!shown.retracted && this.retracted?.key === this.key) this.retracted = null; // the conversation moved on
+    const rows = shown.rows.flatMap(m => {
       const parts = m.kind === "message" && m.role !== "user" && m.text?.includes("```mermaid") ? splitDiagrams(m.text) : null;
       return parts ? parts.map(p => p.kind === "diagram" ? { kind: "diagram", text: p.text } : { ...m, text: p.text }) : [m];
     });
