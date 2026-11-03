@@ -116,13 +116,22 @@ Mod (`mods/herdr-chat/`, `mod.json` is `{"place":"none"}`):
 
 | File | Role |
 |---|---|
-| `main.js` | the chat view; picks the target agent, keeps conversations, draws everything |
+| `main.js` | the chat View: its state and timers, reading conversations, the layout, sending |
+| `transcript.js` | conversation rows: folding tool calls and thinking, row keys, drawing each kind |
+| `choices.js` | a question card, choosing a choice, the key buttons (mixed into the View) |
+| `prompts.js` | `parseChoices`: a choice prompt read off the screen (pure) |
+| `images.js` | attaching images, their preview copies, placing them beside a terminal (mixed in) |
+| `draft.js` | one draft per session, mirrored into the agent's own input box (mixed in) |
+| `agents.js` | one profile per agent: how a message carries images, how its box shows the draft |
+| `terminal.js` | the target agent, reading its screen, sending as the person, keys, `input-box.py` |
+| `platform.js` | Windows and Unix differences: paths, quoting, base64, deleting files |
+| `ui.js` | shared look: column width, icons, program icon, pane buttons, status badge, view toggle |
 | `header.js` | the terminal pane header with the toggle |
-| `common.js` | the supported agents, per-session view memory, `layout.select` |
+| `common.js` | session keys, per-session view memory, `layout.select` |
 | `read-session.ps1` | session reader on Windows (PowerShell 5.1) |
 | `read_session.py` | the same reader for Linux, macOS and other machines (Python 3.6+) |
 | `send.ps1` | sends text on Windows without hc's terminal identity |
-| `prepare-image.sh` / `prepare-image.ps1` | copy an image into the preview folder, shrunk under 240 KB |
+| `prepare-image.sh` / `prepare-image.ps1` | copy an image (or the clipboard's) into the preview folder, shrunk under 240 KB |
 | `input-box.py` | reads, sets or pastes into an agent's own input box without Enter, through `hc attach` in a pty (the one draft, Codex images) |
 | `icons/` | the mod's own SVG icons |
 
@@ -204,6 +213,8 @@ Limits and gaps:
 
 - `herdr-app check ~/.config/herdr-app/mods/herdr-chat` passes and `herdr-app status` shows no errors
   after switching to the `herdr-chat` layout.
+- `node tests/sweep.mjs` finds no undefined names (it calls every function under stand-ins for herdr)
+  and `python3 tests/prompt-keys.py` finds the two prompt key patterns alike.
 - On a Claude Code, Codex or Pi tab the pane header shows the Chat | Terminal toggle at the far
   right, also while the hover buttons are showing, and the terminal is selected.
 - Clicking Chat shows that agent's conversation within a second or two, scrolled to the newest
