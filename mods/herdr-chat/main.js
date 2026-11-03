@@ -11,7 +11,7 @@ import { ImageMethods } from "./images.js";
 import { DraftMethods } from "./draft.js";
 import { TranscriptMethods, foldActivity, keyRows, CALL_SOURCE } from "./transcript.js";
 import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle } from "./ui.js";
-import { diagramFor, diagramsVersion, toggleSource, renderNextDiagram, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
+import { diagramsVersion, renderNextDiagram, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
 import { imageStyle, canMirror, withImages } from "./agents.js";
 import { isHeader, terminalHeader } from "./header.js";
 
@@ -427,7 +427,7 @@ export default class HerdrChat extends View {
     const t = theme();
     const active = target();
     // An assistant reply with ```mermaid blocks becomes its text and a row per diagram, so a
-    // diagram can be clicked (rows take clicks only as a whole: on_item_click).
+    // diagram is measured, and measured again once drawn, on its own.
     const rows = this.messages.flatMap(m => {
       const parts = m.kind === "message" && m.role !== "user" && m.text?.includes("```mermaid") ? splitDiagrams(m.text) : null;
       return parts ? parts.map(p => p.kind === "diagram" ? { kind: "diagram", text: p.text } : { ...m, text: p.text }) : [m];
@@ -438,7 +438,7 @@ export default class HerdrChat extends View {
     keyRows(rows);
     const inner = Math.min(COLUMN, Math.max(280, Math.floor(this.width) - 50));
     if (inner !== this.measuredAt) { this.heights = {}; this.changedAt = {}; this.measuredAt = inner; }
-    // a diagram row's height changes when it finishes drawing or flips to its source: measure it again
+    // a diagram row's height changes when it finishes drawing: measure it again
     const hkey = m => `${m.key}${this.open[m.key] ? ":open" : ""}${m.kind === "diagram" ? `:d${diagramsVersion()}` : ""}`;
     const unmeasured = rows.filter(m => !(hkey(m) in this.heights)).slice(-40);
     this.pendingCount = unmeasured.length;
@@ -473,7 +473,6 @@ export default class HerdrChat extends View {
       }).track_scroll(this.scroll).on_item_click((key, cx) => {
         const kind = rows.find(r => r.key === key)?.kind;
         if (kind === "tools" || kind === "reasoning") { this.open[key] = !this.open[key]; cx.notify(); }
-        if (kind === "diagram") { const d = diagramFor(rows.find(r => r.key === key).text, theme()); if (d.state === "ready") { toggleSource(d); cx.notify(); } }
       }).size_full())
         // Strips of the background, each more opaque than the one above (a gradient, from
         // parts that draw everywhere; Background.linear_gradient threw while rendering).

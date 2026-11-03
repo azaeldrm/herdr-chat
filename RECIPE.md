@@ -80,10 +80,10 @@ runs in. Icons are the mod's own SVGs drawn in the theme's text colour.
   #1 +7 lines]`) back into its text. An image pasted in the terminal itself stays there with a note:
   the agent keeps it where the chat can't read it. A chat send empties the agent's box first.
   Switching to Chat puts the keyboard in the reply box.
-- **Diagrams.** A reply's ```` ```mermaid ```` block shows as a picture in a card of its own, drawn by
-  [Pele](https://github.com/obsidianmd/pele) in the theme's colors and scaled to the column; clicking
-  the card switches between the picture and its source. While it draws, or when Pele can't parse it,
-  the card shows the source (with the reason). Ten types are included: flowchart, sequence, state,
+- **Diagrams.** A reply's ```` ```mermaid ```` block shows as a picture right in the reply, drawn by
+  [Pele](https://github.com/obsidianmd/pele) in the theme's colors and scaled to the column, with no
+  frame around it. While it draws, a "Drawing diagram…" line stands in; when Pele can't parse it, its
+  source shows as a code block with the reason. Ten types are included: flowchart, sequence, state,
   class, ER, Gantt, pie, mindmap, timeline and git graph.
 - **Questions.** When an agent is blocked the chat shows "<Agent> needs your input" with the last
   twelve lines of its screen and ↑ ↓ Enter Esc buttons (sent as keys through `hc keys`) and an Open
@@ -130,7 +130,7 @@ Mod (`mods/herdr-chat/`, `mod.json` is `{"place":"none"}`):
 | `agents.js` | one profile per agent: how a message carries images, how its box shows the draft |
 | `terminal.js` | the target agent, reading its screen, sending as the person, keys, `input-box.py` |
 | `platform.js` | Windows and Unix differences: paths, quoting, base64, deleting files |
-| `diagrams.js` | mermaid diagrams: Pele's SVG with the theme's colors written in, drawn one per tick |
+| `diagrams.js` | mermaid diagrams: Pele's SVG with the theme's colors and font lists written in, drawn one per tick |
 | `vendor/pele/` | Pele, copied by `scripts/vendor-pele.mjs` from the version `package.json` pins (don't edit) |
 | `ui.js` | shared look: column width, icons, program icon, pane buttons, status badge, view toggle |
 | `header.js` | the terminal pane header with the toggle |
@@ -174,8 +174,8 @@ Things a fresh build would get wrong:
   has no stylesheet: shapes come out black and text is missing. Write the theme's colors into the
   SVG (each `--_x` Pele defines on its root, and series colors used as `var(--pele-series-N,…)`).
 - **Nothing clickable inside a list row.** A handler registered in `v_virtual_list`'s item renderer
-  throws; the list's `on_item_click` gets a row's key. So a diagram is a row of its own (its reply is
-  split around it), and clicking that row switches it.
+  throws; the list's `on_item_click` gets a row's key. A diagram is a row of its own (its reply is
+  split around it), so it's measured on its own and again once drawn.
 - **Pele is copied, not installed.** A mod imports only from its own folder and herdr has no npm,
   so `vendor/pele/` is committed; `npm install && npm run vendor:pele` updates it from the pin and
   `node scripts/vendor-pele.mjs --check` tells whether it matches.
@@ -233,7 +233,8 @@ Limits and gaps:
 - `npm test` passes: no undefined names (`tests/sweep.mjs`), diagrams drawn with the theme's colors
   and none left as CSS variables (`tests/diagrams.mjs`), `vendor/pele` matching the pinned Pele, and
   the two prompt key patterns alike (`tests/prompt-keys.py`).
-- A reply with a ```` ```mermaid ```` block shows the diagram in the chat; clicking it shows the source.
+- A reply with a ```` ```mermaid ```` block shows the diagram in the chat, in the theme's colors, with
+  readable labels.
 - On a Claude Code, Codex or Pi tab the pane header shows the Chat | Terminal toggle at the far
   right, also while the hover buttons are showing, and the terminal is selected.
 - Clicking Chat shows that agent's conversation within a second or two, scrolled to the newest
