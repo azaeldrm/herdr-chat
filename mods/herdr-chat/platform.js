@@ -36,10 +36,10 @@ export function removeFiles(files) {
     : exec("rm", ["-f", "--", ...files])).catch(() => null);
 }
 
-/** Deletes the files in `dir` older than a day. */
+/** Deletes the files in `dir`, and the folders in it, older than a day. */
 export function pruneOld(dir) {
   (onWindows()
     ? exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
-        `Get-ChildItem -LiteralPath ${psQuote(dir)} -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) } | Remove-Item -Force`])
+        `Get-ChildItem -LiteralPath ${psQuote(dir)} -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) } | Remove-Item -Force`])
     : exec("sh", ["-c", '[ -d "$1" ] && find "$1" -type f -mmin +1440 -delete; exit 0', "sh", dir])).catch(() => null);
 }
