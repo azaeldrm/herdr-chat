@@ -50,3 +50,9 @@ export function viewToggle(t, shown, prefix, toChat, toTerminal) {
     .child(segment("chat", "Chat", shown === "chat", toChat))
     .child(segment("terminal", "Terminal", shown === "terminal", toTerminal));
 }
+
+/** A time as the clock shows it (3:42 PM). */
+export function clock(ms) {
+  const d = new Date(ms), h = d.getHours();
+  return `${h % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+}

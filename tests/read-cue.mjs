@@ -1,0 +1,17 @@
+// The row under the conversation while a read is slow (main.js readCue): nothing for a fast read or
+// a fresh cache, "checking" for a slow read of a stale one, "silent" when the machine doesn't answer.
+//   node tests/read-cue.mjs
+import { stage } from "./stage.mjs";
+const Chat = (await stage().load("main.js")).default;
+const now = Date.now();
+const cue = s => Chat.prototype.readCue.call({ messages: [{}], readStaleFor: 0, readStartedAt: 0, readError: "", ...s });
+let failed = 0;
+const check = (name, got, want) => { const ok = got === want; console.log(`${ok ? "PASS" : "FAIL"} ${name}${ok ? "" : `: got "${got}"`}`); if (!ok) failed++; };
+check("no read under way: nothing", cue({}), "");
+check("a stale cache, read for 100 ms: nothing yet (no flicker)", cue({ readStartedAt: now - 100, readStaleFor: 60000 }), "");
+check("a stale cache, read for 400 ms: checking", cue({ readStartedAt: now - 400, readStaleFor: 60000 }), "checking");
+check("a cache read 1 s ago, read for 400 ms: nothing (it's current)", cue({ readStartedAt: now - 400, readStaleFor: 1000 }), "");
+check("a read going for 6 s: silent", cue({ readStartedAt: now - 6000, readStaleFor: 1000 }), "silent");
+check("a read that failed: silent", cue({ readError: "ssh: connect timed out" }), "silent");
+check("nothing to show yet: no row (the placeholder says it)", cue({ messages: [], readStartedAt: now - 6000 }), "");
+process.exit(failed ? 1 : 0);

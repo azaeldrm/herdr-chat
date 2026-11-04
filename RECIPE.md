@@ -124,7 +124,9 @@ Mod (`mods/herdr-chat/`, `mod.json` is `{"place":"none"}`):
 
 | File | Role |
 |---|---|
-| `main.js` | the chat View: its state and timers, reading conversations, the layout, sending |
+| `main.js` | the chat View: its state and timers, the layout, scrolling, sending |
+| `reading.js` | reading conversations: the one shown, every other agent's in the background, switching, the loading row's rules (mixed in) |
+| `session.js` | a session's state, the reader's output applied to it, the batch run for one machine's agents (pure) |
 | `transcript.js` | conversation rows: folding tool calls and thinking, row keys, drawing each kind |
 | `choices.js` | a question card, choosing a choice, the key buttons (mixed into the View) |
 | `prompts.js` | `parseChoices`: a choice prompt read off the screen (pure) |
@@ -135,7 +137,7 @@ Mod (`mods/herdr-chat/`, `mod.json` is `{"place":"none"}`):
 | `platform.js` | Windows and Unix differences: paths, quoting, base64, deleting files |
 | `diagrams.js` | mermaid diagrams: Pele's SVG with the theme's colors and font lists written in, drawn one per tick |
 | `vendor/pele/` | Pele, copied by `scripts/vendor-pele.mjs` from the version `package.json` pins (don't edit) |
-| `ui.js` | shared look: column width, icons, program icon, pane buttons, status badge, view toggle |
+| `ui.js` | shared look: column width, icons, program icon, pane buttons, status badge, view toggle, clock time |
 | `header.js` | the terminal pane header with the toggle |
 | `common.js` | session keys, per-session view memory, `layout.select` |
 | `read-session.ps1` | session reader on Windows (PowerShell 5.1) |
@@ -185,6 +187,23 @@ Things a fresh build would get wrong:
   `HerdrChatReply > Input` (the textarea's context is `Input`) to its own actions, reads the cursor
   by typing an invisible marker at it with `replace()` and putting the text back (`caret.js`), and
   moves it with `set_selected_range`. Bind once per engine: the keymap is the app's.
+- **Scrolling a virtual list to the bottom takes a frame or more.** `scroll_to_bottom()` lines up
+  the last row's *top* with the view's (so the list ends with a short spacer row, or a long last
+  message shows from its start), applies in a later frame, and its first call after a switch can
+  fall short. A switch is done in the frame that first sees the new agent (`switchSession`, from
+  `render`), scrolls there, and keeps the list hidden until the list reports its spacer on screen
+  (`visibleEnd`), scrolling again meanwhile. `render` can't `notify()`, but its `cx.timer` works.
+- **Every agent's chat is kept read in the background.** Every 4 s, `warm()` (reading.js) reads each listed
+  agent's log from where it last stopped, all of a machine's agents in one Python run
+  (`batchProgram` in session.js runs the reader once per session and separates their output), so a
+  switch shows the conversation at once. The chat shows once its bottom screenful is measured; older
+  rows are measured after. A slow read of a stale conversation shows "Checking for new messages…"
+  after 300 ms, and after 5 s (or a failed read) "<machine> isn't answering", with Retry.
+- **A Codex terminal's log isn't always the one started with it.** `codex resume <id>` goes on in
+  that session's own logs, started days before the terminal, and Codex continues a long session in
+  `rollout-<time>-<id>_<part>.jsonl`; the reader takes the id from the command line and opens the
+  newest part. "Approve for me" runs a reviewer that writes its own logs in the same folder, marked
+  `source: {"subagent": ...}`: never read one, even when the chat remembers it.
 - **Messages sent while Claude Code works aren't "user" entries.** Claude logs a steer as an
   `attachment` of type `queued_command` (its text in `prompt`) in the conversation chain, so the
   reader shows those too (human origin, prompt mode). Codex and Pi log a steer as an ordinary user

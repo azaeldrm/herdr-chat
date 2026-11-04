@@ -9,6 +9,9 @@ const VIEWS_KEPT = 200;
 /** A session: one program's run in a terminal (an address is reused once its terminal ends). */
 export function sessionOf(t) { return t ? `${t.address}:${t.created}` : ""; }
 
+/** The chat's key for an agent: its session and program ("" for none). */
+export function chatKey(t) { return t ? `${sessionOf(t)}:${t.app}` : ""; }
+
 export function sessionKey(address) {
   const term = terminals().find(x => x.address === address);
   return term ? sessionOf({ address, created: term.created_ms ?? 0 }) : "";
