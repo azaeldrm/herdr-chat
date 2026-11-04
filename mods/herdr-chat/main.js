@@ -1,35 +1,24 @@
 import { View, div, svg, image } from "gpui-kit";
 import { set_theme, v_flex, h_flex, TextareaState, Textarea, VirtualListScrollHandle, v_virtual_list } from "gpui-base";
-import { agents, panes, focused, props, hc, exec, appHome, theme, shared, setShared, watchFolder } from "herdr";
-import { readFile } from "fs/promises";
-import { ICONS, switchTo, showView, preferredView, sessionOf } from "./common.js";
-import { onWindows, base64Utf8 } from "./platform.js";
-import { target, agentTargets, readScreen, readPrompt, sendMessage, pressKeys, inputBox, interruptAgent } from "./terminal.js";
-import { parseChoices } from "./prompts.js";
+import { panes, focused, props, hc, theme, shared } from "herdr";
+import { ICONS, switchTo, showView, preferredView, sessionOf, chatKey } from "./common.js";
+import { target, sendMessage, pressKeys, inputBox, interruptAgent } from "./terminal.js";
 import { ChoiceMethods } from "./choices.js";
 import { ImageMethods } from "./images.js";
 import { DraftMethods } from "./draft.js";
 import { TranscriptMethods, keyRows, withoutRetracted } from "./transcript.js";
-import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle } from "./ui.js";
+import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle, clock } from "./ui.js";
 import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
 import { caretOf, lineMove } from "./caret.js";
 import { imageStyle, canMirror, withImages } from "./agents.js";
 import { isHeader, terminalHeader } from "./header.js";
-import { blankSession, parseReader, applyRead, readerArgs, batchProgram, splitBatch } from "./session.js";
+import { ReadingMethods } from "./reading.js";
 
 // Room under the newest message, inside the list, so older text can scroll right up to the
 // reply box instead of stopping at a padded band above it.
 const TAIL = 32;
 // How far above the reply box messages fade out as they scroll under it.
 const FADE = 20;
-// Sessions kept in memory: every listed agent's, kept read in the background, so a switch shows one at once.
-const SESSIONS_KEPT = 32;
-// How often the background reads every other agent's log (from where it last stopped).
-const WARM_EVERY = 4000;
-// A cached conversation read longer ago than this may have news: a read that takes over CHECK_AFTER
-// shows "Checking for new messages…"; one that takes over SILENT_AFTER says the machine isn't answering.
-const STALE_AFTER = 3000, CHECK_AFTER = 300, SILENT_AFTER = 5000;
-const PATHS_KEY = "herdr-chat.paths";
 function inputHighlight(cx) {
   const t = theme(), th = cx.theme();
   const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
@@ -41,37 +30,6 @@ function inputHighlight(cx) {
 }
 
 const SPARK = ["·", "✢", "✶", "✻", "✽", "✻", "✶", "✢"];
-
-let readerBase64 = null;
-async function readerSource() {
-  if (!readerBase64) readerBase64 = base64Utf8(await readFile(`${appHome()}/mods/herdr-chat/read_session.py`, "utf8"));
-  return readerBase64;
-}
-
-async function runReader(t, at) {
-  const { path, hint, offset, leaf } = at;
-  if (!t.remote && onWindows()) {
-    return exec("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-      `${appHome()}\\mods\\herdr-chat\\read-session.ps1`,
-      "-App", t.app, "-TermPid", String(t.pid), "-CreatedMs", String(t.created), "-Cwd", t.cwd,
-      "-KnownPath", path || "", "-Hint", hint || "", "-Offset", String(offset || 0), "-Leaf", leaf || ""]);
-  }
-  const boot = `import base64,sys;sys.argv[0]='read_session';exec(compile(base64.b64decode('${await readerSource()}'),'read_session.py','exec'))`;
-  return exec("python3", ["-c", boot, ...readerArgs(t, at)], t.machine ? { on: t.machine } : undefined);
-}
-
-/** Reads several sessions on one machine (null: this one) in one Python run; each one's output, or null. */
-async function runReaders(machine, list) {
-  const program = batchProgram(await readerSource());
-  const r = await exec("python3", ["-c", program, base64Utf8(JSON.stringify(list.map(([t, at]) => readerArgs(t, at))))], machine ? { on: machine } : undefined);
-  return r.code === 0 ? splitBatch(r.stdout) : null;
-}
-
-/** A time as the clock shows it (3:42 PM). */
-function clock(ms) {
-  const d = new Date(ms), h = d.getHours();
-  return `${h % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
-}
 
 export default class HerdrChat extends View {
   init(_props, cx) {
@@ -123,19 +81,17 @@ export default class HerdrChat extends View {
     this.pruneCache();
     this.visit = shared("herdr-chat.visit");
     this.screen = "";
-    Object.assign(this, blankSession()); this.note = "Loading conversation…"; this.lastRead = 0; this.sessions = new Map();
+    this.initReading(cx);
     // Each session's unsent reply: its text and attached images, kept while you look at another one.
     this.drafts = new Map();
     this.refresh(cx);
     cx.timer.every(1500, cx => { inputHighlight(cx); this.refresh(cx); });
-    cx.timer.every(WARM_EVERY, cx => this.warm(cx));
     cx.timer.every(100, cx => {
       this.applyView();
       this.mirrorOnSwitch(cx);
       const t = target();
-      if ((t ? `${sessionOf(t)}:${t.app}` : "") !== this.key || this.needsFirstRead || this.pendingDraft) this.refresh(cx);
+      if (chatKey(t) !== this.key || this.needsFirstRead || this.pendingDraft) this.refresh(cx);
       this.noticeVisit();
-      // the loading row under the conversation comes and goes with the read's time, not a render
       const cue = this.readCue();
       if (cue !== this.shownCue) { this.shownCue = cue; cx.notify(); }
       if (shared("herdr-chat.mode") !== "chat") return;
@@ -170,8 +126,8 @@ export default class HerdrChat extends View {
   }
 
   /**
-   * Keeps the chat at its newest message: one scroll, once the list has been drawn since this was asked
-   * and what's on screen has its final heights (or 1.5 s have passed), not a scroll per tick.
+   * Keeps the chat at its newest message: one scroll, in the frame where the bottom screenful has its
+   * heights (render), or on a tick once 1.5 s have passed without them; not a scroll per tick.
    */
   follow(restart = false) {
     this.following = true;
@@ -186,205 +142,6 @@ export default class HerdrChat extends View {
     this.visit = visit;
     if (this.sig !== this.settledSig) this.settling = true;
     this.follow(true);
-  }
-
-  stash() {
-    if (!this.key || !this.path) return;
-    const kept = {};
-    for (const k of Object.keys(blankSession())) kept[k] = this[k];
-    this.sessions.delete(this.key);
-    this.sessions.set(this.key, kept);
-    this.trimSessions();
-  }
-
-  /** Which log a session reads, kept across restarts (herdr's shared state), so it isn't searched for again. */
-  rememberPath(id, path, hint) {
-    if (!id || !path) return;
-    const all = { ...(shared(PATHS_KEY) ?? {}) };
-    if (all[id]?.path === path && all[id]?.hint === (hint || "")) return;
-    delete all[id];
-    all[id] = { path, hint: hint || "" };
-    const ids = Object.keys(all);
-    for (const old of ids.slice(0, Math.max(0, ids.length - 200))) delete all[old];
-    setShared(PATHS_KEY, all);
-  }
-
-  /** Down to SESSIONS_KEPT: sessions whose agent is gone go first, then the least recently shown. */
-  trimSessions(live) {
-    if (this.sessions.size <= SESSIONS_KEPT) return;
-    if (live) for (const k of [...this.sessions.keys()]) if (this.sessions.size > SESSIONS_KEPT && !live.has(k) && k !== this.key) this.sessions.delete(k);
-    while (this.sessions.size > SESSIONS_KEPT) this.sessions.delete(this.sessions.keys().next().value);
-  }
-
-  /**
-   * Reads every other agent's session from where it last stopped (one Python run per machine), so a
-   * switch to any of them shows it at once, up to date. The one on screen is read by read().
-   */
-  warm(cx) {
-    if (this.warming) return;
-    this.warming = true;
-    cx.spawn(async cx => {
-      try {
-        const all = agentTargets(), live = new Set(), groups = new Map();
-        for (const t of all) {
-          const key = `${sessionOf(t)}:${t.app}`;
-          live.add(key);
-          if (key === this.key || !t.pid || (!t.remote && onWindows())) continue;
-          const s = this.sessions.get(key);
-          const known = s ? null : (shared(PATHS_KEY) ?? {})[sessionOf(t)];
-          const at = s ? { path: s.path, hint: s.hint, offset: s.offset, leaf: s.leaf } : { path: known?.path ?? "", hint: known?.hint ?? "", offset: 0, leaf: "" };
-          at.peers = all.filter(a => a.app === t.app && a.address !== t.address && a.machine === t.machine).length;
-          const group = groups.get(t.machine) ?? [];
-          group.push({ key, t, at, s });
-          groups.set(t.machine, group);
-        }
-        await Promise.all([...groups].map(async ([machine, list]) => {
-          let outs;
-          try { outs = await runReaders(machine, list.map(x => [x.t, x.at])); } catch { return; }
-          if (!outs) return;
-          list.forEach((x, i) => {
-            // shown now (read() has it), or changed since this read began: this result is stale
-            if (outs[i] == null || x.key === this.key || this.sessions.get(x.key) !== x.s) return;
-            const r = parseReader(outs[i]);
-            if (!r.path) return;
-            const s = x.s ?? blankSession(x.at.path, x.at.hint);
-            applyRead(s, r);
-            s.readAt = Date.now();
-            if (!x.s) this.sessions.set(x.key, s);
-            this.rememberPath(sessionOf(x.t), s.path, s.hint);
-          });
-        }));
-        this.trimSessions(live);
-      } finally { this.warming = false; }
-    });
-  }
-
-  /** The row under the conversation while a read is slow: "checking", "silent" (no answer), or "". */
-  readCue() {
-    if (!this.messages.length) return "";
-    const since = this.readStartedAt ? Date.now() - this.readStartedAt : 0;
-    if (this.readError || since > SILENT_AFTER) return "silent";
-    return since > CHECK_AFTER && this.readStaleFor > STALE_AFTER ? "checking" : "";
-  }
-
-  retry(cx) {
-    this.readError = ""; this.reading = null;
-    this.read(cx);
-    cx.notify();
-  }
-
-  /**
-   * Shows another session: the one on screen kept, the new one restored (or started). Runs in the
-   * frame that first sees the new agent, so header and conversation change together; what can't
-   * run while drawing (the reply box's draft, the read) waits for refresh() on the next tick.
-   */
-  switchSession(t, key) {
-    this.stash();
-    if (!this.pendingDraft) this.pendingDraft = { from: this.key };
-    this.key = key; this.needsScroll = false; this.settling = true; this.pendingCount = -1; this.follow(); this.screen = ""; this.choices = null; this.lastId = ""; this.screenAskedAt = 0;
-    this.watchToken = (this.watchToken ?? 0) + 1; this.watchedPath = ""; this.readError = ""; this.readStartedAt = 0;
-    const kept = key ? this.sessions.get(key) : null;
-    if (kept) Object.assign(this, kept);
-    else {
-      const known = t ? (shared(PATHS_KEY) ?? {})[sessionOf(t)] : null;
-      Object.assign(this, blankSession(known?.path ?? "", known?.hint ?? ""));
-      this.note = !t ? "Select a Claude Code, Codex or Pi terminal to see it as a chat." : `Opening this ${t.label} conversation…`;
-    }
-    this.needsFirstRead = Boolean(t);
-  }
-
-  refresh(cx) {
-    const t = target();
-    const key = t ? `${sessionOf(t)}:${t.app}` : "";
-    if (key !== this.key) { this.switchSession(t, key); cx.notify(); }
-    if (this.pendingDraft) { this.swapDraft(this.key, this.pendingDraft.from); this.pendingDraft = null; cx.notify(); }
-    const switched = this.needsFirstRead;
-    this.needsFirstRead = false;
-    if (!t) return;
-    if (switched) { this.read(cx); return; }
-    if (!this.path || t.remote || Date.now() - this.lastRead > 15000) this.read(cx);
-    // A choice prompt can be up while the agent says it's working (Pi's ask_user_question does), so
-    // the screen is read then too, and a question on it shows as a card with its choices.
-    if ((t.status === "blocked" || t.status === "working") && !this.readingScreen) {
-      this.readingScreen = true;
-      cx.spawn(async cx => {
-        try {
-          const text = (await readPrompt(t)) ?? "";
-          if (text !== this.screen) { this.screen = text; this.choices = parseChoices(text); cx.notify(); }
-        } finally { this.readingScreen = false; }
-      });
-    } else if (t.status !== "blocked" && t.status !== "working" && this.screen) { this.screen = ""; this.choices = null; cx.notify(); }
-  }
-
-  watch(cx, path) {
-    if (!path || path === this.watchedPath) return;
-    this.watchedPath = path;
-    const token = this.watchToken = (this.watchToken ?? 0) + 1;
-    const dir = path.replace(/[\\/][^\\/]*$/, "");
-    cx.spawn(async cx => {
-      while (this.watchToken === token) {
-        let changed;
-        try { changed = await watchFolder(dir); } catch { return; }
-        if (this.watchToken !== token) return;
-        if (changed.some(p => /\.jsonl$/i.test(p))) this.read(cx);
-      }
-    });
-  }
-
-  read(cx) {
-    const t = target();
-    if (!t) return;
-    const key = this.key;
-    if (this.reading === key) { this.dirty = true; return; }
-    const token = this.readSeq = (this.readSeq ?? 0) + 1;
-    this.reading = key; this.dirty = false; this.lastRead = Date.now();
-    this.readStartedAt = Date.now(); this.readStaleFor = Date.now() - (this.readAt || 0);
-    // a later read (a switch, Retry) takes over: this one's result is dropped
-    const mine = () => this.key === key && this.readSeq === token;
-    cx.spawn(async cx => {
-      try {
-        const peers = agents().filter(a => a.app === t.app && a.address !== t.address && (a.address.includes("/") ? a.address.split("/")[0] : null) === t.machine).length;
-        const at = { path: this.path, hint: this.hint, offset: this.offset, peers, leaf: this.leaf };
-        let r = await runReader(t, at);
-        if (!mine()) return;
-        if (r.code === 0 && /^NEED\|screen/m.test(r.stdout) && Date.now() - (this.screenAskedAt ?? 0) > 15000) {
-          this.screenAskedAt = Date.now();
-          const shown = await readScreen(t, 40);
-          if (!mine()) return;
-          r = await runReader(t, { ...at, screen: shown != null ? shown.slice(-3000) : "" });
-          if (!mine()) return;
-        }
-        if (r.code !== 0) throw new Error(r.stderr || `Reader exited ${r.code}`);
-        this.merge(r.stdout);
-        this.readError = "";
-        if (!t.remote) this.watch(cx, this.path);
-      } catch (e) {
-        if (!mine()) return;
-        // what's on screen stays; the row under it says it may be out of date
-        if (this.messages.length) this.readError = String(e?.message ?? e).split("\n")[0] || "no answer";
-        else this.note = String(e);
-      }
-      finally {
-        if (this.readSeq === token) {
-          this.readStartedAt = 0;
-          if (this.reading === key) {
-            this.reading = null;
-            if (this.dirty) this.read(cx);
-          }
-        }
-        cx.notify();
-      }
-    });
-  }
-
-  merge(stdout) {
-    applyRead(this, parseReader(stdout));
-    this.readAt = Date.now();
-    const t = target();
-    if (t) this.rememberPath(sessionOf(t), this.path, this.hint);
-    const last = this.messages[this.messages.length - 1];
-    const id = last ? `${this.messages.length}:${last.kind}:${last.text ?? last.calls.length}:${last.calls?.at(-1)?.o?.length ?? 0}` : "";
-    if (id !== this.lastId) { this.lastId = id; if (this.following) this.follow(); }
   }
 
   /**
@@ -583,8 +340,7 @@ export default class HerdrChat extends View {
     if (this.asHeader) return terminalHeader(this);
     const t = theme();
     const active = target();
-    const activeKey = active ? `${sessionOf(active)}:${active.app}` : "";
-    if (activeKey !== this.key) this.switchSession(active, activeKey);
+    if (chatKey(active) !== this.key) this.switchSession(active, chatKey(active));
     // An assistant reply with ```mermaid blocks becomes its text and a row per diagram, so a
     // diagram is measured, and measured again once drawn, on its own.
     const shown = withoutRetracted(this.messages, this.retracted?.key === this.key ? this.retracted.text : null);
@@ -613,8 +369,6 @@ export default class HerdrChat extends View {
     // a row being measured again keeps its last height meanwhile: collapsing it to the 40 px guess
     // makes the whole list shrink and grow back, and the view jumps
     const sizes = rows.map(m => (this.heights[hkey(m)] ?? this.lastHeight[m.key] ?? 40) + 16);
-    // The chat shows once the rows of its bottom screenful (with a margin) have their heights; older
-    // ones are measured after, from the bottom up, while it stays at the newest message.
     let bottom = rows.length;
     for (let h = 0; bottom > 0 && h < (this.listH || 900) + 240; ) h += sizes[--bottom];
     const near = rows.slice(bottom);
@@ -623,17 +377,9 @@ export default class HerdrChat extends View {
     this.pendingCount = near.filter(m => !(hkey(m) in this.heights)).length + near.filter(m => m.kind === "diagram" && diagramFor(m.text, t0).state === "queued").length;
     this.sig = `${rows.length}:${sizes.reduce((a, b) => a + b, 0)}`;
     this.noticeVisit();
-    // At the newest message, with the bottom screenful measured: scrolled there in this very frame
-    // (shown, if it was hidden for a switch or a visit), not on the next tick. Rows above that are
-    // measured later grow the list above the view; scrolling in the frame they change keeps the view
-    // from drifting into older messages meanwhile.
     if (this.needsScroll && this.following && this.pendingCount === 0 && rows.length) {
       this.scroll.scroll_to_bottom();
       this.needsScroll = false; this.settledSig = this.sig;
-      // A list hidden for a switch stays hidden until it has landed: the scroll takes effect in a
-      // later frame, and the first one after a switch can fall short, so it shows once the list
-      // reports its last row (the spacer) on screen, scrolling again meanwhile (shown at once, it
-      // would flash older messages).
       if (this.settling) {
         const token = this.revealToken = (this.revealToken ?? 0) + 1;
         const reveal = (cx, tries) => cx.timer.after(20, cx => {
@@ -645,9 +391,6 @@ export default class HerdrChat extends View {
       }
     }
     const status = this.status(t, active);
-    // the list ends with a spacer row: scroll_to_bottom() lines up the last row's top with the view's,
-    // so a last message taller than the view would show from its start; the spacer can only go as
-    // far as the true bottom
     this.rowCount = rows.length + 1;
     return v_flex().id("herdr-chat-root").relative().size_full().min_h(0).rounded(10).border_1().border_color(t.border)
       .bg(t.background).text_color(t.foreground)
@@ -708,4 +451,5 @@ Object.assign(HerdrChat.prototype, ChoiceMethods);
 Object.assign(HerdrChat.prototype, ImageMethods);
 Object.assign(HerdrChat.prototype, DraftMethods);
 Object.assign(HerdrChat.prototype, TranscriptMethods);
+Object.assign(HerdrChat.prototype, ReadingMethods);
 

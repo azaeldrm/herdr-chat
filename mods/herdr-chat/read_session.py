@@ -378,8 +378,6 @@ def find_codex():
     sessions = os.path.join(root, "sessions")
     resumed, uid = codex_resumed()
     if uid:
-        # a resumed session goes on in its own logs, started before this terminal: the first is
-        # rollout-<time>-<id>.jsonl, and Codex continues a long one in rollout-<time>-<id>_<part>.jsonl
         logs = glob.glob(os.path.join(sessions, "**", "rollout-*%s*.jsonl" % uid), recursive=True)
         if logs: return max(logs, key=os.path.getmtime)
     if A.known and os.path.isfile(A.known) and codex_own(codex_meta(A.known)): return A.known
@@ -398,7 +396,6 @@ def find_codex():
         delta = (t - A.created) / 1000
         if abs(delta) <= 8: return fp
         if delta > 0 and not later: later = fp
-    # `codex resume --last` or its picker: the session written to most lately, in this folder
     return later or (newest if resumed else None)
 
 def parse_codex(path):

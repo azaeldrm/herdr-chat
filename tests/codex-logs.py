@@ -24,7 +24,6 @@ def rollout(home, name, started, cwd, source, said, mtime):
     return str(path)
 
 def read(home, work, created, argv, known=None):
-    # a process standing in for the agent, run in the work folder with the given command line
     agent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", *argv], cwd=work)
     try:
         args = [sys.executable, "-I", str(reader), "--app", "codex", "--pid", str(agent.pid), "--created", str(int(created * 1000)), "--cwd", work]
@@ -48,16 +47,12 @@ with tempfile.TemporaryDirectory() as home:
     rollout(home, f"2026/11/01/rollout-b-{ID}_01a198ad-b20e-7cd3-99a4-96cde9c48ddd.jsonl", now - 2 * 86400, work, "cli", "latest part", now - 60)
     guardian = rollout(home, "2026/11/03/rollout-c-01a1a320-44f9-7f01-b96d-3c050b08d3b9.jsonl", now - 30, work, reviewer, '{"outcome":"allow"}', now - 10)
 
-    # 1. resumed two days into a terminal made yesterday: the session's newest part, not the reviewer
     path, said = read(home, work, now - 86400, ["codex", "resume", ID])
     check("resume <id>", said, ["latest part"])
-    # 2. the chat remembers the reviewer's log: it lets go of it
     path, said = read(home, work, now - 86400, ["codex", "resume", ID], known=guardian)
     check("resume <id>, reviewer remembered", said, ["latest part"])
-    # 3. a new Codex whose only newer log in its folder is the reviewer's: nothing yet
     path, said = read(home, work, now - 60, ["codex"])
     check("new codex, reviewer log only", path, "")
-    # 4. `codex resume --last`: the newest of the person's own logs in this folder
     path, said = read(home, work, now - 86400, ["codex", "resume", "--last"])
     check("resume --last", said, ["latest part"])
 
