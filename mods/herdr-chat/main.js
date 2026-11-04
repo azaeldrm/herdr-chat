@@ -601,7 +601,7 @@ export default class HerdrChat extends View {
     const pending = [...settling, ...unmeasured];
     // a row being measured again keeps its last height meanwhile: collapsing it to the 40 px guess
     // makes the whole list shrink and grow back, and the view jumps
-    const sizes = rows.map((m, i) => (this.heights[hkey(m)] ?? this.lastHeight[m.key] ?? 40) + 16 + (i === rows.length - 1 ? TAIL : 0));
+    const sizes = rows.map(m => (this.heights[hkey(m)] ?? this.lastHeight[m.key] ?? 40) + 16);
     // The chat shows once the rows of its bottom screenful (with a margin) have their heights; older
     // ones are measured after, from the bottom up, while it stays at the newest message.
     let bottom = rows.length;
@@ -613,7 +613,10 @@ export default class HerdrChat extends View {
     this.sig = `${rows.length}:${sizes.reduce((a, b) => a + b, 0)}`;
     this.noticeVisit();
     const status = this.status(t, active);
-    this.rowCount = rows.length;
+    // the list ends with a spacer row: scroll_to_bottom() lines up the last row's top with the view's,
+    // so a last message taller than the view would show from its start; the spacer can only go as
+    // far as the true bottom
+    this.rowCount = rows.length + 1;
     return v_flex().id("herdr-chat-root").relative().size_full().min_h(0).rounded(10).border_1().border_color(t.border)
       .bg(t.background).text_color(t.foreground)
       .on_size_change((size, cx) => { if (size.width >= 200 && Math.abs(size.width - this.width) > 8) { this.width = size.width; cx.notify(); } })
@@ -626,12 +629,14 @@ export default class HerdrChat extends View {
         .child(div().max_w(420).text_center().text_size(14).text_color(t.muted).child(this.note))))
       .when(!empty, el => el.child(v_flex().relative().flex_1().min_h(0).when(this.settling, el => el.opacity(0))
         .on_size_change(size => { this.listH = size.height; })
-        .child(v_virtual_list("herdr-chat-messages", rows.length, sizes, i => rows[i].key, range => {
+        .child(v_virtual_list("herdr-chat-messages", rows.length + 1, [...sizes, TAIL], i => i < rows.length ? rows[i].key : "end-of-chat", range => {
         this.visibleEnd = range.end;
         this.laidOut = Date.now();
         const out = [];
         for (let i = range.start; i < range.end; i++)
-          out.push(h_flex().w_full().justify_center().px(24).pt(8).pb(i === rows.length - 1 ? 8 + TAIL : 8).child(div().w_full().max_w(COLUMN).child(this.row(rows[i], rows[i].key, t))));
+          out.push(i < rows.length
+            ? h_flex().w_full().justify_center().px(24).pt(8).pb(8).child(div().w_full().max_w(COLUMN).child(this.row(rows[i], rows[i].key, t)))
+            : div().w_full().h(TAIL));
         return out;
       }).track_scroll(this.scroll).on_item_click((key, cx) => {
         const kind = rows.find(r => r.key === key)?.kind;
@@ -671,3 +676,4 @@ Object.assign(HerdrChat.prototype, ChoiceMethods);
 Object.assign(HerdrChat.prototype, ImageMethods);
 Object.assign(HerdrChat.prototype, DraftMethods);
 Object.assign(HerdrChat.prototype, TranscriptMethods);
+
