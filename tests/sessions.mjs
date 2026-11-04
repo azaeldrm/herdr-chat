@@ -13,7 +13,6 @@ const check = (name, ok) => { console.log(`${ok ? "PASS" : "FAIL"} ${name}`); if
 const enc = encodeURIComponent;
 const said = s => s.messages.filter(m => m.kind === "message").map(m => m.text);
 
-// applying updates
 const s = blankSession();
 applyRead(s, parseReader(["PATH|" + enc("/log.jsonl"), "OFFSET|100", "RESET", "M|user||" + enc("hi"), "C|c1|" + enc(JSON.stringify({ k: "read", d: "a.js" })), "M|assistant|final|" + enc("done")].join("\n")));
 check("a fresh read sets path and offset", s.path === "/log.jsonl" && s.offset === 100);
@@ -27,7 +26,6 @@ applyRead(s, parseReader(["PATH|" + enc("/other.jsonl"), "OFFSET|10", "M|user||"
 check("a new log starts over", JSON.stringify(said(s)) === '["new log"]' && s.path === "/other.jsonl");
 check("an <hc> wrapper is taken off a user message", said((() => { const x = blankSession(); applyRead(x, parseReader("PATH|p\nM|user||" + enc('<hc from="a/b">steer</hc>'))); return x; })())[0] === "steer");
 
-// the batch driver against one run per session
 const home = mkdtempSync(join(tmpdir(), "herdr-chat-sessions-"));
 const entry = (type, uuid, parent, content) => JSON.stringify({ parentUuid: parent, isSidechain: false, type, uuid, message: { role: type, content } });
 const U = i => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;

@@ -124,7 +124,9 @@ Mod (`mods/herdr-chat/`, `mod.json` is `{"place":"none"}`):
 
 | File | Role |
 |---|---|
-| `main.js` | the chat View: its state and timers, reading conversations, the layout, sending |
+| `main.js` | the chat View: its state and timers, the layout, scrolling, sending |
+| `reading.js` | reading conversations: the one shown, every other agent's in the background, switching, the loading row's rules (mixed in) |
+| `session.js` | a session's state, the reader's output applied to it, the batch run for one machine's agents (pure) |
 | `transcript.js` | conversation rows: folding tool calls and thinking, row keys, drawing each kind |
 | `choices.js` | a question card, choosing a choice, the key buttons (mixed into the View) |
 | `prompts.js` | `parseChoices`: a choice prompt read off the screen (pure) |
@@ -135,7 +137,7 @@ Mod (`mods/herdr-chat/`, `mod.json` is `{"place":"none"}`):
 | `platform.js` | Windows and Unix differences: paths, quoting, base64, deleting files |
 | `diagrams.js` | mermaid diagrams: Pele's SVG with the theme's colors and font lists written in, drawn one per tick |
 | `vendor/pele/` | Pele, copied by `scripts/vendor-pele.mjs` from the version `package.json` pins (don't edit) |
-| `ui.js` | shared look: column width, icons, program icon, pane buttons, status badge, view toggle |
+| `ui.js` | shared look: column width, icons, program icon, pane buttons, status badge, view toggle, clock time |
 | `header.js` | the terminal pane header with the toggle |
 | `common.js` | session keys, per-session view memory, `layout.select` |
 | `read-session.ps1` | session reader on Windows (PowerShell 5.1) |
@@ -191,7 +193,7 @@ Things a fresh build would get wrong:
   fall short. A switch is done in the frame that first sees the new agent (`switchSession`, from
   `render`), scrolls there, and keeps the list hidden until the list reports its spacer on screen
   (`visibleEnd`), scrolling again meanwhile. `render` can't `notify()`, but its `cx.timer` works.
-- **Every agent's chat is kept read in the background.** Every 4 s, `warm()` reads each listed
+- **Every agent's chat is kept read in the background.** Every 4 s, `warm()` (reading.js) reads each listed
   agent's log from where it last stopped, all of a machine's agents in one Python run
   (`batchProgram` in session.js runs the reader once per session and separates their output), so a
   switch shows the conversation at once. The chat shows once its bottom screenful is measured; older
