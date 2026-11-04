@@ -185,6 +185,12 @@ Things a fresh build would get wrong:
   `HerdrChatReply > Input` (the textarea's context is `Input`) to its own actions, reads the cursor
   by typing an invisible marker at it with `replace()` and putting the text back (`caret.js`), and
   moves it with `set_selected_range`. Bind once per engine: the keymap is the app's.
+- **Scrolling a virtual list to the bottom takes a frame or more.** `scroll_to_bottom()` lines up
+  the last row's *top* with the view's (so the list ends with a short spacer row, or a long last
+  message shows from its start), applies in a later frame, and its first call after a switch can
+  fall short. A switch is done in the frame that first sees the new agent (`switchSession`, from
+  `render`), scrolls there, and keeps the list hidden until the list reports its spacer on screen
+  (`visibleEnd`), scrolling again meanwhile. `render` can't `notify()`, but its `cx.timer` works.
 - **Every agent's chat is kept read in the background.** Every 4 s, `warm()` reads each listed
   agent's log from where it last stopped, all of a machine's agents in one Python run
   (`batchProgram` in session.js runs the reader once per session and separates their output), so a

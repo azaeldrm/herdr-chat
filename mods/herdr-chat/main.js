@@ -133,7 +133,7 @@ export default class HerdrChat extends View {
       this.applyView();
       this.mirrorOnSwitch(cx);
       const t = target();
-      if ((t ? `${sessionOf(t)}:${t.app}` : "") !== this.key) this.refresh(cx);
+      if ((t ? `${sessionOf(t)}:${t.app}` : "") !== this.key || this.needsFirstRead || this.pendingDraft) this.refresh(cx);
       this.noticeVisit();
       // the loading row under the conversation comes and goes with the read's time, not a render
       const cue = this.readCue();
@@ -273,24 +273,33 @@ export default class HerdrChat extends View {
     cx.notify();
   }
 
+  /**
+   * Shows another session: the one on screen kept, the new one restored (or started). Runs in the
+   * frame that first sees the new agent, so header and conversation change together; what can't
+   * run while drawing (the reply box's draft, the read) waits for refresh() on the next tick.
+   */
+  switchSession(t, key) {
+    this.stash();
+    if (!this.pendingDraft) this.pendingDraft = { from: this.key };
+    this.key = key; this.needsScroll = false; this.settling = true; this.pendingCount = -1; this.follow(); this.screen = ""; this.choices = null; this.lastId = ""; this.screenAskedAt = 0;
+    this.watchToken = (this.watchToken ?? 0) + 1; this.watchedPath = ""; this.readError = ""; this.readStartedAt = 0;
+    const kept = key ? this.sessions.get(key) : null;
+    if (kept) Object.assign(this, kept);
+    else {
+      const known = t ? (shared(PATHS_KEY) ?? {})[sessionOf(t)] : null;
+      Object.assign(this, blankSession(known?.path ?? "", known?.hint ?? ""));
+      this.note = !t ? "Select a Claude Code, Codex or Pi terminal to see it as a chat." : `Opening this ${t.label} conversation…`;
+    }
+    this.needsFirstRead = Boolean(t);
+  }
+
   refresh(cx) {
     const t = target();
     const key = t ? `${sessionOf(t)}:${t.app}` : "";
-    const switched = key !== this.key;
-    if (switched) {
-      this.stash();
-      this.swapDraft(key);
-      this.key = key; this.needsScroll = false; this.settling = true; this.pendingCount = -1; this.follow(); this.screen = ""; this.choices = null; this.lastId = ""; this.screenAskedAt = 0;
-      this.watchToken = (this.watchToken ?? 0) + 1; this.watchedPath = ""; this.readError = ""; this.readStartedAt = 0;
-      const kept = key ? this.sessions.get(key) : null;
-      if (kept) Object.assign(this, kept);
-      else {
-        const known = t ? (shared(PATHS_KEY) ?? {})[sessionOf(t)] : null;
-        Object.assign(this, blankSession(known?.path ?? "", known?.hint ?? ""));
-        this.note = !t ? "Select a Claude Code, Codex or Pi terminal to see it as a chat." : `Opening this ${t.label} conversation…`;
-      }
-      cx.notify();
-    }
+    if (key !== this.key) { this.switchSession(t, key); cx.notify(); }
+    if (this.pendingDraft) { this.swapDraft(this.key, this.pendingDraft.from); this.pendingDraft = null; cx.notify(); }
+    const switched = this.needsFirstRead;
+    this.needsFirstRead = false;
     if (!t) return;
     if (switched) { this.read(cx); return; }
     if (!this.path || t.remote || Date.now() - this.lastRead > 15000) this.read(cx);
@@ -570,10 +579,12 @@ export default class HerdrChat extends View {
     catch (e) { return div().p(20).text_color(theme().blocked).child(`herdr-chat render error: ${e?.stack ?? e}`); }
   }
 
-  renderInner() {
+  renderInner(cx) {
     if (this.asHeader) return terminalHeader(this);
     const t = theme();
     const active = target();
+    const activeKey = active ? `${sessionOf(active)}:${active.app}` : "";
+    if (activeKey !== this.key) this.switchSession(active, activeKey);
     // An assistant reply with ```mermaid blocks becomes its text and a row per diagram, so a
     // diagram is measured, and measured again once drawn, on its own.
     const shown = withoutRetracted(this.messages, this.retracted?.key === this.key ? this.retracted.text : null);
@@ -612,6 +623,27 @@ export default class HerdrChat extends View {
     this.pendingCount = near.filter(m => !(hkey(m) in this.heights)).length + near.filter(m => m.kind === "diagram" && diagramFor(m.text, t0).state === "queued").length;
     this.sig = `${rows.length}:${sizes.reduce((a, b) => a + b, 0)}`;
     this.noticeVisit();
+    // At the newest message, with the bottom screenful measured: scrolled there in this very frame
+    // (shown, if it was hidden for a switch or a visit), not on the next tick. Rows above that are
+    // measured later grow the list above the view; scrolling in the frame they change keeps the view
+    // from drifting into older messages meanwhile.
+    if (this.needsScroll && this.following && this.pendingCount === 0 && rows.length) {
+      this.scroll.scroll_to_bottom();
+      this.needsScroll = false; this.settledSig = this.sig;
+      // A list hidden for a switch stays hidden until it has landed: the scroll takes effect in a
+      // later frame, and the first one after a switch can fall short, so it shows once the list
+      // reports its last row (the spacer) on screen, scrolling again meanwhile (shown at once, it
+      // would flash older messages).
+      if (this.settling) {
+        const token = this.revealToken = (this.revealToken ?? 0) + 1;
+        const reveal = (cx, tries) => cx.timer.after(20, cx => {
+          if (this.revealToken !== token) return;
+          if (this.visibleEnd < this.rowCount && tries < 10) { this.scroll.scroll_to_bottom(); cx.notify(); reveal(cx, tries + 1); return; }
+          this.settling = false; cx.notify();
+        });
+        try { reveal(cx, 0); } catch { this.settling = false; }
+      }
+    }
     const status = this.status(t, active);
     // the list ends with a spacer row: scroll_to_bottom() lines up the last row's top with the view's,
     // so a last message taller than the view would show from its start; the spacer can only go as
