@@ -1,0 +1,50 @@
+// The chat's sessions (session.js): reader output applied to a session, and the batch driver that
+// reads several sessions in one Python run, which must say exactly what one run per session says.
+//   node tests/sessions.mjs
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { execFileSync } from "child_process";
+import { stage, MOD } from "./stage.mjs";
+
+const { parseReader, applyRead, blankSession, readerArgs, batchProgram, splitBatch } = await stage().load("session.js");
+let failed = 0;
+const check = (name, ok) => { console.log(`${ok ? "PASS" : "FAIL"} ${name}`); if (!ok) failed++; };
+const enc = encodeURIComponent;
+const said = s => s.messages.filter(m => m.kind === "message").map(m => m.text);
+
+const s = blankSession();
+applyRead(s, parseReader(["PATH|" + enc("/log.jsonl"), "OFFSET|100", "RESET", "M|user||" + enc("hi"), "C|c1|" + enc(JSON.stringify({ k: "read", d: "a.js" })), "M|assistant|final|" + enc("done")].join("\n")));
+check("a fresh read sets path and offset", s.path === "/log.jsonl" && s.offset === 100);
+check("its messages and tool call", JSON.stringify(said(s)) === '["hi","done"]' && s.messages.some(m => m.kind === "tools"));
+applyRead(s, parseReader(["PATH|" + enc("/log.jsonl"), "OFFSET|180", "O|c1|" + enc("file text"), "M|user||" + enc("more")].join("\n")));
+check("a later read adds to it", JSON.stringify(said(s)) === '["hi","done","more"]' && s.offset === 180);
+check("a tool's output reaches its call", s.calls.get("c1").o === "file text");
+applyRead(s, parseReader(["PATH|" + enc("/log.jsonl"), "OFFSET|50", "RESET", "M|user||" + enc("rewound")].join("\n")));
+check("RESET starts over", JSON.stringify(said(s)) === '["rewound"]');
+applyRead(s, parseReader(["PATH|" + enc("/other.jsonl"), "OFFSET|10", "M|user||" + enc("new log")].join("\n")));
+check("a new log starts over", JSON.stringify(said(s)) === '["new log"]' && s.path === "/other.jsonl");
+check("an <hc> wrapper is taken off a user message", said((() => { const x = blankSession(); applyRead(x, parseReader("PATH|p\nM|user||" + enc('<hc from="a/b">steer</hc>'))); return x; })())[0] === "steer");
+
+const home = mkdtempSync(join(tmpdir(), "herdr-chat-sessions-"));
+const entry = (type, uuid, parent, content) => JSON.stringify({ parentUuid: parent, isSidechain: false, type, uuid, message: { role: type, content } });
+const U = i => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
+mkdirSync(join(home, ".claude", "sessions"), { recursive: true });
+mkdirSync(join(home, ".claude", "projects", "-work"), { recursive: true });
+for (const [pid, sid, words] of [[4101, "s1", ["one", "two"]], [4102, "s2", ["three", "four"]]]) {
+  writeFileSync(join(home, ".claude", "sessions", `${pid}.json`), JSON.stringify({ pid, sessionId: sid, cwd: "/work" }));
+  writeFileSync(join(home, ".claude", "projects", "-work", `${sid}.jsonl`),
+    entry("user", U(pid), null, words[0]) + "\n" + entry("assistant", U(pid + 1), U(pid), [{ type: "text", text: words[1] }]) + "\n");
+}
+const reader = readFileSync(join(MOD, "read_session.py"));
+const env = { ...process.env, HOME: home };
+const terms = [{ app: "claude-code", pid: 4101, created: 1, cwd: "/work" }, { app: "claude-code", pid: 4102, created: 1, cwd: "/work" }];
+const single = terms.map(t => execFileSync("python3", ["-c", reader.toString(), ...readerArgs(t, { offset: 0 })], { env }).toString().replace(/^/, ""));
+const batch = splitBatch(execFileSync("python3", ["-c", batchProgram(reader.toString("base64")), Buffer.from(JSON.stringify(terms.map(t => readerArgs(t, { offset: 0 })))).toString("base64")], { env }).toString());
+check("the batch gives one output per session", batch.length === 2);
+check("each the same as reading it alone", batch[0] === single[0] && batch[1] === single[1]);
+const both = batch.map(o => { const x = blankSession(); applyRead(x, parseReader(o)); return said(x).join(","); });
+check("and each its own conversation", both[0] === "one,two" && both[1] === "three,four");
+const bad = splitBatch(execFileSync("python3", ["-c", batchProgram(reader.toString("base64")), Buffer.from(JSON.stringify([["--app", "pi", "--pid", "x"], readerArgs(terms[0], { offset: 0 })])).toString("base64")], { env }).toString());
+check("a run that fails doesn't stop the others", bad.length === 2 && bad[1] === single[0]);
+process.exit(failed ? 1 : 0);

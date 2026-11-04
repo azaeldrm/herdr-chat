@@ -79,11 +79,12 @@ export const DraftMethods = {
   },
 
   /** The reply box belongs to a session: leaving one keeps its draft, and the next one gets its own back. */
-  swapDraft(key) {
-    if (this.key) {
+  /** The reply box's draft kept for session `from` (default: the one shown), and `key`'s put in it. */
+  swapDraft(key, from = this.key) {
+    if (from) {
       const text = this.input.value(), attachments = this.attachments;
-      if (text || attachments.length) this.drafts.set(this.key, { text, attachments });
-      else this.drafts.delete(this.key);
+      if (text || attachments.length) this.drafts.set(from, { text, attachments });
+      else this.drafts.delete(from);
     }
     const draft = key ? this.drafts.get(key) : null;
     this.input.set_value(draft?.text ?? "");
