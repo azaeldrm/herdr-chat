@@ -8,7 +8,7 @@ import { sessionOf, chatKey } from "./common.js";
 import { onWindows, base64Utf8 } from "./platform.js";
 import { target, agentTargets, readScreen, readPrompt } from "./terminal.js";
 import { parseChoices } from "./prompts.js";
-import { blankSession, parseReader, applyRead, readerArgs, batchProgram, splitBatch } from "./session.js";
+import { blankSession, parseReaderInSlices, applyRead, readerArgs, batchProgram, splitBatch } from "./session.js";
 
 /** Sessions kept in memory: every listed agent's, kept read in the background, so a switch shows one at once. */
 const SESSIONS_KEPT = 32;
@@ -206,7 +206,9 @@ export const ReadingMethods = {
           if (!mine()) return;
         }
         if (r.code !== 0) throw new Error(r.stderr || `Reader exited ${r.code}`);
-        this.merge(r.stdout);
+        const update = await parseReaderInSlices(r.stdout, () => cx.sleep(0));
+        if (!mine()) return;
+        this.merge(update);
         this.readError = "";
         if (!t.remote) this.watch(cx, this.path);
       } catch (e) {
@@ -228,8 +230,8 @@ export const ReadingMethods = {
   },
 
   /** The reader's output applied to the session on screen, its log remembered, and the view following it. */
-  merge(stdout) {
-    applyRead(this, parseReader(stdout));
+  merge(update) {
+    applyRead(this, update);
     this.readAt = Date.now();
     const t = target();
     if (t) this.rememberPath(sessionOf(t), this.path, this.hint);
@@ -296,16 +298,16 @@ export const ReadingMethods = {
           let outs;
           try { outs = await runReaders(machine, list.map(x => [x.t, x.at])); } catch { return; }
           if (!outs) return;
-          list.forEach((x, i) => {
-            if (outs[i] == null || x.key === this.key || this.sessions.get(x.key) !== x.s) return;
-            const r = parseReader(outs[i]);
-            if (!r.path) return;
+          for (const [i, x] of list.entries()) {
+            if (outs[i] == null || x.key === this.key || this.sessions.get(x.key) !== x.s) continue;
+            const r = await parseReaderInSlices(outs[i], () => cx.sleep(0));
+            if (!r.path || x.key === this.key || this.sessions.get(x.key) !== x.s) continue;
             const s = x.s ?? blankSession(x.at.path, x.at.hint);
             applyRead(s, r);
             s.readAt = Date.now();
             if (!x.s) this.sessions.set(x.key, s);
             this.rememberPath(sessionOf(x.t), s.path, s.hint);
-          });
+          }
         }));
         this.trimSessions(live);
       } finally {

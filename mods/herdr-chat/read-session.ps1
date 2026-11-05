@@ -41,7 +41,7 @@ function Short([string]$s, [int]$max) {
 }
 function Clip([string]$s) {
   $s = ([string]$s -replace "`r", '').TrimEnd()
-  if ($s.Length -gt 1200) { return $s.Substring(0, 1200) + "`n" + $Ellipsis } else { return $s }
+  if ($s.Length -gt 12000) { return $s.Substring(0, 12000) + "`n" + $Ellipsis } else { return $s }
 }
 function Done([string]$note) { Write-Output 'PATH|'; Write-Output ('NOTE|' + (Esc $note)); exit 0 }
 
@@ -55,7 +55,7 @@ function Add-Message([string]$role, [string]$phase, [string]$text) {
 function Add-Reasoning([string]$text) {
   $text = ([string]$text).Trim()
   if (-not $text) { return }
-  if ($text.Length -gt 6000) { $text = $text.Substring(0, 6000) + "`n" + $Ellipsis }
+  if ($text.Length -gt 12000) { $text = $text.Substring(0, 12000) + "`n" + $Ellipsis }
   $entries.Add(@{ kind='reasoning'; text=$text })
 }
 
