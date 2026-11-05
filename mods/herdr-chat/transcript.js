@@ -1,5 +1,5 @@
 // The conversation as rows: folding tool calls and thinking into one line per run, keying rows by
-// their content, and drawing messages, tool runs and thinking. The row methods are mixed into the
+// their content, and drawing messages, tool runs and their steps. The row methods are mixed into the
 // chat's View (main.js), so `this` is the view.
 import { div, image } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
@@ -55,10 +55,15 @@ export function withoutRetracted(messages, retracted) {
   return { rows: messages.slice(0, last), retracted };
 }
 
+/**
+ * Rows as the chat shows them: each run of tool calls and thoughts folded into one group, the
+ * thoughts as "think" steps among the calls, in the order they happened (an empty thought is left out).
+ */
 export function foldActivity(messages) {
   const out = [];
   for (const m of messages) {
     if (m.kind !== "tools" && m.kind !== "reasoning") { out.push(m); continue; }
+    if (m.kind === "reasoning" && !m.text?.trim()) continue;
     let group = out[out.length - 1];
     if (group?.kind !== "tools") { group = { kind: "tools", calls: [] }; out.push(group); }
     if (m.kind === "reasoning") group.calls.push({ k: "think", d: "", o: m.text });
@@ -67,9 +72,37 @@ export function foldActivity(messages) {
   return out;
 }
 
-function outputLines(o) {
-  const lines = (o || "").split("\n").filter((l, i, all) => l.trim() || (i > 0 && i < all.length - 1));
-  return { shown: lines.slice(0, 6), more: Math.max(0, lines.length - 6) };
+/** Lines of output shown, and characters of a thought, before a step folds the rest away. */
+export const OUTPUT_LINES = 6, OUTPUT_CHARS = 700, THOUGHT_CHARS = 360, THOUGHT_LINES = 4;
+
+/**
+ * What a step shows: all of its text when `open`, otherwise a preview of at most a few lines
+ * (OUTPUT_LINES of output, about THOUGHT_LINES lines of a thought) ending in an ellipsis.
+ * `more` is whether anything was left out, so the step can be opened.
+ */
+export function stepText(c, open) {
+  const text = (c.o || "").replace(/\s+$/, "").replace(/^\n+/, "");
+  if (open || !text) return { text, more: false };
+  if (c.k === "think") {
+    const lines = text.split("\n");
+    if (text.length <= THOUGHT_CHARS && lines.length <= THOUGHT_LINES) return { text, more: false };
+    let cut = lines.slice(0, THOUGHT_LINES).join("\n").slice(0, THOUGHT_CHARS);
+    const space = cut.lastIndexOf(" ");
+    if (space > THOUGHT_CHARS * 0.6) cut = cut.slice(0, space);
+    return { text: cut.replace(/[\s,;:.]+$/, "") + " \u2026", more: true };
+  }
+  const lines = text.split("\n");
+  const shown = lines.slice(0, OUTPUT_LINES).join("\n");
+  if (lines.length <= OUTPUT_LINES && shown.length <= OUTPUT_CHARS) return { text, more: false };
+  return { text: shown.slice(0, OUTPUT_CHARS).replace(/\s+$/, "") + "\n\u2026", more: true, hidden: lines.length - Math.min(lines.length, OUTPUT_LINES) };
+}
+
+/**
+ * The rows an opened group adds below its title: one per step, keyed by the group, its place and its
+ * content (so a step whose output grows is measured again), each opened and closed on its own.
+ */
+export function stepRows(group) {
+  return group.calls.map((c, j) => ({ kind: "step", call: c, last: j === group.calls.length - 1, key: `${group.key}/${j}.${callDigest(c)}` }));
 }
 
 const DIGESTS = new WeakMap();
@@ -140,30 +173,33 @@ export const TranscriptMethods = {
       .child(icon(open ? "chevron-down" : "chevron-right", 13, t.dim));
   },
 
+  /** A group's title line; opened, its steps follow as rows of their own (stepRows). */
   toolsRow(m, i, t) {
-    const open = Boolean(this.open[i]);
     const kinds = [...new Set(m.calls.map(c => c.k).filter(k => k !== "think"))];
-    const glyph = !kinds.length ? "lightbulb" : kinds.length === 1 ? (KINDS[kinds[0]] ?? KINDS.other).icon : "layers";
-    const row = v_flex().w_full().child(this.disclosure(i, t, glyph, summary(m.calls), open));
-    if (!open) return row;
-    return row.child(v_flex().ml(6).mt(4).pl(16).border_l(1).border_color(t.border).gap(0).children(m.calls.map((c, j) => {
-      const out = outputLines(c.o);
-      return v_flex().w_full().pb(out.shown.length ? 6 : 0)
-        .child(h_flex().h(28).gap(10).items_center().min_w(0)
-          .child(div().flex_none().text_size(12.5).font_semibold().text_color(t.foreground).child(STEP[c.k] ?? c.k))
-          .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_family(mono()).text_color(t.muted).child(c.d || "")))
-        .when(out.shown.length > 0, el => el.child(v_flex().w_full().px(10).py(7).rounded(7).bg(t.surface)
-          .font_family(mono()).text_size(12).text_color(t.muted)
-          .children(out.shown.map((l, k) => div().id(`o-${i}-${j}-${k}`).h(18).truncate().child(l || " ")))
-          .when(out.more > 0, el => el.child(div().h(18).text_color(t.dim).child(`+ ${out.more} more lines`)))));
-    })));
+    const glyph = !kinds.length ? "brain" : kinds.length === 1 ? (KINDS[kinds[0]] ?? KINDS.other).icon : "layers";
+    return v_flex().w_full().child(this.disclosure(i, t, glyph, summary(m.calls), Boolean(this.open[i])));
   },
 
-  reasoningRow(m, i, t) {
-    const open = Boolean(this.open[i]);
-    return v_flex().w_full().child(this.disclosure(i, t, "lightbulb", "Thought process", open))
-      .when(open, el => el.child(div().ml(6).mt(4).pl(16).border_l(1).border_color(t.border)
-        .text_size(13.5).text_color(t.muted).child(TextView.markdown(`think-${i}`, m.text).selectable(true))));
+  /**
+   * One step of an opened group, on the group's guide line: its name and command, then a thought in
+   * full markdown or the command's output wrapped in a box. Past a few lines either shows a preview,
+   * and a click on the step shows the rest.
+   */
+  stepRow(m, i, t) {
+    const c = m.call, open = Boolean(this.open[i]), shown = stepText(c, open);
+    const toggle = shown.more || open && stepText(c, false).more;
+    const body = !shown.text ? null
+      : c.k === "think" ? div().w_full().pb(4).child(TextView.markdown(`think-${i}`, shown.text).selectable(true).text_size(13).text_color(t.muted))
+      : v_flex().w_full().px(10).py(7).rounded(7).bg(t.surface).font_family(mono()).text_size(12).text_color(t.muted)
+        .children(shown.text.split("\n").map((l, k) => div().id(`o-${i}-${k}`).w_full().min_h(18).child(l || " ")));
+    return v_flex().w_full().ml(6).pl(16).border_l(1).border_color(t.border).pb(m.last ? 6 : 2)
+      .child(h_flex().h(28).gap(10).items_center().min_w(0)
+        .child(div().flex_none().text_size(12.5).font_semibold().text_color(t.foreground).child(STEP[c.k] ?? c.k))
+        .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_family(mono()).text_color(t.muted).child(c.d || ""))
+        .when(toggle, el => el.child(h_flex().flex_none().gap(4).items_center().text_size(12).text_color(t.dim)
+          .child(open ? "Show less" : shown.hidden ? `${shown.hidden} more lines` : "Show all")
+          .child(icon(open ? "chevron-down" : "chevron-right", 12, t.dim)))))
+      .when(body, el => el.child(body));
   },
 
   messageRow(m, i, t) {
@@ -190,7 +226,7 @@ export const TranscriptMethods = {
 
   row(m, i, t) {
     const body = m.kind === "tools" ? this.toolsRow(m, i, t)
-      : m.kind === "reasoning" ? this.reasoningRow(m, i, t)
+      : m.kind === "step" ? this.stepRow(m, i, t)
       : m.kind === "note" ? div().w_full().text_size(12.5).text_color(t.dim).child(m.text)
       : m.kind === "diagram" ? this.diagramRow(m, i, t)
       : this.messageRow(m, i, t);

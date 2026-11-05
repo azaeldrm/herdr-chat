@@ -47,7 +47,7 @@ def short(s, n):
 
 def clip(s):
     s = str(s or "").replace("\r", "").rstrip()
-    return s[:1200] + "\n" + ELLIPSIS if len(s) > 1200 else s
+    return s[:12000] + "\n" + ELLIPSIS if len(s) > 12000 else s
 
 def add_message(role, phase, text):
     text = str(text or "").strip()
@@ -58,7 +58,7 @@ def add_message(role, phase, text):
 def add_reasoning(text):
     text = str(text or "").strip()
     if not text: return
-    if len(text) > 6000: text = text[:6000] + "\n" + ELLIPSIS
+    if len(text) > 12000: text = text[:12000] + "\n" + ELLIPSIS
     entries.append({"kind": "reasoning", "text": text})
 
 def add_call(call, cid): entries.append({"kind": "call", "id": cid or "", "call": call})
