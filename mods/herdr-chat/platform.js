@@ -1,16 +1,19 @@
-// What differs between Windows and the rest: paths, quoting, and the programs that do file work.
 import { appHome, exec } from "herdr";
 
 export function onWindows() { return appHome().includes("\\"); }
 
-/** A file of this mod, as a path for programs to open. */
-export function modFile(name) { return onWindows() ? `${appHome()}\\mods\\herdr-chat\\${name}` : `${appHome()}/mods/herdr-chat/${name}`; }
+export function modFile(name) {
+  // A file of this mod, as a path for programs to open.
+  return onWindows() ? `${appHome()}\\mods\\herdr-chat\\${name}` : `${appHome()}/mods/herdr-chat/${name}`;
+}
 
-/** A PowerShell single-quoted string. */
-export function psQuote(s) { return `'${String(s).replace(/'/g, "''")}'`; }
+export function psQuote(s) {
+  // `s` as a PowerShell single-quoted string.
+  return `'${String(s).replace(/'/g, "''")}'`;
+}
 
-/** Text as base64 of its UTF-8 bytes (no Buffer or btoa here). */
 export function base64Utf8(text) {
+  // Text as base64 of its UTF-8 bytes (no Buffer or btoa here).
   const bytes = [];
   for (const ch of text) {
     const c = ch.codePointAt(0);
@@ -28,16 +31,16 @@ export function base64Utf8(text) {
   return out;
 }
 
-/** Deletes files on this computer, quietly (ones already gone are fine). */
 export function removeFiles(files) {
+  // Deletes files on this computer, quietly (ones already gone are fine).
   if (!files.length) return;
   (onWindows()
     ? exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath ${files.map(psQuote).join(", ")}`])
     : exec("rm", ["-f", "--", ...files])).catch(() => null);
 }
 
-/** Deletes the files in `dir`, and the folders in it, older than a day. */
 export function pruneOld(dir) {
+  // Deletes the files in `dir`, and the folders in it, older than a day.
   (onWindows()
     ? exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
         `Get-ChildItem -LiteralPath ${psQuote(dir)} -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) } | Remove-Item -Force`])

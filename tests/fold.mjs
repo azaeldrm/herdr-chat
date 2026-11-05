@@ -1,5 +1,3 @@
-// How the conversation's activity becomes rows, and how much of a step shows (transcript.js).
-//   node tests/fold.mjs
 import { stage } from "./stage.mjs";
 const { foldActivity, stepText, stepRows, OUTPUT_LINES } = await stage().load("transcript.js");
 let failed = 0;

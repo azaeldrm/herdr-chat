@@ -1,6 +1,3 @@
-// Stages a copy of the chat mod in a temp folder with stand-ins for herdr, gpui-kit and gpui-base,
-// so its modules can be imported under Node. Only gpui-kit's .when runs its branch, as the real
-// one does; every other builder method just returns another element.
 import { mkdtempSync, mkdirSync, writeFileSync, cpSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, dirname } from "path";

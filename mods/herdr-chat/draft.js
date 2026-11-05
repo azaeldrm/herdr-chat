@@ -1,33 +1,23 @@
-// One draft per session, shared with the agent's own input box: keeping each session's draft, and
-// carrying it into the agent's box and back when the view switches. Mixed into the chat's View
-// (main.js), so `this` is the view.
 import { shared } from "herdr";
 import { sessionOf } from "./common.js";
 import { target, inputBox } from "./terminal.js";
 import { canMirror, draftPastes, textOfBox, readBack } from "./agents.js";
 
 export const DraftMethods = {
-  /**
-   * The chat box and the agent's own input box hold the same draft. Switching this agent's pane to
-   * the terminal types the chat's draft into the agent's box (an empty one empties it); switching back
-   * reads the box into the chat. A switch that also changes agent, tab or space carries nothing.
-   */
   mirrorOnSwitch(cx) {
+    // The chat box and the agent's own input box hold the same draft.
     const mode = shared("herdr-chat.mode"), t = target();
     const session = t ? sessionOf(t) : "";
     const was = this.lastMode, wasSession = this.lastModeSession;
     this.lastMode = mode; this.lastModeSession = session;
-    // The keyboard follows the view: otherwise the hidden terminal keeps it, and Ctrl+V there pastes
-    // an image into the agent's own box (herdr's terminal.paste_image) instead of the chat.
     if (mode === "chat" && was !== "chat") this.input.focus();
-    // a question card on screen means the agent's box isn't: nothing to carry either way
     if (mode === was || !t || session !== wasSession || !canMirror(t.app) || this.sending || this.choices) return;
     if (was === "chat" && mode === "terminal") this.pushDraft(t, session, cx);
     else if (was === "terminal" && mode === "chat") this.pullDraft(t, session, cx);
   },
 
-  /** One mirror step at a time: a quick switch back waits for the push before reading the box. */
   queueMirror(cx, step) {
+    // One mirror step at a time: a quick switch back waits for the push before reading the box.
     this.mirrorChain = this.mirrorChain.then(() => new Promise(done => cx.spawn(async cx => {
       try { await step(cx); } catch {} finally { done(); }
     })));
@@ -48,19 +38,15 @@ export const DraftMethods = {
     });
   },
 
-  /**
-   * The agent's box back into the chat: the placeholder a long paste became turns back into the text,
-   * and the chat's own images (its @mentions, its [Image #N], its paths) back into thumbnails. An image
-   * pasted in the terminal itself can't come back (the agent keeps it), so then the draft stays there.
-   */
   pullDraft(t, session, cx) {
+    // The agent's box back into the chat.
     this.queueMirror(cx, async cx => {
       const r = await inputBox("read", t, t.app);
       if (!r.ok) return;
       const box = r.box;
       if (box == null || target()?.address !== t.address || shared("herdr-chat.mode") !== "chat") return;
       const m = this.mirror?.session === session ? this.mirror : null;
-      if (m && box === m.box) return; // nothing changed in the terminal (a pasted image there stays flagged)
+      if (m && box === m.box) return;
       const { text, kept, foreign } = readBack(t.app, box, m);
       if (foreign) {
         this.mirror = { ...(m ?? { session, sig: "", images: [], paths: [], pasted: "", textBox: "" }), box, foreign: true };
@@ -78,9 +64,8 @@ export const DraftMethods = {
     });
   },
 
-  /** The reply box belongs to a session: leaving one keeps its draft, and the next one gets its own back. */
-  /** The reply box's draft kept for session `from` (default: the one shown), and `key`'s put in it. */
   swapDraft(key, from = this.key) {
+    // The reply box's draft kept for session `from` (default: the one shown), and `key`'s put in it.
     if (from) {
       const text = this.input.value(), attachments = this.attachments;
       if (text || attachments.length) this.drafts.set(from, { text, attachments });
