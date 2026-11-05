@@ -7,7 +7,7 @@ import { join } from "path";
 import { execFileSync } from "child_process";
 import { stage, MOD } from "./stage.mjs";
 
-const { parseReader, applyRead, blankSession, readerArgs, batchProgram, splitBatch } = await stage().load("session.js");
+const { parseReader, parseReaderInSlices, applyRead, blankSession, readerArgs, batchProgram, splitBatch } = await stage().load("session.js");
 let failed = 0;
 const check = (name, ok) => { console.log(`${ok ? "PASS" : "FAIL"} ${name}`); if (!ok) failed++; };
 const enc = encodeURIComponent;
@@ -47,4 +47,9 @@ const both = batch.map(o => { const x = blankSession(); applyRead(x, parseReader
 check("and each its own conversation", both[0] === "one,two" && both[1] === "three,four");
 const bad = splitBatch(execFileSync("python3", ["-c", batchProgram(reader.toString("base64")), Buffer.from(JSON.stringify([["--app", "pi", "--pid", "x"], readerArgs(terms[0], { offset: 0 })])).toString("base64")], { env }).toString());
 check("a run that fails doesn't stop the others", bad.length === 2 && bad[1] === single[0]);
+const long = ["PATH|" + enc("/l.jsonl"), "OFFSET|9", ...Array.from({ length: 300 }, (_, i) => `M|assistant|final|${enc("line " + i + "\r")}`)].join("\r\n");
+let pauses = 0;
+const sliced = await parseReaderInSlices(long, async () => { pauses++; }, 0);
+check("read in slices, an update is the same as read at once", JSON.stringify(sliced) === JSON.stringify(parseReader(long)) && sliced.added.length === 300);
+check("and it pauses between slices", pauses > 0);
 process.exit(failed ? 1 : 0);

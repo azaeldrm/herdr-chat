@@ -6,7 +6,7 @@ import { target, sendMessage, pressKeys, inputBox, interruptAgent } from "./term
 import { ChoiceMethods } from "./choices.js";
 import { ImageMethods } from "./images.js";
 import { DraftMethods } from "./draft.js";
-import { TranscriptMethods, keyRows, withoutRetracted } from "./transcript.js";
+import { TranscriptMethods, keyRows, stepRows, stepText, withoutRetracted } from "./transcript.js";
 import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle, clock } from "./ui.js";
 import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
 import { caretOf, lineMove } from "./caret.js";
@@ -17,6 +17,10 @@ import { ReadingMethods } from "./reading.js";
 // Room under the newest message, inside the list, so older text can scroll right up to the
 // reply box instead of stopping at a padded band above it.
 const TAIL = 32;
+/** Space above and below a row in the list; an opened group's steps sit flush, on one guide line. */
+const rowPadding = m => m.kind === "step" ? 0 : 8;
+/** Rows measured off screen per frame, newest first: a long reply or thought costs a frame to lay out. */
+const MEASURE_AT_ONCE = 12;
 // How far above the reply box messages fade out as they scroll under it.
 const FADE = 20;
 function inputHighlight(cx) {
@@ -81,16 +85,17 @@ export default class HerdrChat extends View {
     this.pruneCache();
     this.visit = shared("herdr-chat.visit");
     this.screen = "";
-    this.initReading(cx);
+    this.initReading();
     // Each session's unsent reply: its text and attached images, kept while you look at another one.
     this.drafts = new Map();
     this.refresh(cx);
-    cx.timer.every(1500, cx => { inputHighlight(cx); this.refresh(cx); });
+    cx.timer.every(1500, cx => inputHighlight(cx));
     cx.timer.every(100, cx => {
       this.applyView();
       this.mirrorOnSwitch(cx);
       const t = target();
       if (chatKey(t) !== this.key || this.needsFirstRead || this.pendingDraft) this.refresh(cx);
+      this.noticeAgents(cx);
       this.noticeVisit();
       const cue = this.readCue();
       if (cue !== this.shownCue) { this.shownCue = cue; cx.notify(); }
@@ -353,13 +358,14 @@ export default class HerdrChat extends View {
     const empty = rows.length === 0 || (rows.length === 1 && rows[0].kind === "note" && !this.messages.length);
     this.isEmpty = empty;
     keyRows(rows);
+    rows.splice(0, rows.length, ...rows.flatMap(r => r.kind === "tools" && this.open[r.key] ? [r, ...stepRows(r)] : [r]));
     const inner = Math.min(COLUMN, Math.max(280, Math.floor(this.width) - 50));
     if (inner !== this.measuredAt) { this.heights = {}; this.changedAt = {}; this.lastHeight = {}; this.measuredAt = inner; }
     // a diagram row's height changes when it finishes drawing (or fails): only that row is measured
     // again, keyed by its own state, not every diagram whenever any of them finishes
     const t0 = theme();
     const hkey = m => `${m.key}${this.open[m.key] ? ":open" : ""}${m.kind === "diagram" ? `:${diagramFor(m.text, t0).state}` : ""}`;
-    const unmeasured = rows.filter(m => !(hkey(m) in this.heights)).slice(-40);
+    const unmeasured = rows.filter(m => !(hkey(m) in this.heights)).slice(-MEASURE_AT_ONCE);
     // A row stays in the measure until its height has held for a while: a long reply's
     // markdown can finish wrapping after its first size is reported, and a row kept at
     // that first, shorter height draws over the rows below it.
@@ -368,7 +374,7 @@ export default class HerdrChat extends View {
     const pending = [...settling, ...unmeasured];
     // a row being measured again keeps its last height meanwhile: collapsing it to the 40 px guess
     // makes the whole list shrink and grow back, and the view jumps
-    const sizes = rows.map(m => (this.heights[hkey(m)] ?? this.lastHeight[m.key] ?? 40) + 16);
+    const sizes = rows.map(m => (this.heights[hkey(m)] ?? this.lastHeight[m.key] ?? 40) + rowPadding(m) * 2);
     let bottom = rows.length;
     for (let h = 0; bottom > 0 && h < (this.listH || 900) + 240; ) h += sizes[--bottom];
     const near = rows.slice(bottom);
@@ -410,12 +416,13 @@ export default class HerdrChat extends View {
         const out = [];
         for (let i = range.start; i < range.end; i++)
           out.push(i < rows.length
-            ? h_flex().w_full().justify_center().px(24).pt(8).pb(8).child(div().w_full().max_w(COLUMN).child(this.row(rows[i], rows[i].key, t)))
+            ? h_flex().w_full().justify_center().px(24).py(rowPadding(rows[i])).child(div().w_full().max_w(COLUMN).child(this.row(rows[i], rows[i].key, t)))
             : div().w_full().h(TAIL));
         return out;
       }).track_scroll(this.scroll).on_item_click((key, cx) => {
-        const kind = rows.find(r => r.key === key)?.kind;
-        if (kind === "tools" || kind === "reasoning") { this.open[key] = !this.open[key]; cx.notify(); }
+        const row = rows.find(r => r.key === key);
+        const opens = row?.kind === "tools" || (row?.kind === "step" && (this.open[key] || stepText(row.call, false).more));
+        if (opens) { this.open[key] = !this.open[key]; cx.notify(); }
       }).size_full())
         // Strips of the background, each more opaque than the one above (a gradient, from
         // parts that draw everywhere; Background.linear_gradient threw while rendering).
