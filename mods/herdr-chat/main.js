@@ -81,16 +81,17 @@ export default class HerdrChat extends View {
     this.pruneCache();
     this.visit = shared("herdr-chat.visit");
     this.screen = "";
-    this.initReading(cx);
+    this.initReading();
     // Each session's unsent reply: its text and attached images, kept while you look at another one.
     this.drafts = new Map();
     this.refresh(cx);
-    cx.timer.every(1500, cx => { inputHighlight(cx); this.refresh(cx); });
+    cx.timer.every(1500, cx => inputHighlight(cx));
     cx.timer.every(100, cx => {
       this.applyView();
       this.mirrorOnSwitch(cx);
       const t = target();
       if (chatKey(t) !== this.key || this.needsFirstRead || this.pendingDraft) this.refresh(cx);
+      this.noticeAgents(cx);
       this.noticeVisit();
       const cue = this.readCue();
       if (cue !== this.shownCue) { this.shownCue = cue; cx.notify(); }
