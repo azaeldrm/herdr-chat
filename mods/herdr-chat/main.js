@@ -14,14 +14,9 @@ import { imageStyle, canMirror, withImages } from "./agents.js";
 import { isHeader, terminalHeader } from "./header.js";
 import { ReadingMethods } from "./reading.js";
 
-// Room under the newest message, inside the list, so older text can scroll right up to the
-// reply box instead of stopping at a padded band above it.
 const TAIL = 32;
-/** Space above and below a row in the list; an opened group's steps sit flush, on one guide line. */
 const rowPadding = m => m.kind === "step" ? 0 : 8;
-/** Rows measured off screen per frame, newest first: a long reply or thought costs a frame to lay out. */
 const MEASURE_AT_ONCE = 12;
-// How far above the reply box messages fade out as they scroll under it.
 const FADE = 20;
 function inputHighlight(cx) {
   const t = theme(), th = cx.theme();
@@ -49,44 +44,35 @@ export default class HerdrChat extends View {
     this.scroll = VirtualListScrollHandle.new();
     this.input.on("submit", (e, cx) => { if (!e?.shift) this.enter(cx); });
     this.input.on("change", (_e, cx) => {
-      // The textarea's own Enter adds a line whether or not the chat's handler ran first: a line it
-      // added just after an Enter that sent goes again, so Enter only ever sends.
       if (Date.now() - (this.enterAt ?? 0) < 400) {
         const v = this.input.value(), s = v.replace(/\r?\n$/, "");
         if (s !== v) this.input.set_value(s);
       }
       cx.notify();
     });
-    // ↑/↓ in the reply box: herdr's textarea keeps them (and can't move to the start or end), so a
-    // binding scoped to this box ("HerdrChatReply > Input": the textarea's own context is "Input")
-    // turns them into the chat's actions. The keymap is the app's, so bind once per engine.
     if (!globalThis.herdrChatLineKeys) {
       globalThis.herdrChatLineKeys = cx.bind_keys([
         { keystroke: "up", action: "herdr_chat::LineUp", context: "HerdrChatReply > Input" },
         { keystroke: "down", action: "herdr_chat::LineDown", context: "HerdrChatReply > Input" },
       ]);
     }
-    // Esc in the reply box stops a working agent, as Esc does in its terminal (bound once per engine).
     if (!globalThis.herdrChatStopKey) {
       globalThis.herdrChatStopKey = cx.bind_keys([{ keystroke: "escape", action: "herdr_chat::Stop", context: "HerdrChatReply > Input" }]);
     }
-    // A paste with no text in it (an image) that didn't come through Ctrl+V below: right-click, say.
     this.input.on("paste_other", (_e, cx) => { if (Date.now() - (this.imagePasteAt ?? 0) > 800) this.pasteImage(cx); });
     this.following = true; this.visibleEnd = 0; this.rowCount = 0;
     this.messages = []; this.open = {};
     this.width = 900; this.needsScroll = true; this.scrollAskedAt = Date.now(); this.lastAsk = Date.now(); this.laidOut = 0; this.pendingCount = -1; this.settling = true; this.isEmpty = true;
     this.heights = {}; this.changedAt = {}; this.measuredAt = 0;
-    this.lastHeight = {}; // each row's latest height, whatever key it was measured under
-    this.attachments = []; // { name, file (absolute preview copy), rel (for image()) }
-    // The draft mirror: what the chat box and the agent's own input box last agreed on.
-    this.mirror = null; // { session: "address:created", text, box (as the agent draws it) }
+    this.lastHeight = {};
+    this.attachments = [];
+    this.mirror = null;
     this.lastMode = shared("herdr-chat.mode"); this.lastModeSession = "";
     this.mirrorChain = Promise.resolve();
     this.pruneCache();
     this.visit = shared("herdr-chat.visit");
     this.screen = "";
     this.initReading();
-    // Each session's unsent reply: its text and attached images, kept while you look at another one.
     this.drafts = new Map();
     this.refresh(cx);
     cx.timer.every(1500, cx => inputHighlight(cx));
@@ -100,7 +86,6 @@ export default class HerdrChat extends View {
       const cue = this.readCue();
       if (cue !== this.shownCue) { this.shownCue = cue; cx.notify(); }
       if (shared("herdr-chat.mode") !== "chat") return;
-      // Diagrams draw off the render path, a batch per tick, while the chat is showing.
       if (hasQueuedDiagrams() && !this.drawingDiagram) {
         this.drawingDiagram = true;
         cx.spawn(async cx => { try { if (await renderQueuedDiagrams()) cx.notify(); } finally { this.drawingDiagram = false; } });
@@ -130,18 +115,15 @@ export default class HerdrChat extends View {
     showView(t ? preferredView(sessionOf(t)) : "terminal");
   }
 
-  /**
-   * Keeps the chat at its newest message: one scroll, in the frame where the bottom screenful has its
-   * heights (render), or on a tick once 1.5 s have passed without them; not a scroll per tick.
-   */
   follow(restart = false) {
+    // Keeps the chat at its newest message.
     this.following = true;
     this.lastAsk = Date.now();
     if (!this.needsScroll || restart) { this.needsScroll = true; this.scrollAskedAt = Date.now(); }
   }
 
-  /** A switch to Chat: back to the newest message, hidden until it lands unless nothing changed since it last did. */
   noticeVisit() {
+    // On a switch to Chat: back to the newest message, hidden until it lands if anything changed.
     const visit = shared("herdr-chat.visit");
     if (visit === this.visit) return;
     this.visit = visit;
@@ -149,12 +131,8 @@ export default class HerdrChat extends View {
     this.follow(true);
   }
 
-  /**
-   * ↑ (dir -1) or ↓ (+1) in the reply box: the line above or below at the same column, the start on
-   * the first line, the end on the last. Lines are the ones between line breaks (the textarea can't
-   * say where it wraps a long line). A run of ↑/↓ keeps the column it started from.
-   */
   lineKey(dir) {
+    // ↑ (dir -1) or ↓ (+1) in the reply box.
     const { start, end } = caretOf(this.input);
     const from = dir < 0 ? start : end;
     const goal = this.lineGoal && this.lineGoal.at === from ? this.lineGoal.column : null;
@@ -163,12 +141,8 @@ export default class HerdrChat extends View {
     this.lineGoal = { at, column };
   }
 
-  /**
-   * Stops the working agent (its own stop key, through hc interrupt). Claude Code then puts the
-   * message it was working on back in its input box; the draft mirror reads that box into the chat's,
-   * so the message is back to edit and send again. Text typed in the chat meanwhile isn't replaced.
-   */
   stop(cx) {
+    // Stops the working agent (its own stop key, through hc interrupt).
     const t = target();
     if (!t || t.status !== "working" || this.stopping) return;
     this.stopping = true; cx.notify();
@@ -176,10 +150,8 @@ export default class HerdrChat extends View {
       try {
         const r = await interruptAgent(t);
         if (r.outcome === "failed") throw new Error(r.error || `Couldn't stop ${t.label}.`);
-        await cx.sleep(600); // the agent puts the message back after it has stopped
+        await cx.sleep(600);
         if (canMirror(t.app)) {
-          // its box holding exactly the last message means the agent took it back (Claude Code):
-          // hide it now, rather than when the next message finally branches off before it
           const box = (await inputBox("read", t, t.app)).box;
           const last = [...this.messages].reverse().find(m => m.kind === "message");
           if (box && last?.role === "user" && box.trim() === last.text.trim()) this.retracted = { key: this.key, text: last.text };
@@ -190,8 +162,8 @@ export default class HerdrChat extends View {
     });
   }
 
-  /** Enter (without Shift): sends, and never leaves a new line in the box. */
   enter(cx) {
+    // Enter (without Shift): sends, and never leaves a new line in the box.
     this.enterAt = Date.now();
     const v = this.input.value(), s = v.replace(/\r?\n$/, "");
     if (s !== v) this.input.set_value(s);
@@ -202,13 +174,11 @@ export default class HerdrChat extends View {
     const t = target(), typed = this.input.value().trim(), attached = this.attachments.slice();
     if (!t || (!typed && !attached.length) || this.sending) return;
     this.sending = true;
-    // The box empties at once, as in any chat; a send that fails puts the draft back.
     this.input.set_value("");
     this.attachments = this.attachments.filter(a => !attached.includes(a));
     cx.notify();
     const owner = this.key;
     const restore = () => {
-      // back into the session it was written for, even if another one is showing now
       if (this.key !== owner) {
         const d = this.drafts.get(owner) ?? { text: "", attachments: [] };
         this.drafts.set(owner, { text: d.text.trim() ? d.text : typed, attachments: [...attached, ...d.attachments] });
@@ -220,8 +190,6 @@ export default class HerdrChat extends View {
     cx.spawn(async cx => {
       try {
         if (t.status === "blocked" && !(await this.promptStillCurrent(t))) throw new Error("The prompt changed. Review it again before answering.");
-        // The agent's own box may still hold the mirrored draft (or something typed there): the chat's
-        // text is what goes, so the box is emptied first rather than sent along with it.
         if (canMirror(t.app) && t.status !== "blocked") {
           await this.mirrorChain;
           if (this.mirror?.session === sessionOf(t) && this.mirror.foreign)
@@ -290,8 +258,8 @@ export default class HerdrChat extends View {
     return null;
   }
 
-  /** Grey stand-ins for a conversation being read for the first time, in the shape of one. */
   placeholder(t) {
+    // Grey stand-ins for a conversation being read for the first time, in the shape of one.
     const line = (w, op) => div().h(12).w(w).rounded(6).bg(t.raised).opacity(op);
     return v_flex().flex_1().min_h(0).justify_end().items_center().px(24).pb(8)
       .loop("opacity", { from: 0.45, to: 1, period: 1400 })
@@ -304,7 +272,6 @@ export default class HerdrChat extends View {
 
   composer(t, active) {
     const ready = (Boolean(this.input.value().trim()) || this.attachments.length > 0) && !this.sending && Boolean(active);
-    // While the agent works and the box is empty, the send button stops it (typing turns it back into Send).
     const stopping = active?.status === "working" && !this.input.value().trim() && !this.attachments.length;
     return v_flex().w_full().max_w(COLUMN).gap(6)
       .child(h_flex().id("composer-box").w_full().pl(16).pr(8).py(8).gap(8).items_end().rounded(18).border_1().border_color(t.input).bg(t.surface)
@@ -346,10 +313,8 @@ export default class HerdrChat extends View {
     const t = theme();
     const active = target();
     if (chatKey(active) !== this.key) this.switchSession(active, chatKey(active));
-    // An assistant reply with ```mermaid blocks becomes its text and a row per diagram, so a
-    // diagram is measured, and measured again once drawn, on its own.
     const shown = withoutRetracted(this.messages, this.retracted?.key === this.key ? this.retracted.text : null);
-    if (!shown.retracted && this.retracted?.key === this.key) this.retracted = null; // the conversation moved on
+    if (!shown.retracted && this.retracted?.key === this.key) this.retracted = null;
     const rows = shown.rows.flatMap(m => {
       const parts = m.kind === "message" && m.role !== "user" && m.text?.includes("```mermaid") ? splitDiagrams(m.text) : null;
       return parts ? parts.map(p => p.kind === "diagram" ? { kind: "diagram", text: p.text } : { ...m, text: p.text }) : [m];
@@ -361,25 +326,16 @@ export default class HerdrChat extends View {
     rows.splice(0, rows.length, ...rows.flatMap(r => r.kind === "tools" && this.open[r.key] ? [r, ...stepRows(r)] : [r]));
     const inner = Math.min(COLUMN, Math.max(280, Math.floor(this.width) - 50));
     if (inner !== this.measuredAt) { this.heights = {}; this.changedAt = {}; this.lastHeight = {}; this.measuredAt = inner; }
-    // a diagram row's height changes when it finishes drawing (or fails): only that row is measured
-    // again, keyed by its own state, not every diagram whenever any of them finishes
     const t0 = theme();
     const hkey = m => `${m.key}${this.open[m.key] ? ":open" : ""}${m.kind === "diagram" ? `:${diagramFor(m.text, t0).state}` : ""}`;
     const unmeasured = rows.filter(m => !(hkey(m) in this.heights)).slice(-MEASURE_AT_ONCE);
-    // A row stays in the measure until its height has held for a while: a long reply's
-    // markdown can finish wrapping after its first size is reported, and a row kept at
-    // that first, shorter height draws over the rows below it.
     const now = Date.now();
     const settling = rows.filter(m => { const k = hkey(m); return k in this.heights && now - (this.changedAt[k] ?? 0) < 2000; });
     const pending = [...settling, ...unmeasured];
-    // a row being measured again keeps its last height meanwhile: collapsing it to the 40 px guess
-    // makes the whole list shrink and grow back, and the view jumps
     const sizes = rows.map(m => (this.heights[hkey(m)] ?? this.lastHeight[m.key] ?? 40) + rowPadding(m) * 2);
     let bottom = rows.length;
     for (let h = 0; bottom > 0 && h < (this.listH || 900) + 240; ) h += sizes[--bottom];
     const near = rows.slice(bottom);
-    // diagrams still drawing count as unsettled too: shown before they finish, they grow above the
-    // bottom and the view jumps into them before the scroll catches up
     this.pendingCount = near.filter(m => !(hkey(m) in this.heights)).length + near.filter(m => m.kind === "diagram" && diagramFor(m.text, t0).state === "queued").length;
     this.sig = `${rows.length}:${sizes.reduce((a, b) => a + b, 0)}`;
     this.noticeVisit();
@@ -424,8 +380,6 @@ export default class HerdrChat extends View {
         const opens = row?.kind === "tools" || (row?.kind === "step" && (this.open[key] || stepText(row.call, false).more));
         if (opens) { this.open[key] = !this.open[key]; cx.notify(); }
       }).size_full())
-        // Strips of the background, each more opaque than the one above (a gradient, from
-        // parts that draw everywhere; Background.linear_gradient threw while rendering).
         .child(v_flex().absolute().bottom(0).left(0).right(0).h(FADE)
           .children(Array.from({ length: 8 }, (_, i) => div().w_full().flex_1().bg(t.background).opacity((i + 1) / 8))))
         .when(!this.following && !this.needsScroll, el => el.child(h_flex().absolute().bottom(12).left(0).right(0).justify_center()

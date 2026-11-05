@@ -1,20 +1,3 @@
-"""Read or set what's typed in an agent's own input box, so the chat's draft and the terminal's agree.
-
-  input-box.py read <terminal> <app>          prints {"box": "<text>"} (null: no input box on screen)
-  input-box.py set  <terminal> <app> <pastes>  empties the box, then pastes each string of the JSON
-                                              list <pastes> in turn, without sending; prints
-                                              {"box": "<the box as read back>"}. Codex makes an image
-                                              of a paste that is one image path, so images go alone.
-  input-box.py paste <terminal> <text>        pastes <text> into the terminal without pressing Enter
-
-herdr-core's `hc read` gives plain text, and an empty box shows a dim placeholder (Claude Code's
-`Try "..."`, Codex's rotating hints) that plain text can't tell from typing. `hc attach --observe`
-gets the screen as the program drew it, styles included: this rebuilds the rows from that first
-paint and leaves out dim characters. Setting clears with Delete and Backspace, as many as the box
-holds (wherever the cursor is, with no Esc: that interrupts or opens Claude Code's rewind, and no
-up/down: those walk history), then pastes inside bracketed-paste markers through `hc attach`, since
-`hc send` always presses Enter. Unix only (it needs a pty).
-"""
 import fcntl, json, os, pty, re, select, struct, subprocess, sys, termios, time
 
 ENV = {k: v for k, v in os.environ.items() if k not in ("HC_TERMINAL_ID", "HC_SCOPE")}
@@ -33,8 +16,6 @@ def attach(terminal, observe, rows, cols):
     return pid, fd
 
 
-# hc attach asks the terminal about itself (colors, cell size, device attributes) and waits for
-# the answers before its first paint; answering at once saves about a second per look.
 REPLIES = [
     (b"\x1b]10;?", b"\x1b]10;rgb:ffff/ffff/ffff\x1b\\"),
     (b"\x1b]11;?", b"\x1b]11;rgb:0000/0000/0000\x1b\\"),
@@ -74,7 +55,7 @@ def drain(fd, quiet, limit):
 
 def detach(pid, fd):
     try:
-        os.write(fd, b"\x1c")  # ctrl+\
+        os.write(fd, b"\x1c")
     except OSError:
         pass
     drain(fd, 0.1, 1.0)
@@ -151,7 +132,7 @@ def render(paint, rows, cols):
         if ch == "\r":
             c = 0
         elif ch == "\n":
-            if r == rows - 1:  # a line break on the bottom row scrolls the screen up, as a terminal does
+            if r == rows - 1:
                 grid.pop(0)
                 grid.append([blank] * cols)
             else:
@@ -166,7 +147,6 @@ def render(paint, rows, cols):
 
 
 def text_of(row):
-    # Claude Code draws a no-break space after its ❯
     return "".join(ch for ch, _ in row).replace("\u00a0", " ").rstrip()
 
 
@@ -190,9 +170,6 @@ def join(lines):
     return out
 
 
-# A choice prompt's key line (a question, a permission request, an approval): the same hints as
-# FOOTER in prompts.js, keep the two alike (tests/prompt-keys.py). While one is up the
-# agent's input box isn't on screen: Pi's question even sits between the same rules as its editor.
 PROMPT_KEYS = re.compile(r"enter to (select|confirm)|↑/↓|to navigate|esc to cancel", re.I)
 
 
@@ -227,8 +204,6 @@ def box(grid, app):
             lines.pop()
         while lines and not lines[0][0]:
             lines.pop(0)
-        # Some Pi setups draw a prompt in the box: " > " before the first line and three spaces
-        # before the rest. Strip exactly that (a ">" typed in the draft stays).
         if lines and (lines[0][0] == " >" or lines[0][0].startswith(" > ")):
             lines = [(line[3:] if k == 0 or line.startswith("   ") else line, full) for k, (line, full) in enumerate(lines)]
         return join(lines)
@@ -256,7 +231,6 @@ def type_into(terminal, erase, pastes):
         detach(pid, fd)
         sys.exit("hc attach printed nothing")
     if erase:
-        # in chunks, so the program reads them as keys and not as one burst it might take for a paste
         for _ in range(0, erase, 20):
             os.write(fd, b"\x1b[3~" * 20 + b"\x7f" * 20)
             drain(fd, 0.02, 0.1)

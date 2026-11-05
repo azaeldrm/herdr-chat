@@ -1,10 +1,3 @@
-<#
-.SYNOPSIS
-Copies an image into the chat's preview folder, ready to attach, and prints its path.
-Claude Code attaches an @-mentioned image only up to about 256 KB, so a bigger one is
-re-encoded as a JPEG under 250 KB with System.Drawing. -Clipboard saves the clipboard's
-image instead of reading -Source (exit 3: the clipboard holds no image).
-#>
 param(
   [string]$Source,
   [Parameter(Mandatory=$true)][string]$Folder,

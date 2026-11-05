@@ -1,6 +1,3 @@
-"""A message sent while Claude Code works (a steer) is logged as an attachment of type queued_command,
-not a user entry; the chat's reader must show it, in its place in the conversation.
-  python3 tests/steering.py"""
 import json, os, subprocess, sys, tempfile, urllib.parse
 from pathlib import Path
 
@@ -8,10 +5,8 @@ reader = Path(__file__).resolve().parent.parent / "mods" / "herdr-chat" / "read_
 
 def entry(kind, uuid, parent, **rest):
     uuid, parent = U[uuid], (U[parent] if parent else None)
-    # as Claude Code writes it: compact, parentUuid first
     return json.dumps({"parentUuid": parent, "isSidechain": False, "type": kind, "uuid": uuid, **rest}, separators=(",", ":"))
 
-# real UUIDs: the reader recognizes a log entry it doesn't otherwise read by its 36-character uuid
 U = {k: f"00000000-0000-4000-8000-{i:012d}" for i, k in enumerate(["u1", "a1", "q1", "e1", "q2", "a2"])}
 log = [
     entry("user", "u1", None, message={"role": "user", "content": "Run sleep 20, then say finished."}),
@@ -22,7 +17,6 @@ log = [
     entry("assistant", "a2", "q2", message={"role": "assistant", "content": [{"type": "text", "text": "finished steered"}]}),
 ]
 with tempfile.TemporaryDirectory() as home:
-    # the reader finds a Claude log through Claude's session registry, so give it a home of its own
     os.makedirs(os.path.join(home, ".claude", "sessions"))
     os.makedirs(os.path.join(home, ".claude", "projects", "-work"))
     Path(home, ".claude", "sessions", "4242.json").write_text(json.dumps({"pid": 4242, "sessionId": "s1", "cwd": "/work"}))

@@ -1,12 +1,4 @@
-﻿<#
-.SYNOPSIS
-Sends the chat box's text to a terminal as the person, not as a terminal.
-herdr-core tags messages from inside one of its terminals with <hc from="tN">, and the
-herdr app can inherit such an identity when it was started from a terminal. Clearing it
-here keeps typed messages untagged. The text arrives base64-encoded (UTF-8) so any
-quotes, newlines or symbols pass through intact.
-#>
-param(
+﻿param(
   [Parameter(Mandatory=$true)][string]$Address,
   [Parameter(Mandatory=$true)][string]$Text64,
   [switch]$Force

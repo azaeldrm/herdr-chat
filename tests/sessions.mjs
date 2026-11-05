@@ -1,6 +1,3 @@
-// The chat's sessions (session.js): reader output applied to a session, and the batch driver that
-// reads several sessions in one Python run, which must say exactly what one run per session says.
-//   node tests/sessions.mjs
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";

@@ -1,6 +1,3 @@
-// diagrams.js with the real vendored Pele: splitting replies, writing the theme's colors into the
-// SVG, drawing queued diagrams to files, and falling back to the source when Pele can't parse one.
-//   node tests/diagrams.mjs
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { stage } from "./stage.mjs";

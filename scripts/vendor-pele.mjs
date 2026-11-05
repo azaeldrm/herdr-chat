@@ -1,14 +1,7 @@
-// Copies Pele (the version pinned in package.json) into mods/herdr-chat/vendor/pele: its core and
-// the diagram types below, with every file they import, keeping Pele's own layout so its relative
-// imports work. herdr loads a mod only from its own folder and has no npm, so the copy is
-// committed; npm is needed only to update it.
-//   npm install && npm run vendor:pele         update the copy
-//   node scripts/vendor-pele.mjs --check       fail if the copy differs from the pinned version
 import { readFileSync, existsSync, mkdirSync, copyFileSync, rmSync, readdirSync, statSync, writeFileSync } from "fs";
 import { dirname, join, relative, resolve } from "path";
 import { fileURLToPath } from "url";
 
-// The diagram types the chat draws. Each adds its own file plus any chunks the others don't share.
 export const DIAGRAMS = ["flowchart", "sequence", "state", "class", "er", "gantt", "pie", "mindmap", "timeline", "gitGraph"];
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -20,7 +13,6 @@ const check = process.argv.includes("--check");
 const pinned = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).devDependencies.pele;
 if (!existsSync(pkg)) {
   if (check && existsSync(join(out, "README.txt"))) {
-    // without node_modules, check what the README says was copied against the pin
     const copied = /Pele (\S+)/.exec(readFileSync(join(out, "README.txt"), "utf8"))?.[1];
     if (copied !== pinned) { console.error(`vendor/pele holds Pele ${copied}, package.json pins ${pinned}: run npm install && npm run vendor:pele`); process.exit(1); }
     console.log(`vendor/pele is Pele ${copied} (contents not compared: run npm install for that)`);
@@ -31,7 +23,6 @@ if (!existsSync(pkg)) {
 const version = JSON.parse(readFileSync(join(pkg, "package.json"), "utf8")).version;
 if (version !== pinned) { console.error(`node_modules has Pele ${version}, package.json pins ${pinned}: run npm install`); process.exit(1); }
 
-// Every file reachable from the entries through relative imports, static or dynamic.
 const files = new Set();
 const follow = file => {
   if (files.has(file)) return;

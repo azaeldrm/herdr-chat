@@ -1,8 +1,3 @@
-// Calls every exported function and every mixin method of the chat mod with harmless arguments,
-// under stand-ins for herdr and gpui-kit, and fails on a ReferenceError: a name used but never
-// defined or imported (what moving code between modules tends to break; herdr-app check only
-// loads the mod and draws it once). Other errors from the dummy arguments are expected.
-//   node tests/sweep.mjs
 import { readdirSync } from "fs";
 import { stage, MOD } from "./stage.mjs";
 
