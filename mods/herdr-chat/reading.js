@@ -12,8 +12,8 @@ import { blankSession, parseReader, applyRead, readerArgs, batchProgram, splitBa
 
 /** Sessions kept in memory: every listed agent's, kept read in the background, so a switch shows one at once. */
 const SESSIONS_KEPT = 32;
-/** How often the background reads every other agent's log (from where it last stopped). */
-const WARM_EVERY = 4000;
+/** After an agent's facts change, when its session is read again (ms): its log may still be written. */
+const READ_AFTER = [1000, 4000];
 /**
  * A cached conversation read longer ago than STALE_AFTER may have news: a read of it that takes over
  * CHECK_AFTER shows "Checking for new messages…", and one that takes over SILENT_AFTER says the
@@ -54,11 +54,61 @@ function peersOf(t, all = agentTargets()) {
 }
 
 export const ReadingMethods = {
-  /** The view's reading state before anything is read, and the background reads started. */
-  initReading(cx) {
+  /** The view's reading state before anything is read. */
+  initReading() {
     Object.assign(this, blankSession());
     this.note = "Loading conversation…"; this.lastRead = 0; this.sessions = new Map();
-    cx.timer.every(WARM_EVERY, cx => this.warm(cx));
+    this.facts = null; this.dueReads = [];
+  },
+
+  /**
+   * On the view's tick: compares each agent's facts as herdr reports them (status, activity, turn,
+   * when its status changed) with the last look, in memory, and reads what changed: the session on
+   * screen at once and READ_AFTER later (with its screen, for a question, while it works or is
+   * blocked), another agent's machine READ_AFTER later in the background. The first look reads all.
+   */
+  noticeAgents(cx) {
+    const all = agentTargets();
+    const now = new Map(all.map(t => [chatKey(t), `${t.status}|${t.activity}|${t.turn}|${t.statusMs}`]));
+    const first = !this.facts;
+    const at = Date.now();
+    for (const t of all) {
+      const key = chatKey(t);
+      if (!first && this.facts.get(key) === now.get(key)) continue;
+      if (key === this.key) {
+        if (!first) { this.read(cx); this.readQuestion(cx, t); }
+        for (const ms of READ_AFTER) this.dueReads.push({ key, at: at + ms });
+      } else if (!first) {
+        for (const ms of READ_AFTER) this.dueReads.push({ machine: t.machine, at: at + ms });
+      }
+    }
+    this.facts = now;
+    if (first) { this.warm(cx); return; }
+    const ready = this.dueReads.filter(d => d.at <= at);
+    if (!ready.length) return;
+    this.dueReads = this.dueReads.filter(d => d.at > at);
+    if (ready.some(d => d.key !== undefined && d.key === this.key)) this.read(cx);
+    const machines = new Set(ready.filter(d => d.key === undefined).map(d => d.machine));
+    if (machines.size) this.warm(cx, machines);
+  },
+
+  /** Reads the agent's screen for a question while it works or is blocked (Pi asks while working). */
+  readQuestion(cx, t) {
+    if (t.status !== "blocked" && t.status !== "working") {
+      if (this.screen) { this.screen = ""; this.choices = null; cx.notify(); }
+      return;
+    }
+    if (this.readingScreen) { this.screenAgain = true; return; }
+    this.readingScreen = true;
+    cx.spawn(async cx => {
+      try {
+        const text = (await readPrompt(t)) ?? "";
+        if (text !== this.screen) { this.screen = text; this.choices = parseChoices(text); cx.notify(); }
+      } finally {
+        this.readingScreen = false;
+        if (this.screenAgain) { this.screenAgain = false; const now = target(); if (now && chatKey(now) === this.key) this.readQuestion(cx, now); }
+      }
+    });
   },
 
   /**
@@ -99,9 +149,9 @@ export const ReadingMethods = {
   },
 
   /**
-   * Every tick: switches when the selected agent changed, swaps the reply box's draft after a switch,
-   * reads the session on screen (at once after a switch; every tick for an agent on another machine,
-   * which has no file watch), and reads the screen for a choice prompt while the agent works.
+   * After the selected agent changed: switches, swaps the reply box's draft, and reads the session
+   * and, while the agent works or is blocked, its screen for a question. Later reads come from the
+   * agent's events (noticeAgents) and, on this computer, its log's folder (watch).
    */
   refresh(cx) {
     const t = target();
@@ -111,19 +161,7 @@ export const ReadingMethods = {
     const switched = this.needsFirstRead;
     this.needsFirstRead = false;
     if (!t) return;
-    if (switched) { this.read(cx); return; }
-    if (!this.path || t.remote || Date.now() - this.lastRead > 15000) this.read(cx);
-    // A choice prompt can be up while the agent says it's working (Pi's ask_user_question does), so
-    // the screen is read then too, and a question on it shows as a card with its choices.
-    if ((t.status === "blocked" || t.status === "working") && !this.readingScreen) {
-      this.readingScreen = true;
-      cx.spawn(async cx => {
-        try {
-          const text = (await readPrompt(t)) ?? "";
-          if (text !== this.screen) { this.screen = text; this.choices = parseChoices(text); cx.notify(); }
-        } finally { this.readingScreen = false; }
-      });
-    } else if (t.status !== "blocked" && t.status !== "working" && this.screen) { this.screen = ""; this.choices = null; cx.notify(); }
+    if (switched) { this.read(cx); this.readQuestion(cx, t); }
   },
 
   /**
@@ -214,10 +252,14 @@ export const ReadingMethods = {
 
   /**
    * Reads every other agent's session from where it last stopped (one Python run per machine), so a
-   * switch to any of them shows it at once, up to date. The one on screen is read by read().
+   * switch to any of them shows it at once, up to date: all of them, or those on `machines`. One asked
+   * while a read runs runs after it. The one on screen is read by read().
    */
-  warm(cx) {
-    if (this.warming) return;
+  warm(cx, machines) {
+    if (this.warming) {
+      this.warmNext = machines && this.warmNext !== 'all' ? new Set([...(this.warmNext ?? []), ...machines]) : 'all';
+      return;
+    }
     this.warming = true;
     cx.spawn(async cx => {
       try {
@@ -225,7 +267,7 @@ export const ReadingMethods = {
         for (const t of all) {
           const key = chatKey(t);
           live.add(key);
-          if (key === this.key || !t.pid || (!t.remote && onWindows())) continue;
+          if (key === this.key || !t.pid || (!t.remote && onWindows()) || (machines && !machines.has(t.machine))) continue;
           const s = this.sessions.get(key);
           const known = s ? null : (shared(PATHS_KEY) ?? {})[sessionOf(t)];
           const at = s ? { path: s.path, hint: s.hint, offset: s.offset, leaf: s.leaf } : { path: known?.path ?? "", hint: known?.hint ?? "", offset: 0, leaf: "" };
@@ -250,7 +292,12 @@ export const ReadingMethods = {
           });
         }));
         this.trimSessions(live);
-      } finally { this.warming = false; }
+      } finally {
+        this.warming = false;
+        const next = this.warmNext;
+        this.warmNext = null;
+        if (next) this.warm(cx, next === 'all' ? undefined : next);
+      }
     });
   },
 

@@ -94,8 +94,9 @@ runs in. Icons are the mod's own SVGs drawn in the theme's text colour.
 - **Reading.** The agent's session file is found once per session and remembered (shared key
   `herdr-chat.paths`). The first read takes the last 24 MB of the file (at most the last 400
   entries); later reads return only the lines added since. On this computer a change to the file
-  wakes the chat (`watchFolder`), with a re-read every 15 s as a safety net; for an agent on another
-  machine it polls every 1.5 s.
+  wakes the chat (`watchFolder`). Every agent is also read when herdr reports a change in it
+  (status, activity, turn), at once and 1 and 4 s later; for an agent on another machine that is
+  how the chat updates, so during a turn it updates as often as the agent reports activity.
 - **Switching.** Picked up within 100 ms. The twelve most recent conversations stay in memory, so
   switching back is instant and reads only what's new.
 - **Following.** The chat stays at the bottom while you're at the bottom; scrolling up stops it and
@@ -193,8 +194,8 @@ Things a fresh build would get wrong:
   fall short. A switch is done in the frame that first sees the new agent (`switchSession`, from
   `render`), scrolls there, and keeps the list hidden until the list reports its spacer on screen
   (`visibleEnd`), scrolling again meanwhile. `render` can't `notify()`, but its `cx.timer` works.
-- **Every agent's chat is kept read in the background.** Every 4 s, `warm()` (reading.js) reads each listed
-  agent's log from where it last stopped, all of a machine's agents in one Python run
+- **Every agent's chat is kept read in the background.** When herdr reports a change in an agent,
+  `warm()` (reading.js) reads its machine's agents' logs from where they last stopped, all in one Python run
   (`batchProgram` in session.js runs the reader once per session and separates their output), so a
   switch shows the conversation at once. The chat shows once its bottom screenful is measured; older
   rows are measured after. A slow read of a stale conversation shows "Checking for new messages…"
@@ -254,7 +255,6 @@ Limits and gaps:
 - Questions appear as terminal text with key buttons, not as parsed options.
 - Messages sent while an agent is busy are typed straight in, not queued; there is no stop button.
 - Other agents (OpenCode, Gemini, …) aren't read.
-- Reading another machine's agent costs one remote command about every 1.5 s while it's on screen.
 - Tested on Windows with agents on this computer and on a Linux machine over herdr's machine link;
   the Python reader has not been run on macOS.
 
