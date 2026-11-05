@@ -33,7 +33,9 @@ the chat and the live terminal.
   - your messages as rounded bubbles on the right; the agent's replies as plain text on the left,
     rendered as markdown with fenced code blocks;
   - tools and thinking folded into one grey line per run, like "Ran 3 commands, read 2 files ›";
-    clicking it lists each step with its command or file name and up to six lines of output;
+    clicking it lists each step: a thought in full markdown, or a command or file name with its
+    output wrapped in a box. A thought past about four lines, or output past six, shows a preview,
+    and clicking that step shows the rest;
   - 28 px of extra space where you and the agent take turns;
   - at the bottom, while the agent works, an accent-coloured spark and its live status message;
   - messages fade out over the last 20 px above the reply area as they scroll under it, and the
@@ -130,7 +132,7 @@ Mod (`mods/herdr-chat/`, `mod.json` is `{"place":"none"}`):
 | `main.js` | the chat View: its state and timers, the layout, scrolling, sending |
 | `reading.js` | reading conversations: the one shown, every other agent's in the background, switching, the loading row's rules (mixed in) |
 | `session.js` | a session's state, the reader's output applied to it, the batch run for one machine's agents (pure) |
-| `transcript.js` | conversation rows: folding tool calls and thinking, row keys, drawing each kind |
+| `transcript.js` | conversation rows: folding tool calls and thinking, a step's preview, row keys, drawing each kind |
 | `choices.js` | a question card, choosing a choice, the key buttons (mixed into the View) |
 | `prompts.js` | `parseChoices`: a choice prompt read off the screen (pure) |
 | `images.js` | attaching images, their preview copies, placing them beside a terminal (mixed in) |

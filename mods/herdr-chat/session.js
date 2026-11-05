@@ -9,31 +9,62 @@ export function blankSession(path = "", hint = "") {
 
 /** The reader's output as one update: its tags, and the entries it read, in order. */
 export function parseReader(stdout) {
-  const r = { path: null, hint: null, note: "", offset: null, leaf: null, reset: false, need: false, added: [] };
-  for (const line of stdout.split(/\r?\n/)) {
-    const bar = line.indexOf("|"), tag = bar < 0 ? line : line.slice(0, bar), rest = line.slice(bar + 1);
-    if (tag === "PATH") r.path = decodeURIComponent(rest);
-    else if (tag === "HINT") r.hint = decodeURIComponent(rest);
-    else if (tag === "NOTE") r.note = decodeURIComponent(rest);
-    else if (tag === "OFFSET") r.offset = Number(rest) || 0;
-    else if (tag === "LEAF") r.leaf = decodeURIComponent(rest);
-    else if (tag === "RESET") r.reset = true;
-    else if (tag === "NEED") r.need = true;
-    else if (tag === "R") r.added.push({ kind: "reasoning", text: decodeURIComponent(rest) });
-    else if (tag === "C") {
-      const [id, json] = rest.split("|");
-      r.added.push({ kind: "call", id: decodeURIComponent(id), call: JSON.parse(decodeURIComponent(json)) });
-    } else if (tag === "O") {
-      const [id, ...text] = rest.split("|");
-      r.added.push({ kind: "out", id: decodeURIComponent(id), text: decodeURIComponent(text.join("|")) });
-    } else if (tag === "M") {
-      const [role, phase, ...text] = rest.split("|");
-      let body = decodeURIComponent(text.join("|"));
-      if (role === "user") body = body.replace(/^\s*<hc from="[^"]*"[^>]*>([\s\S]*?)<\/hc>\s*$/, "$1");
-      r.added.push({ kind: "message", role, phase, text: body });
-    }
+  const r = blankUpdate();
+  for (let at = 0; at <= stdout.length; ) at = parseLine(r, stdout, at);
+  return r;
+}
+
+/**
+ * parseReader a slice at a time, with `pause()` (cx.sleep) between slices of about `sliceMs`: herdr
+ * stops a script that runs too long at once, and a long session's first read (hundreds of KB of
+ * outputs and thoughts) takes longer than that in one go.
+ */
+export async function parseReaderInSlices(stdout, pause, sliceMs = 15) {
+  const r = blankUpdate();
+  let since = Date.now();
+  for (let at = 0; at <= stdout.length; ) {
+    at = parseLine(r, stdout, at);
+    if (Date.now() - since > sliceMs) { await pause(); since = Date.now(); }
   }
   return r;
+}
+
+function blankUpdate() {
+  return { path: null, hint: null, note: "", offset: null, leaf: null, reset: false, need: false, added: [] };
+}
+
+/** Reads the line of `stdout` starting at `at` into `r`; returns where the next line starts. */
+function parseLine(r, stdout, at) {
+  let end = stdout.indexOf("\n", at);
+  if (end < 0) end = stdout.length;
+  const line = stdout.charCodeAt(end - 1) === 13 ? stdout.slice(at, end - 1) : stdout.slice(at, end);
+  parseTagged(r, line);
+  return end + 1;
+}
+
+/** One tagged line of the reader's output (PATH, NOTE, M, C, O, …) into `r`. */
+function parseTagged(r, line) {
+  const bar = line.indexOf("|"), tag = bar < 0 ? line : line.slice(0, bar), rest = line.slice(bar + 1);
+  if (tag === "PATH") r.path = decodeURIComponent(rest);
+  else if (tag === "HINT") r.hint = decodeURIComponent(rest);
+  else if (tag === "NOTE") r.note = decodeURIComponent(rest);
+  else if (tag === "OFFSET") r.offset = Number(rest) || 0;
+  else if (tag === "LEAF") r.leaf = decodeURIComponent(rest);
+  else if (tag === "RESET") r.reset = true;
+  else if (tag === "NEED") r.need = true;
+  else if (tag === "R") r.added.push({ kind: "reasoning", text: decodeURIComponent(rest) });
+  else if (tag === "C") {
+    const [id, json] = rest.split("|");
+    r.added.push({ kind: "call", id: decodeURIComponent(id), call: JSON.parse(decodeURIComponent(json)) });
+  } else if (tag === "O") {
+    const [id, ...text] = rest.split("|");
+    r.added.push({ kind: "out", id: decodeURIComponent(id), text: decodeURIComponent(text.join("|")) });
+  } else if (tag === "M") {
+    const [role, phase, ...text] = rest.split("|");
+    let body = decodeURIComponent(text.join("|"));
+    if (role === "user") body = body.replace(/^\s*<hc from="[^"]*"[^>]*>([\s\S]*?)<\/hc>\s*$/, "$1");
+    r.added.push({ kind: "message", role, phase, text: body });
+  }
 }
 
 /**
