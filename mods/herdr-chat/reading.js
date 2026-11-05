@@ -1,7 +1,3 @@
-// Reading agents' conversations from their logs (read_session.py, run on the agent's machine): the
-// one on screen, from where it last stopped, and in the background every other listed agent's, so a
-// switch shows one at once. Mixed into the chat's View (main.js), so `this` is the view; the state of
-// a session and what the reader says about it are in session.js.
 import { exec, appHome, shared, setShared, watchFolder } from "herdr";
 import { readFile } from "fs/promises";
 import { sessionOf, chatKey } from "./common.js";
@@ -10,23 +6,10 @@ import { target, agentTargets, readScreen, readPrompt } from "./terminal.js";
 import { parseChoices } from "./prompts.js";
 import { blankSession, parseReaderInSlices, applyRead, readerArgs, batchProgram, splitBatch } from "./session.js";
 
-/** Sessions kept in memory: every listed agent's, kept read in the background, so a switch shows one at once. */
 const SESSIONS_KEPT = 32;
-/** After an agent's facts change, when its session is read again (ms): its log may still be written. */
 const READ_AFTER = [1000, 4000];
-/**
- * While the agent on screen works and herdr reports nothing new about it, how often its screen is
- * read for a question (Pi asks while working) and, on another machine, its conversation (ms): some
- * agents report nothing mid-turn, and there the turn's progress would wait for its end.
- */
 const QUIET_EVERY = 1500;
-/**
- * A cached conversation read longer ago than STALE_AFTER may have news: a read of it that takes over
- * CHECK_AFTER shows "Checking for new messages…", and one that takes over SILENT_AFTER says the
- * machine isn't answering.
- */
 const STALE_AFTER = 3000, CHECK_AFTER = 300, SILENT_AFTER = 5000;
-/** Which log each session reads, kept across restarts. */
 const PATHS_KEY = "herdr-chat.paths";
 
 let readerBase64 = null;
@@ -47,35 +30,28 @@ async function runReader(t, at) {
   return exec("python3", ["-c", boot, ...readerArgs(t, at)], t.machine ? { on: t.machine } : undefined);
 }
 
-/** Reads several sessions on one machine (null: this one) in one Python run; each one's output, or null. */
 async function runReaders(machine, list) {
+  // Reads several sessions on one machine (null: this one) in one Python run; each one's output, or null.
   const program = batchProgram(await readerSource());
   const r = await exec("python3", ["-c", program, base64Utf8(JSON.stringify(list.map(([t, at]) => readerArgs(t, at))))], machine ? { on: machine } : undefined);
   return r.code === 0 ? splitBatch(r.stdout) : null;
 }
 
-/** Other agents of the same program on the same machine (the reader tells sessions apart by them). */
 function peersOf(t, all = agentTargets()) {
+  // Other agents of the same program on the same machine (the reader tells sessions apart by them).
   return all.filter(a => a.app === t.app && a.address !== t.address && a.machine === t.machine).length;
 }
 
 export const ReadingMethods = {
-  /** The view's reading state before anything is read. */
   initReading() {
+    // The view's reading state before anything is read.
     Object.assign(this, blankSession());
     this.note = "Loading conversation…"; this.lastRead = 0; this.sessions = new Map();
     this.facts = null; this.dueReads = [];
   },
 
-  /**
-   * On the view's tick: compares each agent's facts as herdr reports them (status, activity, turn,
-   * when its status changed) with the last look, in memory, and reads what changed: the session on
-   * screen at once and READ_AFTER later (with its screen, for a question, while it works or is
-   * blocked), another agent's machine READ_AFTER later in the background. The first look reads all.
-   * While the agent on screen works with nothing new reported for QUIET_EVERY, its screen (and on
-   * another machine its conversation) is read every QUIET_EVERY.
-   */
   noticeAgents(cx) {
+    // Reads what changed in herdr's agent list since the last look: the session on screen, others in the background.
     const all = agentTargets();
     const now = new Map(all.map(t => [chatKey(t), `${t.status}|${t.activity}|${t.turn}|${t.statusMs}`]));
     const first = !this.facts;
@@ -107,8 +83,8 @@ export const ReadingMethods = {
     if (machines.size) this.warm(cx, machines);
   },
 
-  /** Reads the agent's screen for a question while it works or is blocked (Pi asks while working). */
   readQuestion(cx, t) {
+    // Reads the agent's screen for a question while it works or is blocked (Pi asks while working).
     if (t.status !== "blocked" && t.status !== "working") {
       if (this.screen) { this.screen = ""; this.choices = null; cx.notify(); }
       return;
@@ -126,12 +102,8 @@ export const ReadingMethods = {
     });
   },
 
-  /**
-   * Shows another session: the one on screen kept, the new one restored (or started). Runs in the
-   * frame that first sees the new agent, so header and conversation change together; what can't
-   * run while drawing (the reply box's draft, the read) waits for refresh() on the next tick.
-   */
   switchSession(t, key) {
+    // Shows another session: the one on screen kept, the new one restored (or started).
     this.shownChangedAt = Date.now();
     this.stash();
     if (!this.pendingDraft) this.pendingDraft = { from: this.key };
@@ -147,8 +119,8 @@ export const ReadingMethods = {
     this.needsFirstRead = Boolean(t);
   },
 
-  /** The session on screen kept in memory, to show at once when it is selected again. */
   stash() {
+    // The session on screen kept in memory, to show at once when it is selected again.
     if (!this.key || !this.path) return;
     const kept = {};
     for (const k of Object.keys(blankSession())) kept[k] = this[k];
@@ -157,19 +129,15 @@ export const ReadingMethods = {
     this.trimSessions();
   },
 
-  /** Down to SESSIONS_KEPT: sessions whose agent is gone go first, then the least recently shown. */
   trimSessions(live) {
+    // Down to SESSIONS_KEPT: sessions whose agent is gone go first, then the least recently shown.
     if (this.sessions.size <= SESSIONS_KEPT) return;
     if (live) for (const k of [...this.sessions.keys()]) if (this.sessions.size > SESSIONS_KEPT && !live.has(k) && k !== this.key) this.sessions.delete(k);
     while (this.sessions.size > SESSIONS_KEPT) this.sessions.delete(this.sessions.keys().next().value);
   },
 
-  /**
-   * After the selected agent changed: switches, swaps the reply box's draft, and reads the session
-   * and, while the agent works or is blocked, its screen for a question. Later reads come from the
-   * agent's events (noticeAgents) and, on this computer, its log's folder (watch).
-   */
   refresh(cx) {
+    // Switches to the selected agent's session and reads it, and its screen for a question.
     const t = target();
     const key = chatKey(t);
     if (key !== this.key) { this.switchSession(t, key); cx.notify(); }
@@ -180,11 +148,8 @@ export const ReadingMethods = {
     if (switched) { this.read(cx); this.readQuestion(cx, t); }
   },
 
-  /**
-   * Reads the session on screen from where it last stopped. A read already running for it marks it
-   * dirty to read again after; a slow or failed one keeps what's shown and says so (readCue).
-   */
   read(cx) {
+    // Reads the session on screen from where it last stopped.
     const t = target();
     if (!t) return;
     const key = this.key;
@@ -229,8 +194,8 @@ export const ReadingMethods = {
     });
   },
 
-  /** The reader's output applied to the session on screen, its log remembered, and the view following it. */
   merge(update) {
+    // Applies the reader's update to the session on screen and remembers its log.
     applyRead(this, update);
     this.readAt = Date.now();
     const t = target();
@@ -240,8 +205,8 @@ export const ReadingMethods = {
     if (id !== this.lastId) { this.lastId = id; if (this.following) this.follow(); }
   },
 
-  /** Reads again whenever the log's folder changes (agents on this computer). */
   watch(cx, path) {
+    // Reads again whenever the log's folder changes (agents on this computer).
     if (!path || path === this.watchedPath) return;
     this.watchedPath = path;
     const token = this.watchToken = (this.watchToken ?? 0) + 1;
@@ -256,8 +221,8 @@ export const ReadingMethods = {
     });
   },
 
-  /** Which log a session reads, kept across restarts (herdr's shared state), so it isn't searched for again. */
   rememberPath(id, path, hint) {
+    // Which log a session reads, kept across restarts (herdr's shared state), so it isn't searched for again.
     if (!id || !path) return;
     const all = { ...(shared(PATHS_KEY) ?? {}) };
     if (all[id]?.path === path && all[id]?.hint === (hint || "")) return;
@@ -268,12 +233,8 @@ export const ReadingMethods = {
     setShared(PATHS_KEY, all);
   },
 
-  /**
-   * Reads every other agent's session from where it last stopped (one Python run per machine), so a
-   * switch to any of them shows it at once, up to date: all of them, or those on `machines`. One asked
-   * while a read runs runs after it. The one on screen is read by read().
-   */
   warm(cx, machines) {
+    // Reads every other agent's session in the background (those on `machines`, or all), so switching to one shows it at once.
     if (this.warming) {
       this.warmNext = machines && this.warmNext !== 'all' ? new Set([...(this.warmNext ?? []), ...machines]) : 'all';
       return;
@@ -319,16 +280,16 @@ export const ReadingMethods = {
     });
   },
 
-  /** The row under the conversation while a read is slow: "checking", "silent" (no answer), or "". */
   readCue() {
+    // The row under the conversation while a read is slow: "checking", "silent" (no answer), or "".
     if (!this.messages.length) return "";
     const since = this.readStartedAt ? Date.now() - this.readStartedAt : 0;
     if (this.readError || since > SILENT_AFTER) return "silent";
     return since > CHECK_AFTER && this.readStaleFor > STALE_AFTER ? "checking" : "";
   },
 
-  /** Retry on the "isn't answering" row: a new read, taking over from one that hangs. */
   retry(cx) {
+    // Retry on the "isn't answering" row: a new read, taking over from one that hangs.
     this.readError = ""; this.reading = null;
     this.read(cx);
     cx.notify();

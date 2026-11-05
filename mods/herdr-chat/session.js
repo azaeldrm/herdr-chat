@@ -1,25 +1,19 @@
-// A conversation as the chat keeps it, and what the reader (read_session.py) says about it. No herdr
-// imports: pure enough to test alone (tests/sessions.mjs).
 import { foldActivity, CALL_SOURCE } from "./transcript.js";
 
-/** A session's state before anything is read. Every key is one the chat view also has (stash/restore). */
 export function blankSession(path = "", hint = "") {
+  // A session's state before anything is read.
   return { raw: [], calls: new Map(), offset: 0, leaf: "", path, hint, messages: [], clipped: false, note: "", open: {}, readAt: 0 };
 }
 
-/** The reader's output as one update: its tags, and the entries it read, in order. */
 export function parseReader(stdout) {
+  // The reader's output as one update: its tags, and the entries it read, in order.
   const r = blankUpdate();
   for (let at = 0; at <= stdout.length; ) at = parseLine(r, stdout, at);
   return r;
 }
 
-/**
- * parseReader a slice at a time, with `pause()` (cx.sleep) between slices of about `sliceMs`: herdr
- * stops a script that runs too long at once, and a long session's first read (hundreds of KB of
- * outputs and thoughts) takes longer than that in one go.
- */
 export async function parseReaderInSlices(stdout, pause, sliceMs = 15) {
+  // parseReader in slices of about `sliceMs`, with `pause()` between them, so herdr doesn't stop a long read.
   const r = blankUpdate();
   let since = Date.now();
   for (let at = 0; at <= stdout.length; ) {
@@ -33,8 +27,8 @@ function blankUpdate() {
   return { path: null, hint: null, note: "", offset: null, leaf: null, reset: false, need: false, added: [] };
 }
 
-/** Reads the line of `stdout` starting at `at` into `r`; returns where the next line starts. */
 function parseLine(r, stdout, at) {
+  // Reads the line of `stdout` starting at `at` into `r`; returns where the next line starts.
   let end = stdout.indexOf("\n", at);
   if (end < 0) end = stdout.length;
   const line = stdout.charCodeAt(end - 1) === 13 ? stdout.slice(at, end - 1) : stdout.slice(at, end);
@@ -42,8 +36,8 @@ function parseLine(r, stdout, at) {
   return end + 1;
 }
 
-/** One tagged line of the reader's output (PATH, NOTE, M, C, O, …) into `r`. */
 function parseTagged(r, line) {
+  // One tagged line of the reader's output (PATH, NOTE, M, C, O, …) into `r`.
   const bar = line.indexOf("|"), tag = bar < 0 ? line : line.slice(0, bar), rest = line.slice(bar + 1);
   if (tag === "PATH") r.path = decodeURIComponent(rest);
   else if (tag === "HINT") r.hint = decodeURIComponent(rest);
@@ -67,11 +61,8 @@ function parseTagged(r, line) {
   }
 }
 
-/**
- * An update applied to a session `s` (the chat view itself, or one kept in memory): its new entries
- * added (all of them again after a RESET or a new log), its rows rebuilt, its note set.
- */
 export function applyRead(s, r) {
+  // Applies the reader's update `r` to session `s`: new entries added, rows rebuilt, note set.
   if (r.hint != null) s.hint = r.hint;
   if (r.offset != null) s.offset = r.offset;
   if (r.leaf != null) s.leaf = r.leaf;
@@ -99,8 +90,8 @@ export function applyRead(s, r) {
   } else if (s.note && s.messages.length) s.note = "";
 }
 
-/** The reader's arguments for a terminal, from where its session was last read. */
 export function readerArgs(t, at) {
+  // The reader's arguments for a terminal, from where its session was last read.
   const args = ["--app", t.app, "--pid", String(t.pid), "--created", String(t.created), "--offset", String(at.offset || 0)];
   if (at.screen != null) args.push("--screen", at.screen);
   if (at.peers) args.push("--peers", String(at.peers));
@@ -113,12 +104,8 @@ export function readerArgs(t, at) {
 
 const SPLIT = "--herdr-chat-session--";
 
-/**
- * A `python3 -c` program that runs the reader (base64 of read_session.py) once for each argument
- * list in its first argument (base64 of a JSON list), in one process: one start-up, and one call to
- * another machine, for all its agents. Each run's output follows a separator line.
- */
 export function batchProgram(readerBase64) {
+  // A `python3 -c` program that runs the reader once per argument list, in one process for all of a machine's agents.
   return [
     "import base64,io,json,sys",
     `code=compile(base64.b64decode('${readerBase64}'),'read_session.py','exec')`,
@@ -133,7 +120,7 @@ export function batchProgram(readerBase64) {
   ].join("\n");
 }
 
-/** A batch run's output, split into each session's own (in the order they were asked for). */
 export function splitBatch(stdout) {
+  // A batch run's output, split into each session's own (in the order they were asked for).
   return stdout.split(SPLIT + "\n").slice(1);
 }

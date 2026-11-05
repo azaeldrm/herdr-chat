@@ -1,5 +1,3 @@
-// An agent's question in the chat: the card with its choices, choosing one, and the keys under it.
-// Mixed into the chat's View (main.js), so `this` is the view.
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { switchTo, sessionOf } from "./common.js";
@@ -8,12 +6,8 @@ import { parseChoices } from "./prompts.js";
 import { COLUMN, mono } from "./ui.js";
 
 export const ChoiceMethods = {
-  /**
-   * Whether the prompt shown is still the one on screen. A question card compares the question as
-   * parsed: a working agent's screen also holds a spinner or a timer that changes on every read.
-   * Without a card (a blocked agent's raw screen) the screen itself has to be the same.
-   */
   async promptStillCurrent(t) {
+    // Whether the prompt shown is still the one on screen.
     if (target()?.address !== t.address) return false;
     const text = await readPrompt(t);
     if (text == null) return false;
@@ -21,8 +15,8 @@ export const ChoiceMethods = {
     return target()?.status === "blocked" && Boolean(this.screen) && text === this.screen;
   },
 
-  /** Picks a choice of the prompt on screen: from the selected one, ↑ or ↓ to it, then Enter. */
   choose(index, cx) {
+    // Picks a choice of the prompt on screen: from the selected one, ↑ or ↓ to it, then Enter.
     const t = target(), shown = this.choices;
     if (!t || !shown || this.sending) return;
     this.sending = true; cx.notify();
@@ -55,8 +49,8 @@ export const ChoiceMethods = {
     });
   },
 
-  /** The card for a prompt on screen: a question with its choices, or a blocked agent's last lines. */
   promptCard(t, active) {
+    // The card for a prompt on screen: a question with its choices, or a blocked agent's last lines.
     const q = active && (active.status === "blocked" || active.status === "working") ? this.choices : null;
     if (active?.status !== "blocked" && !q) return null;
     const key = (id, label, k) => div().id(id).h(30).px(12).flex().items_center().rounded(8).cursor_pointer()

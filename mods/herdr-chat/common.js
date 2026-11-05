@@ -6,11 +6,15 @@ export const ICONS = "mods/herdr-chat/icons";
 const VIEWS_KEY = "herdr-chat.views";
 const VIEWS_KEPT = 200;
 
-/** A session: one program's run in a terminal (an address is reused once its terminal ends). */
-export function sessionOf(t) { return t ? `${t.address}:${t.created}` : ""; }
+export function sessionOf(t) {
+  // A session: one program's run in a terminal (an address is reused once its terminal ends).
+  return t ? `${t.address}:${t.created}` : "";
+}
 
-/** The chat's key for an agent: its session and program ("" for none). */
-export function chatKey(t) { return t ? `${sessionOf(t)}:${t.app}` : ""; }
+export function chatKey(t) {
+  // The chat's key for an agent: its session and program ("" for none).
+  return t ? `${sessionOf(t)}:${t.app}` : "";
+}
 
 export function sessionKey(address) {
   const term = terminals().find(x => x.address === address);
@@ -42,8 +46,8 @@ export function showView(mode) {
   run("layout.select", { stack: "chat-view", child: mode === "terminal" ? "terminal-panel" : "chat-panel" });
 }
 
-/** A short text digest (djb2), for keys and file names. */
 export function hash(text) {
+  // A short text digest (djb2), for keys and file names.
   let h = 5381;
   for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36);

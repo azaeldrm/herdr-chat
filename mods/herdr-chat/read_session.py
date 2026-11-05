@@ -1,9 +1,3 @@
-"""Python port of read-session.ps1, for agents on Linux and macOS machines (this computer or one
-herdr reaches over SSH). Same arguments, same output; see read-session.ps1 for the format:
-  PATH|  HINT|  NOTE|  RESET  OFFSET|  M|role|phase|text  R|text  C|id|json  O|id|text
-The chat runs it with `python3 -c`, the script itself passed in, so nothing is installed on the
-other machine. Standard library only; Python 3.6 or later.
-"""
 import argparse, glob, json, os, re, sys
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -76,7 +70,7 @@ def content_text(content):
     return "\n".join(parts)
 
 def read_tail(path):
-    """The complete lines from --offset on (or, fresh, the last 24 MB). A partial last line waits."""
+    """The complete lines from --offset on (or, fresh, the last 24 MB)."""
     with open(path, "rb") as f:
         f.seek(0, os.SEEK_END)
         length = f.tell()
@@ -174,9 +168,7 @@ def command_lines():
     return lines
 
 def candidate_cwds():
-    """The working folders of the processes running in the terminal (the agent among them), read
-    from /proc. Herdr's own record of the terminal's folder can be stale, so it is only the
-    fallback, for when the processes can't be read."""
+    """The working folders of the processes running in the terminal, read from /proc."""
     cwds = []
     if A.pid and os.path.isdir("/proc"):
         for pid in terminal_pids():
@@ -233,8 +225,6 @@ def claude_records(lines):
                 shows = isinstance(content, str) or any(isinstance(c, dict) and c.get("type") == "text" for c in content or [])
                 recs.append({"u": o["uuid"], "p": o.get("parentUuid") or o.get("logicalParentUuid"), "o": o, "v": shows and not o.get("isMeta")})
                 continue
-        # A message sent while Claude works (a steer) isn't a "user" entry: when Claude takes it in,
-        # it logs an attachment of type queued_command in the chain, holding the text as `prompt`.
         if '"queued_command"' in line and '"type":"attachment"' in line:
             o = loads(line)
             a = (o or {}).get("attachment") or {}
@@ -250,8 +240,7 @@ def claude_records(lines):
     return recs
 
 def claude_branch(recs, known):
-    """The live branch through these nodes, ending at the newest one, and the known tail it continues
-    (None when it doesn't: the person rewound, or the read starts somewhere unknown)."""
+    """The live branch through these nodes to the newest one, and the known tail it continues (or None)."""
     by = {r["u"]: r for r in recs}
     if not any(r["o"] is not None for r in recs): return [], known
     path, seen, x = [], set(), recs[-1]
@@ -360,8 +349,7 @@ def codex_meta(fp):
     return (first.get("payload") or {}) if isinstance(first, dict) and first.get("type") == "session_meta" else None
 
 def codex_own(meta):
-    """Whether a log is the person's conversation, not a sub-agent's (the approval reviewer of
-    "Approve for me" writes logs of its own, in the same folder, as source {"subagent": ...})."""
+    """Whether a log is the person's conversation, not a sub-agent's (such as the approval reviewer's)."""
     return meta is not None and not (isinstance(meta.get("source"), dict) and "subagent" in meta["source"])
 
 def codex_resumed():

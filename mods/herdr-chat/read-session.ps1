@@ -1,20 +1,4 @@
-﻿<#
-.SYNOPSIS
-Reads one agent's session log and prints it in herdr-chat's common shape:
-  PATH|<file>   HINT|<opaque, passed back next time>   NOTE|<text>
-  RESET                        what follows is the conversation from its start (or recent part);
-                               without it, it is only what was added since -Offset
-  OFFSET|<bytes>               where the next read starts: after the last complete line read
-  LEAF|<uuid.v|t,...>          Claude Code only: the tail of the live branch (v: shows text), passed
-                               back as -Leaf so the next read can tell a continuation from a rewind
-  M|<role>|<phase>|<text>      a message (user / assistant)
-  R|<text>                     visible reasoning
-  C|<id>|<json {k,d,n}>        one tool call (kind, detail, file count); id may be empty
-  O|<id>|<text>                the output of the call with that id, which may have come earlier
-Every value after the tag is URI-escaped.
-Reading only what was added (Ovis does the same) keeps a refresh to milliseconds of work.
-#>
-param(
+﻿param(
   [Parameter(Mandatory=$true)][string]$App,
   [long]$TermPid = 0,
   [long]$CreatedMs = 0,
@@ -157,8 +141,8 @@ function Find-Claude {
 }
 $ClaudeKept = 50
 
-<# The log's tree nodes in file order: u (uuid), p (parent), o (the entry, if user/assistant), v (shows text). #>
 function Claude-Records($lines) {
+  # The log's tree nodes in file order: u (uuid), p (parent), o (the entry, if user/assistant), v (shows text).
   $recs = [System.Collections.Generic.List[object]]::new()
   foreach ($line in $lines) {
     if ($line.Length -lt 20 -or -not $line.StartsWith('{"parentUuid":')) { continue }
@@ -184,9 +168,8 @@ function Claude-Records($lines) {
   return ,$recs
 }
 
-<# The live branch through these nodes, ending at the newest one, and the known tail it continues
-   (base $null when it doesn't: the person rewound, or the read starts somewhere unknown). #>
 function Claude-Branch($recs, $known) {
+  # The live branch through these nodes to the newest one, and the known tail it continues (base $null when none).
   $any = $false
   foreach ($r in $recs) { if ($r.o) { $any = $true; break } }
   if (-not $any) { return @{ path = @(); base = $known } }

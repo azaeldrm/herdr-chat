@@ -1,23 +1,21 @@
-// Small pieces of the chat's look, shared by its files.
 import { div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { settings, run } from "herdr";
 import { ICONS } from "./common.js";
 
-/** The chat column's width: messages, the question card and the reply box. */
 export const COLUMN = 740;
 
 export function icon(name, size, color) { return svg(`${ICONS}/${name}.svg`).size(size).flex_none().text_color(color); }
 export function mono() { return settings().font_family || settings().font || "JetBrains Mono"; }
 
-/** A program's icon, as herdr's program table says to draw it: a glyph in `color` when it's tinted, else a picture. */
 export function programIcon(p, size, color) {
+  // A program's icon, as herdr's program table says to draw it.
   if (!p?.icon) return null;
   return p.tint ? svg(p.icon).size(size).flex_none().text_color(color) : image(p.icon).size(size).flex_none();
 }
 
-/** A pane's split right, split down, zoom and close buttons, for a header shown while it's hovered. */
 export function paneButtons(t, pane, zoomed, prefix) {
+  // A pane's split right, split down, zoom and close buttons, for a header shown while it's hovered.
   const button = (id, glyph, command, args) => div().id(`${prefix}-${id}`).p(3).rounded(4).flex_none().cursor_pointer()
     .text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground))
     .on_click((_e, cx) => { cx.stop_propagation(); run(command, args); })
@@ -30,8 +28,8 @@ export function paneButtons(t, pane, zoomed, prefix) {
   ];
 }
 
-/** An agent's status in a header: a spinner while working, "Needs you" when blocked, a dot when done. */
 export function statusBadge(t, status) {
+  // An agent's status in a header: a spinner while working, "Needs you" when blocked, a dot when done.
   if (status === "working") return svg(`${ICONS}/spinner.svg`).size(12).flex_none().text_color(t.working).spin(900);
   if (status === "blocked") return div().flex_none().px(6).h(18).flex().items_center().rounded(5).bg(t.blocked + "26")
     .text_size(10.5).font_semibold().text_color(t.blocked).child("Needs you");
@@ -39,8 +37,8 @@ export function statusBadge(t, status) {
   return null;
 }
 
-/** The Chat | Terminal switch: the shown view highlighted, the other one switches when clicked. */
 export function viewToggle(t, shown, prefix, toChat, toTerminal) {
+  // The Chat | Terminal switch: the shown view highlighted, the other one switches when clicked.
   const segment = (id, label, selected, go) => div().id(`${prefix}-${id}`).px(10).h(24).flex().items_center().rounded(6)
     .text_size(12.5).text_color(selected ? t.foreground : t.muted).when(selected, el => el.bg(t.selected))
     .when(!selected, el => el.cursor_pointer().hover(s => s.text_color(t.foreground))
@@ -51,8 +49,8 @@ export function viewToggle(t, shown, prefix, toChat, toTerminal) {
     .child(segment("terminal", "Terminal", shown === "terminal", toTerminal));
 }
 
-/** A time as the clock shows it (3:42 PM). */
 export function clock(ms) {
+  // A time as the clock shows it (3:42 PM).
   const d = new Date(ms), h = d.getHours();
   return `${h % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 }

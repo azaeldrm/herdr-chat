@@ -1,5 +1,3 @@
-// Images in the reply box: adding them (dropped or pasted), their preview copies, and placing
-// them beside an agent's terminal. Mixed into the chat's View (main.js), so `this` is the view.
 import { div, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { appHome, exec, hc } from "herdr";
@@ -7,22 +5,18 @@ import { onWindows, modFile, removeFiles, pruneOld } from "./platform.js";
 import { sessionOf } from "./common.js";
 import { icon } from "./ui.js";
 
-// Images attached in the reply box. Each gets a short-lived preview copy in the herdr
-// home (image() draws only from there), deleted once it's sent or removed. On send,
-// `hc put` places the image beside the agent's terminal, here or on another machine,
-// in a folder herdr-core removes with that terminal; the message names that copy.
 export const IMAGE_FILE = /\.(png|jpe?g|gif|webp)$/i;
 export const ATTACH_DIR = "cache/herdr-chat";
 export function attachDir() { return onWindows() ? `${appHome()}\\cache\\herdr-chat` : `${appHome()}/${ATTACH_DIR}`; }
-/** A unique name for the preview copy, without its extension (the prepare script picks it). */
 export function attachName(source) {
+  // A unique name for the preview copy, without its extension (the prepare script picks it).
   const base = source.split(/[\\/]/).pop().replace(/\.[^.]*$/, "").replace(/[^A-Za-z0-9_-]/g, "-").slice(-40) || "image";
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}-${base}`;
 }
 
 export const ImageMethods = {
-  /** `hc put` each image beside the agent's terminal (this computer or another) and return where they landed. */
   async placeImages(t, attached) {
+    // `hc put` each image beside the agent's terminal (this computer or another) and return where they landed.
     const placed = [];
     const where = sessionOf(t);
     for (const a of attached) {
@@ -37,8 +31,8 @@ export const ImageMethods = {
     return placed;
   },
 
-  /** Runs a prepare script; resolves with the preview copy's path, or null with the reason in the note. */
   async prepare(args, label) {
+    // Runs a prepare script; resolves with the preview copy's path, or null with the reason in the note.
     const r = onWindows()
       ? await exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass", "-File", modFile("prepare-image.ps1"), ...args.windows]).catch(e => ({ code: 1, stderr: String(e) }))
       : await exec("sh", args.unix).catch(e => ({ code: 1, stderr: String(e) }));
@@ -47,15 +41,15 @@ export const ImageMethods = {
       if (r.code === 5) this.note = `${label} is over 256 KB and nothing here can shrink it (install ImageMagick), so Claude Code may not attach it.`;
       return file;
     }
-    if (r.code === 3) return null; // no image on the clipboard
+    if (r.code === 3) return null;
     this.note = r.code === 4
       ? "Pasting images needs wl-paste (Wayland), xclip (X11) or pngpaste (macOS). Drop the file instead."
       : `Couldn't attach ${label}: ${(r.stderr || "it couldn't be read").trim()}`;
     return null;
   },
 
-  /** Adds an image to the draft of `owner`, the session it was added in, even if another one shows now. */
   attach(file, name, cx, owner = this.key) {
+    // Adds an image to the draft of `owner`, the session it was added in, even if another one shows now.
     const a = { name, file, rel: `${ATTACH_DIR}/${file.split(/[\\/]/).pop()}` };
     if (owner === this.key) this.attachments.push(a);
     else {
@@ -65,14 +59,18 @@ export const ImageMethods = {
     cx.notify();
   },
 
-  /** Deletes preview copies: after a send, or when one is removed from the box. */
-  forget(files) { removeFiles(files); },
+  forget(files) {
+    // Deletes preview copies: after a send, or when one is removed from the box.
+    removeFiles(files);
+  },
 
-  /** Preview copies left by a copy that closed before sending them: anything older than a day. */
-  pruneCache() { pruneOld(attachDir()); },
+  pruneCache() {
+    // Preview copies left by a copy that closed before sending them: anything older than a day.
+    pruneOld(attachDir());
+  },
 
-  /** Dropped files: images get a preview copy (shrunk when big) and are attached; anything else is ignored. */
   dropFiles(paths, cx) {
+    // Dropped files: images get a preview copy (shrunk when big) and are attached; anything else is ignored.
     const images = paths.filter(p => IMAGE_FILE.test(p));
     if (!images.length) { this.note = "Only images can be attached (png, jpg, gif, webp)."; cx.notify(); return; }
     const owner = this.key;
@@ -89,8 +87,8 @@ export const ImageMethods = {
     });
   },
 
-  /** Ctrl+V with an image (and no text) on the clipboard: attached like a dropped file. */
   pasteImage(cx) {
+    // Ctrl+V with an image (and no text) on the clipboard: attached like a dropped file.
     const owner = this.key;
     cx.spawn(async cx => {
       const name = attachName("pasted");

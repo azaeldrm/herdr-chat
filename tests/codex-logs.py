@@ -1,9 +1,3 @@
-"""Which Codex log the chat reads for a terminal:
-  - `codex resume <id>`: that session's newest log, though it started before the terminal (Codex
-    continues a long session in rollout-<time>-<id>_<part>.jsonl);
-  - never a log of the approval reviewer ("Approve for me"), which Codex writes in the same folder
-    as source {"subagent": ...}, even when the chat remembers one (--known).
-  python3 tests/codex-logs.py   (Linux: reads the test processes from /proc)"""
 import json, os, subprocess, sys, tempfile, time, urllib.parse
 from pathlib import Path
 
