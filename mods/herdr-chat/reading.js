@@ -15,6 +15,12 @@ const SESSIONS_KEPT = 32;
 /** After an agent's facts change, when its session is read again (ms): its log may still be written. */
 const READ_AFTER = [1000, 4000];
 /**
+ * While the agent on screen works and herdr reports nothing new about it, how often its screen is
+ * read for a question (Pi asks while working) and, on another machine, its conversation (ms): some
+ * agents report nothing mid-turn, and there the turn's progress would wait for its end.
+ */
+const QUIET_EVERY = 1500;
+/**
  * A cached conversation read longer ago than STALE_AFTER may have news: a read of it that takes over
  * CHECK_AFTER shows "Checking for new messages…", and one that takes over SILENT_AFTER says the
  * machine isn't answering.
@@ -66,6 +72,8 @@ export const ReadingMethods = {
    * when its status changed) with the last look, in memory, and reads what changed: the session on
    * screen at once and READ_AFTER later (with its screen, for a question, while it works or is
    * blocked), another agent's machine READ_AFTER later in the background. The first look reads all.
+   * While the agent on screen works with nothing new reported for QUIET_EVERY, its screen (and on
+   * another machine its conversation) is read every QUIET_EVERY.
    */
   noticeAgents(cx) {
     const all = agentTargets();
@@ -76,6 +84,7 @@ export const ReadingMethods = {
       const key = chatKey(t);
       if (!first && this.facts.get(key) === now.get(key)) continue;
       if (key === this.key) {
+        this.shownChangedAt = at;
         if (!first) { this.read(cx); this.readQuestion(cx, t); }
         for (const ms of READ_AFTER) this.dueReads.push({ key, at: at + ms });
       } else if (!first) {
@@ -84,6 +93,12 @@ export const ReadingMethods = {
     }
     this.facts = now;
     if (first) { this.warm(cx); return; }
+    const shown = all.find(t => chatKey(t) === this.key);
+    if (shown?.status === "working" && at - Math.max(this.shownChangedAt ?? 0, this.quietReadAt ?? 0) >= QUIET_EVERY) {
+      this.quietReadAt = at;
+      if (shown.remote) this.read(cx);
+      this.readQuestion(cx, shown);
+    }
     const ready = this.dueReads.filter(d => d.at <= at);
     if (!ready.length) return;
     this.dueReads = this.dueReads.filter(d => d.at > at);
@@ -117,6 +132,7 @@ export const ReadingMethods = {
    * run while drawing (the reply box's draft, the read) waits for refresh() on the next tick.
    */
   switchSession(t, key) {
+    this.shownChangedAt = Date.now();
     this.stash();
     if (!this.pendingDraft) this.pendingDraft = { from: this.key };
     this.key = key; this.needsScroll = false; this.settling = true; this.pendingCount = -1; this.follow(); this.screen = ""; this.choices = null; this.lastId = ""; this.screenAskedAt = 0;
