@@ -1,6 +1,3 @@
-// The row under the conversation while a read is slow (main.js readCue): nothing for a fast read or
-// a fresh cache, "checking" for a slow read of a stale one, "silent" when the machine doesn't answer.
-//   node tests/read-cue.mjs
 import { stage } from "./stage.mjs";
 const Chat = (await stage().load("main.js")).default;
 const now = Date.now();

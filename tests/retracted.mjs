@@ -1,4 +1,3 @@
-// withoutRetracted: hiding a message the agent handed back on Stop.   node tests/retracted.mjs
 import { stage } from "./stage.mjs";
 const s = stage();
 const { withoutRetracted } = await s.load("transcript.js");

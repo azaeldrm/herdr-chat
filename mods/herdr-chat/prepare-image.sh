@@ -1,11 +1,4 @@
 #!/bin/sh
-# Copies an image into the chat's preview folder, ready to attach, and prints its path.
-# Claude Code attaches an @-mentioned image only up to about 256 KB, so a bigger one is
-# re-encoded as a JPEG under 240 KB (ImageMagick, or sips on macOS).
-#   prepare-image.sh <image> <folder> <name without extension>
-#   prepare-image.sh --clipboard <folder> <name without extension>   (the clipboard's image)
-# Exit 3: the clipboard holds no image. Exit 4: nothing here can read it (wl-paste, xclip or
-# pngpaste). Exit 5: it's too big and nothing here can shrink it (the copy is made anyway).
 if [ "$1" = --clipboard ]; then
   dir=$2 base=$3 src="$2/$3-clipboard.png"
   mkdir -p "$dir" || exit 1

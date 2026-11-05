@@ -1,6 +1,3 @@
-// The conversation as rows: folding tool calls and thinking into one line per run, keying rows by
-// their content, and drawing messages, tool runs and their steps. The row methods are mixed into the
-// chat's View (main.js), so `this` is the view.
 import { div, image } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { COLUMN, icon, mono } from "./ui.js";
@@ -40,13 +37,8 @@ function summary(steps) {
   return parts.length ? text[0].toUpperCase() + text.slice(1).replace(/, (\w)/g, (_m, c) => `, ${c.toLowerCase()}`) : "";
 }
 
-/**
- * The rows without a message the agent handed back. Stopped before answering, Claude Code puts the
- * message back in its input box and drops it from the conversation; its log still ends with it
- * until the next message branches off before it. `retracted` is that message's text: hidden while
- * it's still the last thing said, shown again (and the mark spent) once anything follows it.
- */
 export function withoutRetracted(messages, retracted) {
+  // The rows without the message the agent handed back (Claude Code, stopped before answering).
   if (!retracted) return { rows: messages, retracted: null };
   let last = messages.length - 1;
   while (last >= 0 && messages[last].kind !== "message") last--;
@@ -55,11 +47,8 @@ export function withoutRetracted(messages, retracted) {
   return { rows: messages.slice(0, last), retracted };
 }
 
-/**
- * Rows as the chat shows them: each run of tool calls and thoughts folded into one group, the
- * thoughts as "think" steps among the calls, in the order they happened (an empty thought is left out).
- */
 export function foldActivity(messages) {
+  // Folds each run of tool calls and thoughts into one group of steps, in order.
   const out = [];
   for (const m of messages) {
     if (m.kind !== "tools" && m.kind !== "reasoning") { out.push(m); continue; }
@@ -72,15 +61,10 @@ export function foldActivity(messages) {
   return out;
 }
 
-/** Lines of output shown, and characters of a thought, before a step folds the rest away. */
 export const OUTPUT_LINES = 6, OUTPUT_CHARS = 700, THOUGHT_CHARS = 360, THOUGHT_LINES = 4;
 
-/**
- * What a step shows: all of its text when `open`, otherwise a preview of at most a few lines
- * (OUTPUT_LINES of output, about THOUGHT_LINES lines of a thought) ending in an ellipsis.
- * `more` is whether anything was left out, so the step can be opened.
- */
 export function stepText(c, open) {
+  // A step's text: all of it when `open`, else a preview of a few lines, and whether anything was left out.
   const text = (c.o || "").replace(/\s+$/, "").replace(/^\n+/, "");
   if (open || !text) return { text, more: false };
   if (c.k === "think") {
@@ -97,11 +81,8 @@ export function stepText(c, open) {
   return { text: shown.slice(0, OUTPUT_CHARS).replace(/\s+$/, "") + "\n\u2026", more: true, hidden: lines.length - Math.min(lines.length, OUTPUT_LINES) };
 }
 
-/**
- * The rows an opened group adds below its title: one per step, keyed by the group, its place and its
- * content (so a step whose output grows is measured again), each opened and closed on its own.
- */
 export function stepRows(group) {
+  // An opened group's steps, as rows of their own below its title.
   return group.calls.map((c, j) => ({ kind: "step", call: c, last: j === group.calls.length - 1, key: `${group.key}/${j}.${callDigest(c)}` }));
 }
 
@@ -110,8 +91,8 @@ const CALL_DIGESTS = new WeakMap();
 export const CALL_SOURCE = new WeakMap();
 const sample = s => s.length > 512 ? `${s.length}:${s.slice(0, 256)}:${s.slice(-256)}` : s;
 
-/** A tool call's digest: its input once per call, plus its output's size and end, which arrive later. */
 function callDigest(c) {
+  // A tool call's digest: its input once per call, plus its output's size and end, which arrive later.
   const source = CALL_SOURCE.get(c) ?? c;
   let base = CALL_DIGESTS.get(source);
   if (base === undefined) {
@@ -122,8 +103,8 @@ function callDigest(c) {
   return `${base}.${o.length}.${hash(o.slice(-64))}`;
 }
 
-/** A row's content digest, computed once per row object: rows are rebuilt, never edited, when their content changes. */
 function digest(m) {
+  // A row's content digest, computed once per row object.
   let d = DIGESTS.get(m);
   if (d === undefined) {
     d = m.text != null ? hash(sample(m.text)) : hash((m.calls ?? []).map(callDigest).join("|"));
@@ -173,19 +154,15 @@ export const TranscriptMethods = {
       .child(icon(open ? "chevron-down" : "chevron-right", 13, t.dim));
   },
 
-  /** A group's title line; opened, its steps follow as rows of their own (stepRows). */
   toolsRow(m, i, t) {
+    // A group's title line; opened, its steps follow as rows of their own (stepRows).
     const kinds = [...new Set(m.calls.map(c => c.k).filter(k => k !== "think"))];
     const glyph = !kinds.length ? "brain" : kinds.length === 1 ? (KINDS[kinds[0]] ?? KINDS.other).icon : "layers";
     return v_flex().w_full().child(this.disclosure(i, t, glyph, summary(m.calls), Boolean(this.open[i])));
   },
 
-  /**
-   * One step of an opened group, on the group's guide line: its name and command, then a thought in
-   * full markdown or the command's output wrapped in a box. Past a few lines either shows a preview,
-   * and a click on the step shows the rest.
-   */
   stepRow(m, i, t) {
+    // One step of an opened group: a thought in full markdown, or a call with its output in a box.
     const c = m.call, open = Boolean(this.open[i]), shown = stepText(c, open);
     const toggle = shown.more || open && stepText(c, false).more;
     const body = !shown.text ? null
@@ -209,11 +186,8 @@ export const TranscriptMethods = {
     return div().w_full().text_size(15).text_color(t.foreground).child(markdown(`body-${i}`, m.text, t));
   },
 
-  /**
-   * A ```mermaid block from a reply, as its own row: the picture alone, in the reply's column. While
-   * it draws, a short note in its place; when Pele can't parse it, its source as a code block.
-   */
   diagramRow(m, i, t) {
+    // A ```mermaid block from a reply, as its own row: the picture alone, in the reply's column.
     const d = diagramFor(m.text, t);
     if (d.state === "queued") return div().w_full().h(24).flex().items_center().text_size(12.5).text_color(t.dim).child("Drawing diagram…");
     if (d.state === "failed") return v_flex().w_full().gap(6)

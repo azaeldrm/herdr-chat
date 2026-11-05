@@ -1,6 +1,3 @@
-"""prompts.js (FOOTER) and input-box.py (PROMPT_KEYS) must recognize the same prompt key hints:
-one decides there's a question card, the other that there's no input box to mirror.
-  python3 tests/prompt-keys.py"""
 import re, sys
 from pathlib import Path
 mod = Path(__file__).resolve().parent.parent / "mods" / "herdr-chat"
