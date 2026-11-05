@@ -96,7 +96,9 @@ runs in. Icons are the mod's own SVGs drawn in the theme's text colour.
   entries); later reads return only the lines added since. On this computer a change to the file
   wakes the chat (`watchFolder`). Every agent is also read when herdr reports a change in it
   (status, activity, turn), at once and 1 and 4 s later; for an agent on another machine that is
-  how the chat updates, so during a turn it updates as often as the agent reports activity.
+  how the chat updates. While the agent on screen works and herdr reports nothing new about it
+  for 1.5 s, its screen is read every 1.5 s for a question (Pi asks while working) and, on another
+  machine, its conversation too: some agents report nothing mid-turn.
 - **Switching.** Picked up within 100 ms. The twelve most recent conversations stay in memory, so
   switching back is instant and reads only what's new.
 - **Following.** The chat stays at the bottom while you're at the bottom; scrolling up stops it and
