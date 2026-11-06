@@ -170,7 +170,7 @@ def join(lines):
     return out
 
 
-PROMPT_KEYS = re.compile(r"enter to (select|confirm)|↑/↓|to navigate|esc to cancel", re.I)
+PROMPT_KEYS = re.compile(r"enter to (select|confirm|submit)|↑/↓|↑↓|to navigate|esc to cancel|esc (back|dismiss)", re.I)
 
 
 def box(grid, app):

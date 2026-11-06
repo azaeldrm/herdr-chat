@@ -2,7 +2,7 @@ import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { switchTo, sessionOf } from "./common.js";
 import { target, readPrompt, pressKeys } from "./terminal.js";
-import { parseChoices } from "./prompts.js";
+import { parsePrompt, keysFor } from "./prompts.js";
 import { COLUMN, mono } from "./ui.js";
 
 export const ChoiceMethods = {
@@ -11,27 +11,25 @@ export const ChoiceMethods = {
     if (target()?.address !== t.address) return false;
     const text = await readPrompt(t);
     if (text == null) return false;
-    if (this.choices) return parseChoices(text)?.sig === this.choices.sig;
-    return target()?.status === "blocked" && Boolean(this.screen) && text === this.screen;
+    if (this.choices) return parsePrompt(t.app, text)?.sig === this.choices.sig;
+    return (target()?.status === "blocked" || this.unread) && Boolean(this.screen) && text === this.screen;
   },
 
   choose(index, cx) {
-    // Picks a choice of the prompt on screen: from the selected one, ↑ or ↓ to it, then Enter.
+    // Acts on a choice of the prompt on screen, with the keys its harness takes.
     const t = target(), shown = this.choices;
     if (!t || !shown || this.sending) return;
     this.sending = true; cx.notify();
     cx.spawn(async cx => {
       try {
         const text = await readPrompt(t);
-        const now = text != null ? parseChoices(text) : null;
+        const now = text != null ? parsePrompt(t.app, text) : null;
         if (!now || now.sig !== shown.sig || target()?.address !== t.address) throw new Error("The question changed. Review it again before answering.");
-        const from = now.options.findIndex(o => o.selected);
-        const moves = Array(Math.abs(index - from)).fill(index > from ? "down" : "up");
-        const r = await pressKeys(t, [...moves, "enter"]);
+        const r = await pressKeys(t, keysFor(t.app, now, index));
         if (r.code !== 0) throw new Error(r.stderr || "Key send failed");
-        this.choices = null; this.screen = "";
+        if (!now.multi) { this.choices = null; this.screen = ""; this.unread = false; }
       } catch (e) { this.note = String(e?.message ?? e); }
-      finally { this.sending = false; cx.notify(); }
+      finally { this.sending = false; cx.notify(); this.lookAgain(cx, t); }
     });
   },
 
@@ -45,21 +43,31 @@ export const ChoiceMethods = {
         const r = await pressKeys(t, [key]);
         if (r.code !== 0) throw new Error(r.stderr || "Key send failed");
       } catch (e) { this.note = String(e); }
-      finally { this.sending = false; cx.notify(); }
+      finally { this.sending = false; cx.notify(); this.lookAgain(cx, t); }
+    });
+  },
+
+  lookAgain(cx, t) {
+    // Reads the screen soon after keys, since a blocked agent reports no change when a question moves on.
+    cx.spawn(async cx => {
+      for (const ms of [250, 700]) {
+        await cx.sleep(ms);
+        if (target()?.address === t.address) this.readQuestion(cx, target());
+      }
     });
   },
 
   promptCard(t, active) {
     // The card for a prompt on screen: a question with its choices, or a blocked agent's last lines.
     const q = active && (active.status === "blocked" || active.status === "working") ? this.choices : null;
-    if (active?.status !== "blocked" && !q) return null;
+    if (active?.status !== "blocked" && !q && !this.unread) return null;
     const key = (id, label, k) => div().id(id).h(30).px(12).flex().items_center().rounded(8).cursor_pointer()
       .border_1().border_color(t.border).bg(t.background).text_size(12.5).text_color(t.foreground)
       .hover(s => s.bg(t.hover)).on_click((_e, cx) => k === "terminal" ? switchTo("terminal", active ? sessionOf(active) : "") : this.press(k, cx)).child(label);
     return v_flex().w_full().max_w(COLUMN).p(14).gap(10).rounded(14).border_1().border_color(t.blocked).bg(t.surface)
       .child(h_flex().gap(8).items_center()
         .child(div().size(8).rounded(4).bg(t.blocked))
-        .child(div().text_size(13.5).font_semibold().text_color(t.foreground).child(q ? `${active.label} is asking` : `${active.label} needs your input`)))
+        .child(div().text_size(13.5).font_semibold().text_color(t.foreground).child(active.kind === "permission" ? `${active.label} needs permission` : q ? `${active.label} is asking` : `${active.label} needs your input`)))
       .when(Boolean(q), el => el
         .when(Boolean(q.tabs), el => el.child(div().text_size(11.5).text_color(t.dim).truncate().child(q.tabs)))
         .when(q.question.length > 1, el => el.child(div().max_h(110).overflow_y_scrollbar().px(10).py(6).rounded(8).bg(t.background)
@@ -70,7 +78,7 @@ export const ChoiceMethods = {
           .hover(s => s.bg(t.hover))
           .on_click((_e, cx) => this.choose(i, cx))
           .child(h_flex().gap(8).items_start()
-            .child(div().flex_none().text_size(13).text_color(t.dim).child(`${o.n}.`))
+            .child(div().flex_none().text_size(13).text_color(o.checked ? t.accent : t.dim).child(o.checked === undefined ? (o.n ? `${o.n}.` : "→") : o.checked ? "☑" : "☐"))
             .child(div().flex_1().min_w(0).text_size(13.5).text_color(t.foreground).child(o.label)))
           .when(o.desc.length > 0, el => el.child(div().pl(20).text_size(12).text_color(t.muted).child(o.desc.join(" ")))))))
         .when(q.more, el => el.child(div().text_size(11.5).text_color(t.dim).child("More choices below: use ↓ or open the terminal."))))
