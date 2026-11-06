@@ -1,0 +1,119 @@
+ • Question UI test              ! Permission prompt test        +
+
+  ┃                                                                                                                                                             Permission prompt test
+  ┃  Test of your permission prompt, no real work: run this exact shell command now and nothing else: touch perm-test.txt
+  ┃
+
+  ┃
+  ┃  ⠧ touch perm-test.txt
+  ┃
+
+     Press ctrl+b to move running work to the background
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  △ Permission required
+  ┃
+  ┃  $ touch perm-test.txt
+  ┃
+  ┃
+  ┃   Allow once   Always allow   Reject                                                                       ctrl+f fullscreen  ⇆ select  enter confirm
+  ┃                                                                                                                                                             /…/a1b397…/scratchpad/disc/work:master

@@ -3,7 +3,7 @@ import { readFile } from "fs/promises";
 import { sessionOf, chatKey } from "./common.js";
 import { onWindows, base64Utf8 } from "./platform.js";
 import { target, agentTargets, readScreen, readPrompt } from "./terminal.js";
-import { parseChoices } from "./prompts.js";
+import { parsePrompt, looksLikePrompt } from "./prompts.js";
 import { blankSession, parseReaderInSlices, applyRead, readerArgs, batchProgram, splitBatch } from "./session.js";
 
 const SESSIONS_KEPT = 32;
@@ -70,9 +70,9 @@ export const ReadingMethods = {
     this.facts = now;
     if (first) { this.warm(cx); return; }
     const shown = all.find(t => chatKey(t) === this.key);
-    if (shown?.status === "working" && at - Math.max(this.shownChangedAt ?? 0, this.quietReadAt ?? 0) >= QUIET_EVERY) {
+    if ((shown?.status === "working" || shown?.status === "blocked") && at - Math.max(this.shownChangedAt ?? 0, this.quietReadAt ?? 0) >= QUIET_EVERY) {
       this.quietReadAt = at;
-      if (shown.remote) this.read(cx);
+      if (shown.remote && shown.status === "working") this.read(cx);
       this.readQuestion(cx, shown);
     }
     const ready = this.dueReads.filter(d => d.at <= at);
@@ -86,7 +86,7 @@ export const ReadingMethods = {
   readQuestion(cx, t) {
     // Reads the agent's screen for a question while it works or is blocked (Pi asks while working).
     if (t.status !== "blocked" && t.status !== "working") {
-      if (this.screen) { this.screen = ""; this.choices = null; cx.notify(); }
+      if (this.screen) { this.screen = ""; this.choices = null; this.unread = false; cx.notify(); }
       return;
     }
     if (this.readingScreen) { this.screenAgain = true; return; }
@@ -94,7 +94,11 @@ export const ReadingMethods = {
     cx.spawn(async cx => {
       try {
         const text = (await readPrompt(t)) ?? "";
-        if (text !== this.screen) { this.screen = text; this.choices = parseChoices(text); cx.notify(); }
+        if (text !== this.screen) {
+          this.screen = text; this.choices = parsePrompt(t.app, text);
+          this.unread = !this.choices && looksLikePrompt(text);
+          cx.notify();
+        }
       } finally {
         this.readingScreen = false;
         if (this.screenAgain) { this.screenAgain = false; const now = target(); if (now && chatKey(now) === this.key) this.readQuestion(cx, now); }
@@ -107,7 +111,7 @@ export const ReadingMethods = {
     this.shownChangedAt = Date.now();
     this.stash();
     if (!this.pendingDraft) this.pendingDraft = { from: this.key };
-    this.key = key; this.needsScroll = false; this.settling = true; this.pendingCount = -1; this.follow(); this.screen = ""; this.choices = null; this.lastId = ""; this.screenAskedAt = 0;
+    this.key = key; this.needsScroll = false; this.settling = true; this.pendingCount = -1; this.follow(); this.screen = ""; this.choices = null; this.unread = false; this.lastId = ""; this.screenAskedAt = 0;
     this.watchToken = (this.watchToken ?? 0) + 1; this.watchedPath = ""; this.readError = ""; this.readStartedAt = 0;
     const kept = key ? this.sessions.get(key) : null;
     if (kept) Object.assign(this, kept);

@@ -25,6 +25,7 @@ function agentTarget(a, terms) {
     machine: a.address.includes("/") ? a.address.split("/")[0] : null,
     pid: term?.pid ?? 0, created: term?.created_ms ?? 0, cwd: term?.cwd ?? "",
     activity: term?.report?.msg ?? term?.status?.msg ?? "",
+    kind: term?.report?.kind ?? term?.status?.kind ?? "",
     turn: term?.turn ?? null, statusMs: term?.status_ms ?? null,
   };
 }

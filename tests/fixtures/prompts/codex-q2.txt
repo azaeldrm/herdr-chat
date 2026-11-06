@@ -1,0 +1,119 @@
+
+  >_ OpenAI Codex (v0.167.0)
+     /work
+
+
+› <hc from="t33">This is a test of your question UI, not real work. Use your built-in tool for asking the user structured questions (not plain text). In ONE call, ask three questions: (1) single
+  choice "Pick a color" with options Red, Green, Blue, each with a one-line description; (2) multi-select "Pick toppings" with options Cheese, Olives, Basil; (3) single choice "Pick a size" with
+  options Small, Medium, Large. If you have no such tool, reply exactly: NO QUESTION TOOL and name the tools you do have for asking. Do nothing else.</hc>
+
+
+? Pick a color — Red: bold and warm. Green: fresh and natural. Blue: calm and cool.
+
+  • Red
+  • Green
+  • Blue
+
+? Pick toppings (select multiple if supported; otherwise enter all your choices).
+
+  • Cheese
+  • Olives
+  • Basil
+
+? Pick a size
+
+  • Small
+  • Medium
+  • Large
+
+? Pick a color — Red: bold and warm. Green: fresh and natural. Blue: calm and cool.
+
+  • Red
+  • Green
+  • Blue
+
+? Pick toppings (select multiple if supported; otherwise enter all your choices).
+
+  • Cheese
+  • Olives
+  • Basil
+
+? Pick a size
+
+  • Small
+  • Medium
+  • Large
+
+  Worked for 7s • 9:29 AM
+
+
+› <hc from="t33">/plan</hc>
+
+
+• What would you like to plan?
+
+  Worked for 4s • 9:31 AM
+
+
+› This is a test of your question UI, not real work. Use your built-in tool for asking the user structured questions (not plain text). In ONE call, ask three questions: (1) single choice "Pick a
+  color" with options Red, Green, Blue, each with a one-line description; (2) multi-select "Pick toppings" with options Cheese, Olives, Basil; (3) single choice "Pick a size" with options Small,
+  Medium, Large. Use request_user_input now, before anything else.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  Question 2/3 (2 unanswered)
+  Pick toppings (the tool supports single choice; enter multiple toppings using the free-text option).
+
+  › 1. Cheese             Add cheese.
+    2. Olives             Add olives.
+    3. Basil              Add basil.
+    4. None of the above  Optionally, add details in notes (tab)
+
+  tab to add notes | enter to submit answer | ←/→ to navigate questions | esc to interrupt

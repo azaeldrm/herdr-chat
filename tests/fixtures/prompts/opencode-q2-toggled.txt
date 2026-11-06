@@ -1,0 +1,119 @@
+ ? Question UI test              +
+
+  ┃                                                                                                                                                             Question UI test
+  ┃  <hc from="t33">This is a test of your question UI, not real work. Use your built-in tool for asking the user structured questions (not plain text). In
+  ┃  ONE call, ask three questions: (1) single choice "Pick a color" with options Red, Green, Blue, each with a one-line description; (2) multi-select "Pick
+  ┃  toppings" with options Cheese, Olives, Basil; (3) single choice "Pick a size" with options Small, Medium, Large. If you have no such tool, reply
+  ┃  exactly: NO QUESTION TOOL and name the tools you do have for asking. Do nothing else.</hc>
+  ┃
+
+     → Asked 3 questions
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  Questions
+  ┃
+  ┃  Color  Toppings  Size  Submit
+  ┃
+  ┃  Pick toppings
+  ┃
+  ┃  1. [ ] Cheese
+  ┃         Add cheese.
+  ┃  2. [✓] Olives
+  ┃         Add olives.
+  ┃  3. [ ] Basil
+  ┃         Add basil.
+  ┃  4. [ ] Type your own answer
+  ┃
+  ┃  ⇆ tab  ↑↓ select  enter toggle  esc dismiss
+  ┃                                                                                                                                                             /…/a1b397…/scratchpad/disc/work:master

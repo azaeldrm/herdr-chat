@@ -1,0 +1,120 @@
+
+  >_ OpenAI Codex (v0.167.0)
+     /work
+
+
+› Test of your permission prompt, no real work: run this exact shell command now and nothing else: touch perm-test.txt
+
+
+• Running touch perm-test.txt
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  Would you like to run the following command?
+
+  Environment: local
+
+  Reason: Allow running `touch perm-test.txt` to test the permission prompt?
+
+  $ touch perm-test.txt
+
+
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with `touch perm-test.txt` (p)
+  3. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel
