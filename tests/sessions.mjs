@@ -46,7 +46,7 @@ const bad = splitBatch(execFileSync("python3", ["-c", batchProgram(reader.toStri
 check("a run that fails doesn't stop the others", bad.length === 2 && bad[1] === single[0]);
 const long = ["PATH|" + enc("/l.jsonl"), "OFFSET|9", ...Array.from({ length: 300 }, (_, i) => `M|assistant|final|${enc("line " + i + "\r")}`)].join("\r\n");
 let pauses = 0;
-const sliced = await parseReaderInSlices(long, async () => { pauses++; }, 0);
+const sliced = await parseReaderInSlices(long, async () => { pauses++; }, -1);
 check("read in slices, an update is the same as read at once", JSON.stringify(sliced) === JSON.stringify(parseReader(long)) && sliced.added.length === 300);
 check("and it pauses between slices", pauses > 0);
 process.exit(failed ? 1 : 0);
