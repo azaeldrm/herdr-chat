@@ -1,0 +1,22 @@
+  user structured questions (not plain text). In ONE call, ask three questions: (1) single
+  choice "Pick a color" with options Red, Green, Blue, each with a one-line description; (2)
+  multi-select "Pick toppings" with options Cheese, Olives, Basil; (3) single choice "Pick a
+  size" with options Small, Medium, Large. If you have no such tool, reply exactly: NO
+  QUESTION TOOL and name the tools you do have for asking. Do nothing else.
+
+───────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Color  ☒ Toppings  ☒ Size  ✔ Submit  →
+
+Review your answers
+
+ ● Pick a color
+   → Red
+ ● Pick toppings
+   → Cheese
+ ● Pick a size
+   → Small
+
+Ready to submit your answers?
+
+❯ 1. Submit answers
+  2. Cancel

@@ -43,11 +43,20 @@ export default class HerdrChat extends View {
     this.input.set_auto_grow(1, 4);
     this.scroll = VirtualListScrollHandle.new();
     this.input.on("submit", (e, cx) => { if (!e?.shift) this.enter(cx); });
+    this.rowInputs = {
+      text: TextareaState.new({ placeholder: "Type something…", rows: 1 }),
+      chat: TextareaState.new({ placeholder: "Chat about this…", rows: 1 }),
+    };
+    for (const [kind, box] of Object.entries(this.rowInputs)) {
+      box.on("submit", (e, cx) => { if (!e?.shift) this.answerRow(kind, cx); });
+      box.on("change", (_e, cx) => this.rowChanged(kind, cx));
+    }
     this.input.on("change", (_e, cx) => {
       if (Date.now() - (this.enterAt ?? 0) < 400) {
         const v = this.input.value(), s = v.replace(/\r?\n$/, "");
         if (s !== v) this.input.set_value(s);
       }
+      this.keepDraft(cx);
       cx.notify();
     });
     if (!globalThis.herdrChatLineKeys) {
@@ -220,6 +229,20 @@ export default class HerdrChat extends View {
     });
   }
 
+  fresh(active) {
+    // Whether the agent's conversation hasn't started: no log yet, rather than loading or failing.
+    return Boolean(active) && !this.path && !this.readError && /hasn't written|Waiting for this/.test(this.note || "");
+  }
+
+  welcome(t, active) {
+    // The empty chat for a conversation that hasn't started: the agent's logo and an invitation to write.
+    const logo = programIcon(active.program, 44, t.foreground) ?? image("frame/welcome/herdr.png").size(44).rounded(10).flex_none();
+    return v_flex().flex_1().min_h(0).items_center().justify_center().gap(12).px(24)
+      .child(logo)
+      .child(div().text_center().text_size(17).font_semibold().text_color(t.foreground).child("What would you like to build today?"))
+      .child(div().max_w(420).text_center().text_size(13).text_color(t.muted).child(`Send a message to start this conversation with ${active.label}.`));
+  }
+
   header(t, active) {
     const glyph = programIcon(active?.program, 15, t.muted), badge = statusBadge(t, active?.status);
     const pane = active?.pane, zoomed = Boolean(pane && panes().find(p => p.pane === pane)?.zoomed);
@@ -360,7 +383,8 @@ export default class HerdrChat extends View {
       .on_drop((e, cx) => this.dropFiles(e.paths ?? [], cx))
       .child(this.header(t, active))
       .when(empty && /^Opening/.test(this.note || ""), el => el.child(this.placeholder(t)))
-      .when(empty && !/^Opening/.test(this.note || ""), el => el.child(v_flex().flex_1().min_h(0).items_center().justify_center().gap(14).px(24)
+      .when(empty && this.fresh(active), el => el.child(this.welcome(t, active)))
+      .when(empty && !/^Opening/.test(this.note || "") && !this.fresh(active), el => el.child(v_flex().flex_1().min_h(0).items_center().justify_center().gap(14).px(24)
         .child(image("frame/welcome/herdr.png").size(64).rounded(14).flex_none()
           .when(/^(Opening|Finding)/.test(this.note || ""), el => el.loop("opacity", { from: 0.4, to: 1, period: 1600 })))
         .child(div().max_w(420).text_center().text_size(14).text_color(t.muted).child(this.note))))
@@ -382,7 +406,7 @@ export default class HerdrChat extends View {
       }).size_full())
         .child(v_flex().absolute().bottom(0).left(0).right(0).h(FADE)
           .children(Array.from({ length: 8 }, (_, i) => div().w_full().flex_1().bg(t.background).opacity((i + 1) / 8))))
-        .when(!this.following && !this.needsScroll, el => el.child(h_flex().absolute().bottom(12).left(0).right(0).justify_center()
+        .when(!this.following && !this.needsScroll && !this.choices && !this.unread && active?.status !== "blocked", el => el.child(h_flex().absolute().bottom(12).left(0).right(0).justify_center()
           .child(div().id("jump-bottom").size(34).flex().items_center().justify_center().rounded(17).cursor_pointer()
             .bg(t.popover ?? t.surface).border_1().border_color(t.border).shadow_md().text_color(t.foreground)
             .hover(s => s.bg(t.hover))

@@ -1,4 +1,8 @@
-import { shared } from "herdr";
+import { shared, setShared } from "herdr";
+
+const DRAFTS_KEY = "herdr-chat.drafts";
+const DRAFTS_KEPT = 50;
+const DRAFT_PAUSE = 400;
 import { sessionOf } from "./common.js";
 import { target, inputBox } from "./terminal.js";
 import { canMirror, draftPastes, textOfBox, readBack } from "./agents.js";
@@ -64,6 +68,23 @@ export const DraftMethods = {
     });
   },
 
+  keepDraft(cx) {
+    // Saves the reply box's text for its session in herdr's shared state, once typing pauses, so a reload of the chat keeps it.
+    const key = this.key, token = this.draftToken = (this.draftToken ?? 0) + 1;
+    if (!key) return;
+    cx.spawn(async cx => {
+      await cx.sleep(DRAFT_PAUSE);
+      if (token !== this.draftToken || key !== this.key) return;
+      const text = this.input.value(), all = { ...(shared(DRAFTS_KEY) ?? {}) };
+      if ((all[key] ?? "") === text) return;
+      delete all[key];
+      if (text) all[key] = text;
+      const keys = Object.keys(all);
+      for (const old of keys.slice(0, Math.max(0, keys.length - DRAFTS_KEPT))) delete all[old];
+      setShared(DRAFTS_KEY, all);
+    });
+  },
+
   swapDraft(key, from = this.key) {
     // The reply box's draft kept for session `from` (default: the one shown), and `key`'s put in it.
     if (from) {
@@ -71,7 +92,8 @@ export const DraftMethods = {
       if (text || attachments.length) this.drafts.set(from, { text, attachments });
       else this.drafts.delete(from);
     }
-    const draft = key ? this.drafts.get(key) : null;
+    const saved = key ? (shared(DRAFTS_KEY) ?? {})[key] : undefined;
+    const draft = key ? this.drafts.get(key) ?? (saved ? { text: saved, attachments: [] } : null) : null;
     this.input.set_value(draft?.text ?? "");
     this.attachments = draft?.attachments ?? [];
     this.mirror = null;
