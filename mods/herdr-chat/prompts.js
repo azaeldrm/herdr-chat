@@ -2,16 +2,22 @@ const FOOTER = /enter to (select|confirm|submit)|↑\/↓|↑↓|to navigate|esc
 const REVIEW = /ready to submit your answers\?/i;
 const CHECKBOX = /^\[([ xX✓✔])\]\s*(.*)$/;
 const NEXT_ROW = /^\s*(?:[❯›>▸➤]\s+)?Next$/;
+const TEXT_ROW = /^(type something\.?|type your own answer|none of the above)$/i;
+const CHAT_ROW = /^chat about this$/i;
+const STEP_ROW = /\bsubmit\s*→?\s*$/i;
+const CUT_STEP_ROW = /^\s*←\s.*[□☐■☑☒]/;
+const REVIEW_TITLE = /^\s*review your answers\s*$/i;
 
 const ADAPTERS = {
   "claude-code": {},
   pi: {},
+  codex: { columns: true, notes: true },
   opencode: { byNumber: true },
 };
 
 function screenLines(screen) {
-  // The screen's lines without trailing space or the frame some harnesses draw around a prompt.
-  return screen.replace(/\u00a0/g, " ").split("\n").map(l => l.replace(/^\s*[┃│] ?/, "").replace(/\s*[┃│]?\s*$/, ""));
+  // The screen's lines without hc's notes, trailing space or the frame some harnesses draw around a prompt.
+  return screen.replace(/\u00a0/g, " ").split("\n").filter(l => !l.startsWith("[hc]")).map(l => l.replace(/^\s*[┃│] ?/, "").replace(/\s*[┃│]?\s*$/, ""));
 }
 
 function findFooter(lines, end) {
@@ -38,11 +44,52 @@ export function keysFor(app, prompt, index) {
   // The keys that act on one option: its number where the harness takes one, else arrows from the selected one and Enter.
   const option = prompt.options[index];
   if (ADAPTERS[app]?.byNumber) return option.next ? ["tab"] : [String(option.n)];
-  const from = prompt.options.findIndex(o => o.selected);
-  return [...Array(Math.abs(index - from)).fill(index > from ? "down" : "up"), "enter"];
+  if (option.next && option.hidden) return ["right"];
+  return [...moves(prompt, index), "enter"];
 }
 
-export function parseChoices(screen, { byNumber = false } = {}) {
+function moves(prompt, index) {
+  // The arrows from the selected option to one option.
+  const from = prompt.options.findIndex(o => o.selected);
+  return Array(Math.abs(index - from)).fill(index > from ? "down" : "up");
+}
+
+export function sameOption(a, b) {
+  // Whether two readings of a prompt mean the same option, wherever a scrolled list puts it.
+  return a.next ? Boolean(b.next) : a.input ? a.input === b.input : a.label === b.label;
+}
+
+export function typedAnswer(app, prompt, index) {
+  // The keys that put the cursor in a text row, ready for a typed answer.
+  const { byNumber, notes } = ADAPTERS[app] ?? {};
+  const to = byNumber ? [String(prompt.options[index].n)] : moves(prompt, index);
+  if (prompt.options[index].input === "chat") return { before: [...to, "enter"] };
+  return { before: notes ? [...to, "tab"] : to };
+}
+
+function reviewOf(lines, top, bottom) {
+  // What a review page lists between two lines: its answers and any warning, or null on other pages.
+  const from = lines.slice(top, bottom).findIndex(l => REVIEW_TITLE.test(l));
+  if (from < 0 && !lines.slice(top, bottom + 1).some(l => REVIEW.test(l))) return null;
+  const answers = [];
+  let warning = "";
+  for (const line of lines.slice(top, bottom)) {
+    const asked = /^\s*●\s+(.+)$/.exec(line), given = /^\s*→\s+(.+)$/.exec(line), warned = /^\s*⚠\s*(.+)$/.exec(line);
+    if (asked) answers.push({ question: asked[1].trim(), answer: "" });
+    else if (given && answers.length) answers.at(-1).answer = given[1].trim();
+    else if (warned) warning = warned[1].trim();
+  }
+  return { answers, warning };
+}
+
+function stepsOf(tabs) {
+  // The steps in a prompt's tab row, each with whether it's answered.
+  if (!tabs) return [];
+  const bare = tabs.replace(/^←\s*/, "").replace(/\s*→$/, "").trim();
+  return bare.split(/\s+(?=[□☐■☑☒✓✔])/).map(s => ({ label: s.replace(/^[□☐■☑☒✓✔]\s*/, ""), done: /^[■☑☒]/.test(s) }));
+}
+
+export function parseChoices(screen, { byNumber = false, columns = false } = {}) {
   const lines = screenLines(screen);
   const RULE = /^\s*[─━═]{8,}\s*$/;
   const SOFT_RULE = /^\s*[╌┄┈-]{8,}\s*$/;
@@ -82,25 +129,44 @@ export function parseChoices(screen, { byNumber = false } = {}) {
     if (b.next) { options.push({ n: null, label: "Next", desc: [], selected, next: true }); continue; }
     const text = (n ? n[3] : c ? c[3] : b.line.trim()).trim();
     const box = CHECKBOX.exec(text);
-    options.push({ n: n ? Number(n[2]) : options.length + 1, label: box ? box[2] : text, desc: [], selected, ...(box ? { checked: box[1] !== " " } : {}) });
+    const [written, ...desc] = columns ? text.split(/\s{2,}/) : [box ? box[2] : text];
+    const answered = /\s[✔✓]$/.test(written), label = written.replace(/\s[✔✓]$/, "");
+    const input = TEXT_ROW.test(label) ? "text" : CHAT_ROW.test(label) ? "chat" : undefined;
+    options.push({ n: n ? Number(n[2]) : options.length + 1, label, desc, selected, answered, ...(box ? { checked: box[1] !== " " } : {}), ...(input ? { input } : {}) });
   }
   const multi = options.some(o => o.checked !== undefined);
+  if (more && !options.some(o => o.next || TEXT_ROW.test(o.label))) {
+    options.push({ n: null, label: "Type something", desc: [], selected: false, input: "text", hidden: true, ...(multi ? { checked: false } : {}) });
+    if (multi) options.push({ n: null, label: "Next", desc: [], selected: false, next: true, hidden: true });
+  }
+  const beforeNext = options[options.findIndex(o => o.next) - 1];
+  if (beforeNext?.checked !== undefined && !beforeNext.hidden) {
+    beforeNext.input = "text";
+    beforeNext.typed = TEXT_ROW.test(beforeNext.label) ? "" : beforeNext.label;
+  }
   if (byNumber && multi && !options.some(o => o.next)) options.push({ n: null, label: "Next", desc: [], selected: false, next: true });
   if (options.length < 2 || (!byNumber && options.filter(o => o.selected).length !== 1)) return null;
   const question = [];
+  const asked = [];
   let tabs = null;
-  for (let q = (block[0]?.y ?? footer) - 1, blanks = 0; q >= 0 && question.length < 10; q--) {
+  for (let q = (block[0]?.y ?? footer) - 1, blanks = 0, whole = false; q >= 0 && question.length + asked.length < 16; q--) {
     const line = lines[q];
     if (RULE.test(line)) break;
-    if (SOFT_RULE.test(line)) continue;
+    if (SOFT_RULE.test(line)) { whole = asked.length > 0; continue; }
     if (/^\s*[•●⎿⏺]/.test(line) || /^\s*[❯›]\s/.test(line)) break;
-    if (!line.trim()) { if (++blanks >= 2 && question.length) break; continue; }
+    if (!line.trim()) { whole = asked.length > 0; if (++blanks >= 2 && asked.length) break; continue; }
     blanks = 0;
-    question.unshift(line.trim());
+    if (/^\s*Tip:/.test(line) || /^\s*[↑↓]\s*$/.test(line)) continue;
+    (whole ? question : asked).unshift(line.trim());
   }
-  for (let q = (block[0]?.y ?? footer) - 1; q >= 0 && !RULE.test(lines[q]) && block[0].y - q < 12; q--) {
-    if (/\bsubmit\b/i.test(lines[q]) && !REVIEW.test(lines[q]) && lines[q].trim().split(/\s{2,}/).length > 2) { tabs = lines[q].trim(); question.splice(0, question.indexOf(tabs) + 1); break; }
+  if (/^Question \d+\/\d+/.test(asked[0] ?? "")) tabs = asked.shift();
+  question.push(asked.join(" "));
+  let top = block[0].y;
+  for (let q = block[0].y - 1; q >= 0 && block[0].y - q < 26; q--) {
+    if ((STEP_ROW.test(lines[q]) && lines[q].trim().split(/\s{2,}/).length > 2) || CUT_STEP_ROW.test(lines[q])) { tabs = lines[q].trim(); top = q + 1; question.splice(0, question.indexOf(tabs) + 1); break; }
   }
-  const sig = JSON.stringify([question, options.map(o => o.label)]);
-  return { question, tabs, options, multi, more, sig };
+  const review = reviewOf(lines, top, block[0].y);
+  if (review) question.splice(0, question.length, "Review your answers");
+  const sig = JSON.stringify([question, multi ? "multi" : options.map(o => o.input ? "" : o.label)]);
+  return { question, tabs, steps: stepsOf(tabs), review, options, multi, more, sig };
 }

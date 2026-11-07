@@ -90,6 +90,9 @@ export function applyRead(s, r) {
   } else if (s.note && s.messages.length) s.note = "";
 }
 
+const REMOTE_TAIL_MB = 6;
+const REMOTE_ENTRIES = 150;
+
 export function readerArgs(t, at) {
   // The reader's arguments for a terminal, from where its session was last read.
   const args = ["--app", t.app, "--pid", String(t.pid), "--created", String(t.created), "--offset", String(at.offset || 0)];
@@ -99,6 +102,7 @@ export function readerArgs(t, at) {
   if (at.path) args.push("--known", at.path);
   if (at.hint) args.push("--hint", at.hint);
   if (at.leaf) args.push("--leaf", at.leaf);
+  if (t.remote) args.push("--tail", String(REMOTE_TAIL_MB), "--entries", String(REMOTE_ENTRIES));
   return args;
 }
 

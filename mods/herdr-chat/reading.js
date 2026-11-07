@@ -2,13 +2,16 @@ import { exec, appHome, shared, setShared, watchFolder } from "herdr";
 import { readFile } from "fs/promises";
 import { sessionOf, chatKey } from "./common.js";
 import { onWindows, base64Utf8 } from "./platform.js";
-import { target, agentTargets, readScreen, readPrompt } from "./terminal.js";
+import { target, agentTargets, readScreen, readPrompt, inputBox } from "./terminal.js";
 import { parsePrompt, looksLikePrompt } from "./prompts.js";
 import { blankSession, parseReaderInSlices, applyRead, readerArgs, batchProgram, splitBatch } from "./session.js";
 
 const SESSIONS_KEPT = 32;
 const READ_AFTER = [1000, 4000];
 const QUIET_EVERY = 1500;
+const ROW_SETTLE = 3000;
+const WAIT_EVERY = 3000;
+const RETRY_AFTER = 5000;
 const STALE_AFTER = 3000, CHECK_AFTER = 300, SILENT_AFTER = 5000;
 const PATHS_KEY = "herdr-chat.paths";
 
@@ -97,12 +100,44 @@ export const ReadingMethods = {
         if (text !== this.screen) {
           this.screen = text; this.choices = parsePrompt(t.app, text);
           this.unread = !this.choices && looksLikePrompt(text);
+          this.syncRowBox();
+          this.readStep(cx, t);
           cx.notify();
         }
       } finally {
         this.readingScreen = false;
         if (this.screenAgain) { this.screenAgain = false; const now = target(); if (now && chatKey(now) === this.key) this.readQuestion(cx, now); }
       }
+    });
+  },
+
+  syncRowBox() {
+    // Shows a multi-select's typed text in its box, and clears the box when the question changes.
+    if (this.rowDirty) return;
+    const q = this.choices, page = q?.question.join("\n") ?? "";
+    const box = this.rowInputs.text, kept = this.rowKept ??= new Map();
+    const typed = q?.options.find(o => o.input === "text")?.typed;
+    const moved = page !== this.rowPage;
+    if (moved && this.rowPage) kept.set(this.rowPage, box.value());
+    this.rowPage = page;
+    if (typed === undefined && !moved) return;
+    if (!moved && Date.now() - (this.rowEditedAt ?? 0) < ROW_SETTLE) return;
+    const text = typed ?? kept.get(page) ?? "";
+    if (box.value() === text) return;
+    this.rowSetting = true;
+    box.set_value(text);
+    this.rowSetting = false;
+  },
+
+  readStep(cx, t) {
+    // Finds which step a prompt is on when it changes page: the screen's text doesn't show it, only its colours.
+    const sig = JSON.stringify([this.choices?.question, this.choices?.steps]);
+    if (sig === this.stepSig) return;
+    this.stepSig = sig; this.currentStep = "";
+    if (!(this.choices?.steps.length > 1) || onWindows()) return;
+    cx.spawn(async cx => {
+      const r = await inputBox("step", t);
+      if (this.stepSig === sig && r.box) { this.currentStep = r.box; cx.notify(); }
     });
   },
 
@@ -155,7 +190,7 @@ export const ReadingMethods = {
   read(cx) {
     // Reads the session on screen from where it last stopped.
     const t = target();
-    if (!t) return;
+    if (!t || chatKey(t) !== this.key) return;
     const key = this.key;
     if (this.reading === key) { this.dirty = true; return; }
     const token = this.readSeq = (this.readSeq ?? 0) + 1;
@@ -177,13 +212,16 @@ export const ReadingMethods = {
         if (r.code !== 0) throw new Error(r.stderr || `Reader exited ${r.code}`);
         const update = await parseReaderInSlices(r.stdout, () => cx.sleep(0));
         if (!mine()) return;
-        this.merge(update);
+        this.merge(update, t);
         this.readError = "";
         if (!t.remote) this.watch(cx, this.path);
       } catch (e) {
         if (!mine()) return;
         if (this.messages.length) this.readError = String(e?.message ?? e).split("\n")[0] || "no answer";
-        else this.note = String(e);
+        else {
+          this.note = t.remote ? `${t.machine} is slow to answer. Trying again…` : `Couldn't read this conversation yet. Trying again…`;
+          this.dueReads.push({ key, at: Date.now() + RETRY_AFTER });
+        }
       }
       finally {
         if (this.readSeq === token) {
@@ -191,6 +229,7 @@ export const ReadingMethods = {
           if (this.reading === key) {
             this.reading = null;
             if (this.dirty) this.read(cx);
+            else if (!this.path && this.key === key) this.dueReads.push({ key, at: Date.now() + WAIT_EVERY });
           }
         }
         cx.notify();
@@ -198,12 +237,11 @@ export const ReadingMethods = {
     });
   },
 
-  merge(update) {
-    // Applies the reader's update to the session on screen and remembers its log.
+  merge(update, t) {
+    // Applies the reader's update to the session on screen and remembers its log, for the agent it was read from.
     applyRead(this, update);
     this.readAt = Date.now();
-    const t = target();
-    if (t) this.rememberPath(sessionOf(t), this.path, this.hint);
+    this.rememberPath(sessionOf(t), this.path, this.hint);
     const last = this.messages[this.messages.length - 1];
     const id = last ? `${this.messages.length}:${last.kind}:${last.text ?? last.calls.length}:${last.calls?.at(-1)?.o?.length ?? 0}` : "";
     if (id !== this.lastId) { this.lastId = id; if (this.following) this.follow(); }
