@@ -3,12 +3,15 @@ import { v_flex, h_flex, Textarea, TextareaState } from "gpui-base";
 import { switchTo, sessionOf, chatKey } from "../common.js";
 import { onWindows } from "../platform.js";
 import { target, readPrompt, pressKeys, sendMessage, inputBox } from "../terminal.js";
-import { parsePrompt, looksLikePrompt, keysFor, typedAnswer, sameOption } from "../model/prompts.js";
+import { parsePrompt, looksLikePrompt, keysFor, typedAnswer, sameOption, previewKey, fullPreview } from "../model/prompts.js";
+import { shared } from "herdr";
 import { COLUMN, mono, icon, keyButton, checkbox } from "../ui/primitives.js";
 
 const BODY_HEIGHT = 264;
 const ROW_CHARS = 96;
 const DESC_CHARS = 110;
+const PREVIEW_OPTIONS = 0.36;
+const PREVIEW_LABEL_CHARS = 28;
 const ROW_PAUSE = 500;
 const SCROLL_TRIES = 12;
 const ROW_SETTLE = 3000;
@@ -21,9 +24,11 @@ function stacked(o) {
 function bodyHeight(q) {
   // The height of a prompt's answers and options, up to where they scroll.
   const shown = q.options.filter(o => !o.next);
-  const rows = shown.reduce((sum, o) => sum + 34 + (stacked(o) ? Math.ceil(o.desc.join(" ").length / DESC_CHARS) * 19 : 0), 0) + (shown.length - 1) * 6;
+  const wrapped = o => q.preview ? (Math.ceil(o.label.length / PREVIEW_LABEL_CHARS) - 1) * 19 : 0;
+  const rows = shown.reduce((sum, o) => sum + 34 + wrapped(o) + (stacked(o) ? Math.ceil(o.desc.join(" ").length / DESC_CHARS) * 19 : 0), 0) + (shown.length - 1) * 6;
   const answers = q.review?.answers.length ? q.review.answers.length * 21 + 24 : 0;
-  return Math.min(BODY_HEIGHT, rows + answers);
+  const preview = q.preview ? q.preview.text.length * 17 + (q.preview.hidden ? 40 : 18) : 0;
+  return Math.min(BODY_HEIGHT, Math.max(rows + answers, preview));
 }
 
 export class QuestionCard {
@@ -50,6 +55,31 @@ export class QuestionCard {
   clear() {
     // Forgets the question: another conversation is shown.
     this.screen = ""; this.choices = null; this.unread = false;
+    this.previews = new Map();
+  }
+
+  showPreview(cx, t) {
+    // Fills in a preview the terminal's height cut: in Chat, where the terminal isn't in view, it's read once per option at the height it needs, and remembered.
+    const q = this.choices;
+    if (!q?.preview) return;
+    this.previews ??= new Map();
+    const key = previewKey(q);
+    if (!q.preview.hidden) { this.previews.set(key, q.preview.text); return; }
+    const known = this.previews.get(key);
+    if (known) { q.preview = { text: known, hidden: 0 }; cx.notify(); return; }
+    if (this.fetchingPreview || known === null || onWindows() || shared("herdr-chat.mode") !== "chat") return;
+    this.fetchingPreview = true;
+    this.previews.set(key, null);
+    cx.spawn(async cx => {
+      const r = await inputBox("tall", t, String(q.preview.hidden)).catch(() => null);
+      const text = r?.box ? fullPreview(t.harness, r.box, q) : null;
+      const moved = !this.choices || previewKey(this.choices) !== key;
+      if (text) this.previews.set(key, text);
+      else if (moved) this.previews.delete(key);
+      this.fetchingPreview = false;
+      if (target()?.address === t.address) this.showPreview(cx, t);
+      cx.notify();
+    });
   }
 
   async stillCurrent(t) {
@@ -224,7 +254,8 @@ export class QuestionCard {
           .font_family(mono()).text_size(11).text_color(t.muted).child(q.question.slice(0, -1).join("\n"))))
         .child(div().text_size(13).text_color(t.foreground).child(q.question.at(-1) ?? ""))
         .when(Boolean(q.review?.warning), el => el.child(div().text_size(11.5).text_color(t.blocked).child(q.review.warning)))
-        .child(v_flex().id("prompt-body").flex_none().w_full().h(bodyHeight(q)).overflow_y_scrollbar().gap(6)
+        .child(h_flex().flex_none().w_full().gap(8).items_start()
+        .child(v_flex().id("prompt-body").flex_none().when(!q.preview, el => el.w_full()).when(Boolean(q.preview), el => el.w(COLUMN * PREVIEW_OPTIONS)).h(bodyHeight(q)).overflow_y_scrollbar().gap(6)
           .when(Boolean(q.review?.answers.length), el => el.child(v_flex().flex_none().gap(2).px(10).py(6).rounded(8).bg(t.background)
             .children(q.review.answers.map(a => h_flex().gap(8).items_baseline()
               .child(div().flex_none().w(150).truncate().text_size(11.5).text_color(t.muted).child(a.question))
@@ -248,12 +279,16 @@ export class QuestionCard {
             .when(o.desc.length > 0 && !stacked(o), el => el.child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.muted).child(o.desc.join(" "))))
             .when(Boolean(o.answered), el => el.child(div().flex_none().text_size(12).text_color(t.accent).child("✓"))))
           .when(stacked(o), el => el.child(div().pl(19).text_size(11.5).text_color(t.muted).child(o.desc.join(" "))))).filter(Boolean)))
+        .when(Boolean(q.preview), el => el.child(v_flex().id("prompt-preview").flex_1().min_w(0).h(bodyHeight(q)).overflow_scrollbar().gap(6).px(10).py(6).rounded(7).bg(t.background)
+          .child(v_flex().flex_none().font_family(mono()).text_size(11.5).text_color(t.foreground)
+            .children(q.preview.text.map(line => div().flex_none().min_h(16).whitespace_nowrap().child(line || " "))))
+          .when(q.preview.hidden > 0, el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(`${q.preview.hidden} more line${q.preview.hidden === 1 ? "" : "s"} hidden: open the terminal to read them`))))))
         .when(q.more, el => el.child(div().text_size(11.5).text_color(t.dim).child("More choices below: use ↓ or open the terminal."))))
       .when(!q, el => el.child(div().max_h(220).overflow_y_scrollbar().px(10).py(8).rounded(8).bg(t.background)
         .font_family(mono()).text_size(12).text_color(t.muted)
         .child(this.screen ? this.screen.split("\n").filter(l => l.trim()).slice(-12).join("\n") : "Open the terminal to review the request.")))
       .child(h_flex().gap(6).flex_wrap()
-        .when(!q || q.more, el => el.child(key("k-up", "↑", "up")).child(key("k-down", "↓", "down")))
+        .when(!q || q.more || Boolean(q.preview), el => el.child(key("k-up", "↑", "up")).child(key("k-down", "↓", "down")))
         .when(!q, el => el.child(key("k-enter", "Enter", "enter")))
         .child(key("k-esc", "Esc", "esc"))
         .when(Boolean(q?.options.some(o => o.next)), el => el.child(keyButton(t, "k-next", "Next →", (_e, cx) => this.choose(q.options.findIndex(o => o.next), cx), true)))
@@ -274,6 +309,7 @@ export class QuestionCard {
         const text = (await readPrompt(t)) ?? "";
         if (text !== this.screen) {
           this.screen = text; this.choices = parsePrompt(t.harness, text);
+          this.showPreview(cx, t);
           this.unread = !this.choices && looksLikePrompt(text);
           this.syncRowBox();
           this.readStep(cx, t);
