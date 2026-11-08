@@ -5,6 +5,7 @@ import { execFileSync } from "child_process";
 import { stage, MOD } from "./stage.mjs";
 
 const { parseReader, parseReaderInSlices, applyRead, blankSession, readerArgs, batchProgram, splitBatch } = await stage().load("model/session.js");
+const { base64Utf8, fromBase64 } = await stage().load("platform.js");
 let failed = 0;
 const check = (name, ok) => { console.log(`${ok ? "PASS" : "FAIL"} ${name}`); if (!ok) failed++; };
 const enc = encodeURIComponent;
@@ -13,6 +14,16 @@ const said = s => s.messages.filter(m => m.kind === "message").map(m => m.text);
 const s = blankSession();
 applyRead(s, parseReader(["PATH|" + enc("/log.jsonl"), "OFFSET|100", "RESET", "M|user||" + enc("hi"), "C|c1|" + enc(JSON.stringify({ k: "read", d: "a.js" })), "M|assistant|final|" + enc("done")].join("\n")));
 check("a fresh read sets path and offset", s.path === "/log.jsonl" && s.offset === 100);
+{
+  const bytes = [...fromBase64(base64Utf8("héllo, 🌈 images\u0000\u00ff"))];
+  const want = [...Buffer.from("héllo, 🌈 images\u0000\u00ff", "utf8")];
+  check("fetched image bytes decode exactly, padding and all", JSON.stringify(bytes) === JSON.stringify(want) && fromBase64("iVBORw0KGgo=").length === 8);
+}
+{
+  const r = parseReader(["M|user||" + enc("what colour?") + "|" + enc(JSON.stringify(["/x/herdr-core/d/files/t1/a.png", ""])), "M|user||" + enc("50%|done")].join("\n"));
+  check("a message's images come through, and text with a bar or percent sign stays whole",
+    JSON.stringify(r.added.map(m => [m.text, m.images ?? null])) === JSON.stringify([["what colour?", ["/x/herdr-core/d/files/t1/a.png", ""]], ["50%|done", null]]));
+}
 check("its messages and tool call", JSON.stringify(said(s)) === '["hi","done"]' && s.messages.some(m => m.kind === "tools"));
 applyRead(s, parseReader(["PATH|" + enc("/log.jsonl"), "OFFSET|180", "O|c1|" + enc("file text"), "M|user||" + enc("more")].join("\n")));
 check("a later read adds to it", JSON.stringify(said(s)) === '["hi","done","more"]' && s.offset === 180);

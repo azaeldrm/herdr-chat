@@ -67,11 +67,7 @@ def parse_pi(path):
         role = m.get("role")
         content = m.get("content") or []
         if role == "user":
-            parts = []
-            for c in content if isinstance(content, list) else []:
-                if isinstance(c, dict) and c.get("type") == "text": parts.append(str(c.get("text", "")))
-                elif isinstance(c, dict) and c.get("type") == "image": parts.append("[Image attached]")
-            add_message("user", "", "\n".join(parts) if parts else content_text(content))
+            add_message("user", "", *placed_images(content_text(content)))
         elif role == "assistant":
             for c in content if isinstance(content, list) else []:
                 if not isinstance(c, dict): continue

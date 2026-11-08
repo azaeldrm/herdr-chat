@@ -58,9 +58,7 @@ def parse_opencode(path):
         d = loads(data)
         if not isinstance(d, dict): continue
         if kind == "user":
-            text = str(d.get("text", ""))
-            if d.get("files"): text = (text + "\n[Image attached]").strip()
-            add_message("user", "", text)
+            add_message("user", "", *placed_images(d.get("text", "")))
         elif kind == "assistant":
             for c in d.get("content") or []:
                 if not isinstance(c, dict): continue

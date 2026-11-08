@@ -76,8 +76,16 @@ runs in. Icons are the mod's own SVGs drawn in the theme's text colour.
   (`image()` draws only from the herdr home), and sent with `hc put` beside the agent's terminal,
   here or on another machine, in a folder herdr-core removes with the terminal. The message carries
   it the way each agent attaches an image itself: Claude Code an `@path` mention; Codex the path
-  pasted alone first (it makes `[Image #N]` of that), then the text; Pi the plain path, as its own
-  Ctrl+V leaves (its model opens it with `read`).
+  pasted alone first (it makes `[Image #N]` of that), then the text; Pi and OpenCode the plain path
+  (their models open it with `read`).
+- **Images in the conversation.** One rule for every harness: a message's images are the paths in
+  its text under herdr's `herdr-core/*/files/` folder, however the harness wrote them (`path`,
+  `@path`, `@"path"`, Codex's `<image path="…">`). `placed_images()` in `readers/common.py` takes
+  them out of the text and the bubble shows them above it. An image's thumbnail is always
+  `cache/herdr-chat/sent/<machine>~<terminal>~<file name>`: the chat moves a sent preview there, and
+  fetches any other placed image from the agent's machine the first time it shows; a chip with the
+  file name stands in when the file is gone. Previews go after 30 days or beyond the newest 300.
+  Images attached inside a harness's own terminal aren't translated: they show as it wrote them.
 - **One draft.** The chat box and the agent's own input box hold the same draft. Switching a
   session to Terminal types the chat's draft, images included, into the agent's box without
   sending it (an empty draft empties the box); switching back reads the box into the chat, turning
@@ -133,7 +141,7 @@ Mod (`mods/herdr-chat/`, `mod.json` is `{"place":"none"}`):
 | `components/` | the View's parts, each a class owning its state and given the View as `host`; `tests/structure.mjs` holds each one to its listed host API. `chat-list.js`: rows, heights, measuring, following. `question-card.js`: a question read off the screen, shown and answered. `composer.js`: the reply box, drafts and images, mirroring, sending. `session-reader.js`: the shown conversation (`session`) and the ones kept in memory, read and kept fresh |
 | `model/` | pure data, no gpui or herdr imports (`tests/structure.mjs` checks): `transcript.js` (folding tool calls and thinking, a step's preview, row keys, a group's summary), `session.js` (a session's state, the reader's output applied to it, the batch run), `prompts.js` (`parseChoices`: a choice prompt read off the screen, the harness's `prompt` options deciding how), `caret.js`, `hash.js` |
 | `ui/` | drawing: `primitives.js` (column width, icons, program icon, pane buttons, status badge, view toggle, clock, disclosure, bubble, key button, checkbox) and `rows.js` (each conversation row, drawn from the row and `{ t, open, width }`) |
-| `images.js` | where image preview copies go and what they're named |
+| `images.js` | where image preview copies go and what they're named, and the sent previews bubbles draw |
 | `draft.js` | kept drafts in shared state: `storeDraft` is their one writer |
 | `harnesses/` | one adapter per harness (`claude-code.js`, `codex.js`, `pi.js`): its label, how it takes images, whether drafts mirror, its prompt options, its input box's shape and its reader. `index.js` is the registry and the image/draft logic driven by those fields. Nothing outside this folder names a harness (`tests/harnesses.mjs` checks) |
 | `terminal.js` | the target agent, reading its screen, sending as the person, keys, `input-box.py` |
@@ -167,7 +175,7 @@ with `set_theme` from `gpui-base`. UI parts: `v_virtual_list` with a `VirtualLis
   `~/.claude/sessions`, `~/.codex/sessions` and `~/.pi/agent/sessions`, and reads the terminal's
   screen with `hc read`;
 - types into terminals (`hc send`, `hc keys`, and pastes and Delete/Backspace through `hc attach`);
-- writes image copies under `~/.config/herdr-app/cache/herdr-chat/` (removed once sent or after a day);
+- writes image copies under `~/.config/herdr-app/cache/herdr-chat/` (unsent ones removed after a day, sent ones kept in `sent/` for 30 days, at most 300);
 - changes one colour in herdr's shared palette for the whole app while it runs: `set_theme` with
   the palette's `accent` (and `selection`) set to a dimmed version of the theme's accent. It's the
   only way to make selected text visible in herdr's built-in text boxes; it follows the theme and
@@ -238,7 +246,8 @@ Things a fresh build would get wrong:
 - **Adding a harness.** Write `harnesses/<id>.js` (label, image style, mirroring, prompt options,
   input box shape or `null` without mirroring, reader id) and add it to the list in
   `harnesses/index.js`; write `readers/<id>.py` registering `READERS["<id>"] = (find, parse)` and add it
-  to `readers/manifest.json` before `main.py`. Nothing else should need to change:
+  to `readers/manifest.json` before `main.py`. Its user messages go through `placed_images()`, so images
+  need no code of their own. Nothing else should need to change:
   `tests/harnesses.mjs` fails if a harness is named anywhere else or an adapter is incomplete. OpenCode
   went in this way.
 - **Rows.** `v_virtual_list` draws each row at the height it is given and clips what doesn't fit.

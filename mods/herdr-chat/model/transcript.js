@@ -103,7 +103,7 @@ function digest(m) {
   // A row's content digest, computed once per row object.
   let d = DIGESTS.get(m);
   if (d === undefined) {
-    d = m.text != null ? hash(sample(m.text)) : hash((m.calls ?? []).map(callDigest).join("|"));
+    d = m.text != null ? hash(sample(m.text) + (m.images ?? []).join("|")) : hash((m.calls ?? []).map(callDigest).join("|"));
     DIGESTS.set(m, d);
   }
   return d;

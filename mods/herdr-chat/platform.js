@@ -41,6 +41,19 @@ export function base64Utf8(text) {
   return out;
 }
 
+export function fromBase64(text) {
+  // The bytes that base64 `text` encodes (no Buffer or atob here).
+  const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const clean = text.replace(/[^A-Za-z0-9+/]/g, "");
+  const out = new Uint8Array(Math.floor(clean.length * 3 / 4));
+  let n = 0, bits = 0, at = 0;
+  for (const ch of clean) {
+    n = n << 6 | abc.indexOf(ch); bits += 6;
+    if (bits >= 8) { bits -= 8; out[at++] = n >> bits & 255; }
+  }
+  return out.subarray(0, at);
+}
+
 export function removeFiles(files) {
   // Deletes files on this computer, quietly (ones already gone are fine).
   if (!files.length) return;
@@ -49,11 +62,11 @@ export function removeFiles(files) {
     : exec("rm", ["-f", "--", ...files])).catch(() => null);
 }
 
-export function pruneOld(dir, keep = []) {
-  // Deletes the files in `dir`, and the folders in it, older than a day, except those named in `keep`.
-  const skip = keep.flatMap(name => ["!", "-name", name]);
+export function pruneOld(dir, keep = [], spare = []) {
+  // Deletes the files in `dir`, and the folders in it, older than a day, except those named in `keep` and the folders named in `spare`.
+  const skip = [...keep.flatMap(name => ["!", "-name", name]), ...spare.flatMap(name => ["!", "-path", `*/${name}/*`])];
   (onWindows()
     ? exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
-        `$keep = @(${keep.map(psQuote).join(", ")}); Get-ChildItem -LiteralPath ${psQuote(dir)} -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) -and $keep -notcontains $_.Name } | Remove-Item -Force`])
+        `$keep = @(${keep.map(psQuote).join(", ")}); $spare = @(${spare.map(psQuote).join(", ")}); Get-ChildItem -LiteralPath ${psQuote(dir)} -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) -and $keep -notcontains $_.Name -and $spare -notcontains $_.Directory.Name } | Remove-Item -Force`])
     : exec("sh", ["-c", '[ -d "$1" ] || exit 0; d=$1; shift; find "$d" -type f -mmin +1440 "$@" -delete; exit 0', "sh", dir, ...skip])).catch(() => null);
 }

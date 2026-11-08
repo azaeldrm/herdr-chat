@@ -54,10 +54,12 @@ function parseTagged(r, line) {
     const [id, ...text] = rest.split("|");
     r.added.push({ kind: "out", id: decodeURIComponent(id), text: decodeURIComponent(text.join("|")) });
   } else if (tag === "M") {
-    const [role, phase, ...text] = rest.split("|");
-    let body = decodeURIComponent(text.join("|"));
+    const [role, phase, text = "", images] = rest.split("|");
+    let body = decodeURIComponent(text);
     if (role === "user") body = body.replace(/^\s*<hc from="[^"]*"[^>]*>([\s\S]*?)<\/hc>\s*$/, "$1");
-    r.added.push({ kind: "message", role, phase, text: body });
+    const m = { kind: "message", role, phase, text: body };
+    if (images) m.images = JSON.parse(decodeURIComponent(images));
+    r.added.push(m);
   }
 }
 

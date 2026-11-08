@@ -49,6 +49,7 @@ export default class HerdrChat extends View {
       const t = target();
       if (chatKey(t) !== this.key || this.reader.needsFirstRead || this.composer.pendingDraft) this.refresh(cx);
       this.reader.noticeAgents(cx);
+      this.composer.previewsFor(t, this.reader.session.messages, cx);
       this.noticeVisit();
       const cue = this.reader.readCue();
       if (cue !== this.shownCue) { this.shownCue = cue; cx.notify(); }
@@ -216,7 +217,7 @@ export default class HerdrChat extends View {
       rows, empty, t, inner, zoom: this.zoom, beforeScroll: () => this.noticeVisit(),
       heightKey: m => `${m.key}${this.reader.session.open[m.key] ? ":open" : ""}${m.kind === "diagram" ? `:${diagramFor(m.text, t).state}` : ""}`,
       waitsFor: m => m.kind === "diagram" && diagramFor(m.text, t).state === "queued",
-      row: m => row(m, { t, open: this.reader.session.open, width: this.width }),
+      row: m => row(m, { t, open: this.reader.session.open, width: this.width, sent: this.composer.sent, machine: target()?.machine }),
       onItemClick: (key, cx) => {
         const row = rows.find(r => r.key === key);
         const opens = row?.kind === "tools" || (row?.kind === "step" && (this.reader.session.open[key] || stepText(row.call, false).more));

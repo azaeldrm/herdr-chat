@@ -17,5 +17,5 @@ for e in (entries[-MAX_ENTRIES:] if state["fresh"] else entries):
     if k == "call": emit("C|" + esc(e["id"]) + "|" + esc(json.dumps(e["call"], separators=(",", ":"), ensure_ascii=False)))
     elif k == "out": emit("O|" + esc(e["id"]) + "|" + esc(e["text"]))
     elif k == "reasoning": emit("R|" + esc(e["text"]))
-    else: emit("M|" + e["role"] + "|" + e["phase"] + "|" + esc(e["text"]))
+    else: emit("M|" + e["role"] + "|" + e["phase"] + "|" + esc(e["text"]) + ("|" + esc(json.dumps(e["images"])) if e.get("images") else ""))
 flush()

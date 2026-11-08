@@ -112,8 +112,8 @@ def parse_codex(path):
         body = content_text(p.get("content")).strip()
         if role == "user":
             if re.match(r"^<(environment_context|user_instructions|permissions)", body) or body.startswith("# AGENTS.md"): continue
-            body = re.sub(r'<image\s+name=\[Image #\d+\]\s+path="[^"]+">', "[Image attached]", body)
-            body = re.sub(r"\s*\[Image #\d+\]", "", body.replace("</image>", ""))
+            text, images = placed_images(body)
+            add_message(role, phase, re.sub(r'<image\s+name=\[Image #\d+\]\s+path="[^"]*">\s*(?:</image>)?\s*', "", text), images); continue
         add_message(role, phase, body)
 
 READERS["codex"] = (find_codex, parse_codex)
