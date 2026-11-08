@@ -41,19 +41,6 @@ export function base64Utf8(text) {
   return out;
 }
 
-export function fromBase64(text) {
-  // The bytes that base64 `text` encodes (no Buffer or atob here).
-  const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  const clean = text.replace(/[^A-Za-z0-9+/]/g, "");
-  const out = new Uint8Array(Math.floor(clean.length * 3 / 4));
-  let n = 0, bits = 0, at = 0;
-  for (const ch of clean) {
-    n = n << 6 | abc.indexOf(ch); bits += 6;
-    if (bits >= 8) { bits -= 8; out[at++] = n >> bits & 255; }
-  }
-  return out.subarray(0, at);
-}
-
 export function removeFiles(files) {
   // Deletes files on this computer, quietly (ones already gone are fine).
   if (!files.length) return;
