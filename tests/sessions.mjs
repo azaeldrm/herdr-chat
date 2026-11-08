@@ -4,7 +4,7 @@ import { join } from "path";
 import { execFileSync } from "child_process";
 import { stage, MOD } from "./stage.mjs";
 
-const { parseReader, parseReaderInSlices, applyRead, blankSession, readerArgs, batchProgram, splitBatch } = await stage().load("session.js");
+const { parseReader, parseReaderInSlices, applyRead, blankSession, readerArgs, batchProgram, splitBatch } = await stage().load("model/session.js");
 let failed = 0;
 const check = (name, ok) => { console.log(`${ok ? "PASS" : "FAIL"} ${name}`); if (!ok) failed++; };
 const enc = encodeURIComponent;

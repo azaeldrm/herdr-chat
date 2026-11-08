@@ -1,5 +1,5 @@
 import { stage } from "./stage.mjs";
-const { foldActivity, stepText, stepRows, OUTPUT_LINES } = await stage().load("transcript.js");
+const { foldActivity, stepText, stepRows, OUTPUT_LINES } = await stage().load("model/transcript.js");
 let failed = 0;
 const check = (name, got, want) => {
   const ok = JSON.stringify(got) === JSON.stringify(want);

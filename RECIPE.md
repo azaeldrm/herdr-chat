@@ -131,9 +131,8 @@ Mod (`mods/herdr-chat/`, `mod.json` is `{"place":"none"}`):
 |---|---|
 | `main.js` | the chat View: creates the components, runs the timers, switches sessions, lays out the header, list, card and composer, stops the agent |
 | `components/` | the View's parts, each a class owning its state and given the View as `host`; `tests/structure.mjs` holds each one to its listed host API. `chat-list.js`: rows, heights, measuring, following. `question-card.js`: a question read off the screen, shown and answered. `composer.js`: the reply box, drafts and images, mirroring, sending. `session-reader.js`: the shown conversation (`session`) and the ones kept in memory, read and kept fresh |
-| `session.js` | a session's state, the reader's output applied to it, the batch run for one machine's agents (pure) |
-| `transcript.js` | conversation rows: folding tool calls and thinking, a step's preview, row keys, drawing each kind |
-| `prompts.js` | `parseChoices`: a choice prompt read off the screen, the harness's `prompt` options deciding how (pure) |
+| `model/` | pure data, no gpui or herdr imports (`tests/structure.mjs` checks): `transcript.js` (folding tool calls and thinking, a step's preview, row keys, a group's summary), `session.js` (a session's state, the reader's output applied to it, the batch run), `prompts.js` (`parseChoices`: a choice prompt read off the screen, the harness's `prompt` options deciding how), `caret.js`, `hash.js` |
+| `ui/` | drawing: `primitives.js` (column width, icons, program icon, pane buttons, status badge, view toggle, clock, disclosure, bubble, key button, checkbox) and `rows.js` (each conversation row, drawn from the row and `{ t, open, width }`) |
 | `images.js` | where image preview copies go and what they're named |
 | `draft.js` | kept drafts in shared state: `storeDraft` is their one writer |
 | `harnesses/` | one adapter per harness (`claude-code.js`, `codex.js`, `pi.js`): its label, how it takes images, whether drafts mirror, its prompt options, its input box's shape and its reader. `index.js` is the registry and the image/draft logic driven by those fields. Nothing outside this folder names a harness (`tests/harnesses.mjs` checks) |
@@ -141,7 +140,6 @@ Mod (`mods/herdr-chat/`, `mod.json` is `{"place":"none"}`):
 | `platform.js` | Windows and Unix differences: paths, quoting, base64, deleting files |
 | `diagrams.js` | mermaid diagrams: Pele's SVG with the theme's colors and font lists written in, drawn one per tick |
 | `vendor/pele/` | Pele, copied by `scripts/vendor-pele.mjs` from the version `package.json` pins (don't edit) |
-| `ui.js` | shared look: column width, icons, program icon, pane buttons, status badge, view toggle, clock time |
 | `header.js` | the terminal pane header with the toggle |
 | `common.js` | session keys, per-session view memory, `layout.select` |
 | `readers/` | the session reader (Python 3.6+), one file per harness (`claude_code.py`, `codex.py`, `pi.py`) beside `common.py` (arguments, output tags, process helpers) and `main.py` (dispatch through `READERS`). The mod joins them in `manifest.json` order into one script for `python3 -c`, here and on other machines; Windows runs the same script with `py -3` or `python` |

@@ -2,7 +2,7 @@ import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { panes, props, run, theme, home } from "herdr";
 import { SUPPORTED, switchTo, sessionKey } from "./common.js";
-import { programIcon, paneButtons, statusBadge, viewToggle } from "./ui.js";
+import { programIcon, paneButtons, statusBadge, viewToggle } from "./ui/primitives.js";
 
 function folder(cwd) {
   if (!cwd) return "";
