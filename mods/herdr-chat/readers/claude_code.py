@@ -136,7 +136,7 @@ def claude_entry(o):
         content = (o.get("message") or {}).get("content")
         if o["type"] == "user":
             if isinstance(content, str):
-                add_message("user", "", claude_user_text(content)); return
+                add_message("user", "", *placed_images(claude_user_text(content))); return
             texts = []
             for c in content or []:
                 if not isinstance(c, dict): continue
@@ -144,8 +144,7 @@ def claude_entry(o):
                 elif c.get("type") == "text":
                     t = claude_user_text(str(c.get("text", "")))
                     if t.strip(): texts.append(t)
-                elif c.get("type") == "image": texts.append("[Image attached]")
-            if texts: add_message("user", "", "\n".join(texts))
+            add_message("user", "", *placed_images("\n".join(texts)))
             return
         for c in content or []:
             if not isinstance(c, dict): continue

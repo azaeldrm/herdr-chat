@@ -6,11 +6,12 @@ import { onWindows, modFile, removeFiles, pruneOld } from "../platform.js";
 import { target, sendMessage, pressKeys, inputBox } from "../terminal.js";
 import { imageStyle, canMirror, withImages, draftPastes, textOfBox, readBack } from "../harnesses/index.js";
 import { savedDraft, storeDraft, keptImages } from "../draft.js";
-import { IMAGE_FILE, attachDir, attachName, ATTACH_DIR } from "../images.js";
+import { IMAGE_FILE, attachDir, attachName, ATTACH_DIR, keepSent, sentNames, fetchSent, previewName, previewFile, staleSent, dropSent } from "../images.js";
 import { caretOf, lineMove } from "../model/caret.js";
 import { COLUMN, icon } from "../ui/primitives.js";
 
 const DRAFT_PAUSE = 400;
+const SENT_PRUNE_EVERY = 3600000;
 
 export class Composer {
   constructor(host, cx) {
@@ -42,6 +43,9 @@ export class Composer {
     this.mirror = null; this.mirrorChain = Promise.resolve();
     this.lastMode = shared("herdr-chat.mode"); this.lastModeSession = "";
     this.pruneCache();
+    this.sent = new Set(); this.fetching = new Set();
+    cx.spawn(async cx => { for (const n of await sentNames()) this.sent.add(n); this.sentReady = true; await this.pruneSent(); cx.notify(); });
+    cx.timer.every(SENT_PRUNE_EVERY, () => { this.pruneSent(); });
   }
 
   blank() {
@@ -185,9 +189,36 @@ export class Composer {
     removeFiles(files);
   }
 
+  keepSent(attached, placed, t, cx) {
+    // Sent images keep their previews in sent/, so the message's bubble can show them.
+    cx.spawn(async cx => { for (const n of await keepSent(attached.map(a => a.file), placed, t.machine)) this.sent.add(n); cx.notify(); });
+  }
+
+  previewsFor(t, messages, cx) {
+    // Fetches, once each, the images in `messages` that have no preview in sent/ yet, from the agent's machine.
+    if (!t || !this.sentReady || messages === this.scanned) return;
+    this.scanned = messages;
+    for (const m of messages) for (const path of m.images ?? []) {
+      const name = previewName(path, t.machine);
+      if (previewFile(this.sent, path, t.machine) || this.fetching.has(name)) continue;
+      this.fetching.add(name);
+      cx.spawn(async cx => { const file = await fetchSent(path, t.machine); if (file) { this.sent.add(file); cx.notify(); } });
+    }
+  }
+
+  async pruneSent() {
+    // Drops the previews of terminals that are gone.
+    const r = await hc(["ls", "--all", "--json"]).catch(() => null);
+    let listing = null;
+    try { listing = r?.code === 0 ? JSON.parse(r.stdout) : null; } catch {}
+    const stale = staleSent([...this.sent], listing);
+    await dropSent(stale);
+    for (const n of stale) this.sent.delete(n);
+  }
+
   pruneCache() {
     // Preview copies left by a copy that closed before sending them: anything older than a day.
-    pruneOld(attachDir(), keptImages().map(f => f.split(/[\\/]/).pop()));
+    pruneOld(attachDir(), keptImages().map(f => f.split(/[\\/]/).pop()), ["sent"]);
   }
 
   dropFiles(paths, cx) {
@@ -291,7 +322,7 @@ export class Composer {
           if (!typed) {
             const k = await pressKeys(t, ["enter"]);
             if (k.code !== 0) throw new Error(k.stderr || "Send failed");
-            this.forget(attached.map(a => a.file));
+            this.keepSent(attached, placed, t, cx);
             this.host.list.follow();
             return;
           }
@@ -299,7 +330,7 @@ export class Composer {
         const r = await sendMessage(t, withImages(t.harness, placed, typed), t.status === "blocked");
         if (r.code !== 0) throw new Error(r.stderr || "Send failed");
         this.mirror = { session: sessionOf(t), sig: "\u0000", images: [], paths: [], pasted: "", textBox: "", box: "", foreign: false };
-        this.forget(attached.map(a => a.file));
+        this.keepSent(attached, placed, t, cx);
         this.host.list.follow();
       } catch (e) { this.host.note = String(e); restore(); }
       finally { this.host.sending = false; cx.notify(); }
