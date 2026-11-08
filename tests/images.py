@@ -97,4 +97,10 @@ with tempfile.TemporaryDirectory() as h:
 first = next(l for l in out.splitlines() if l.startswith("M|user|"))
 check("the output line carries the images as a fifth field", [urllib.parse.unquote(x) for x in first.split("|")[3:]], ["what colour is this?", json.dumps([PLACED])])
 
+g = readers("claude-code")
+said_text = g["claude_user_text"]
+check("Claude Code's wrapper round a long paste comes off", said_text('\n\n<pasted_content id="cd93">\nA long message.\nTwo lines.\n</pasted_content id="cd93">\n').strip(), "A long message.\nTwo lines.")
+check("words typed round a paste stay", said_text('look: <pasted_content id="a1">\npasted\n</pasted_content id="a1"> ok').strip(), "look: pasted ok")
+check("someone writing about the tag isn't changed", said_text("what does <pasted_content> mean?"), "what does <pasted_content> mean?")
+
 sys.exit(1 if failed else 0)

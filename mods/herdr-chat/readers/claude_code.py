@@ -16,6 +16,7 @@ def claude_call(name, inp):
     return {"k": "other", "d": name}
 
 def claude_user_text(t):
+    t = re.sub(r'<pasted_content id="[^"]*">\r?\n?|\r?\n?</pasted_content id="[^"]*">', "", t)
     t = re.sub(r"(?s)<system-reminder>.*?</system-reminder>", "", t)
     m = re.search(r"(?s)The user sent a new message while you were working:\s*\r?\n(.*?)(\r?\n\s*\r?\nThis is how Claude Code surfaces|$)", t)
     if m: return m.group(1)
