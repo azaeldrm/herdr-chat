@@ -15,16 +15,16 @@ const SHAPE = {
   images: v => ["mention", "paste", "path"].includes(v),
   mirror: v => typeof v === "boolean",
   prompt: v => v && typeof v === "object" && Object.keys(v).every(k => ["columns", "notes", "byNumber"].includes(k)),
-  box: v => v && (v.style === "rules" || (v.style === "mark" && typeof v.mark === "string" && v.mark.length > 0)),
+  box: (v, h) => v === null ? h.mirror === false : Boolean(v && (v.style === "rules" || (v.style === "mark" && typeof v.mark === "string" && v.mark.length > 0))),
   reader: v => typeof v === "string" && v.length > 0,
 };
 for (const [app, h] of Object.entries(HARNESSES)) {
   check(`${app}: registered under its own id`, h.id, app);
-  for (const [field, valid] of Object.entries(SHAPE)) check(`${app}: has a valid ${field}`, Boolean(valid(h[field])), true);
+  for (const [field, valid] of Object.entries(SHAPE)) check(`${app}: has a valid ${field}`, Boolean(valid(h[field], h)), true);
   check(`${app}: has no fields beyond the adapter shape`, Object.keys(h).filter(k => !(k in SHAPE)), []);
 }
 check("an unsupported app has no adapter", harnessFor("nope"), null);
-check("the supported names read as one phrase", supportedNames(), "Claude Code, Codex or Pi");
+check("the supported names read as one phrase", supportedNames(), "Claude Code, Codex, Pi or OpenCode");
 
 const paste = { images: "paste" }, mention = { images: "mention" }, path = { images: "path" };
 check("a pasting harness gets the paths pasted ahead of the text", draftPastes(paste, ["/a.png"], "hi"), { pastes: ["/a.png", "hi"], pasted: "hi" });
@@ -33,7 +33,7 @@ check("pasted image placeholders are left out of the box's text", textOfBox(past
 const img = { file: "/a.png" }, mirror = { images: [img], paths: ["/a.png"], textBox: "", pasted: "" };
 check("a path harness keeps the image whose path is still in its box", readBack(path, "/a.png hi", mirror), { text: "hi", kept: [img], foreign: false });
 
-const ids = Object.keys(HARNESSES).concat(["opencode"]);
+const ids = Object.keys(HARNESSES);
 const literal = new RegExp(`["'](${ids.map(i => i.replace(/[-]/g, "\\-")).join("|")})["']`);
 const ALLOWED = [/^harnesses\//, /^readers\/(?!common\.py$|main\.py$)/, /^vendor\//];
 function files(dir) {

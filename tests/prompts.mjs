@@ -3,7 +3,7 @@ import { parseChoices, parsePrompt, keysFor, looksLikePrompt, typedAnswer } from
 import claudeCode from "../mods/herdr-chat/harnesses/claude-code.js";
 import codex from "../mods/herdr-chat/harnesses/codex.js";
 import pi from "../mods/herdr-chat/harnesses/pi.js";
-const opencode = { prompt: { byNumber: true } };
+import opencode from "../mods/herdr-chat/harnesses/opencode.js";
 
 let failed = false;
 const check = (name, ok) => { console.log(`${ok ? "ok" : "FAIL"}  ${name}`); if (!ok) failed = true; };

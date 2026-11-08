@@ -2,8 +2,9 @@ import { onWindows } from "../platform.js";
 import claudeCode from "./claude-code.js";
 import codex from "./codex.js";
 import pi from "./pi.js";
+import opencode from "./opencode.js";
 
-export const HARNESSES = Object.fromEntries([claudeCode, codex, pi].map(h => [h.id, h]));
+export const HARNESSES = Object.fromEntries([claudeCode, codex, pi, opencode].map(h => [h.id, h]));
 export const SUPPORTED = Object.fromEntries(Object.values(HARNESSES).map(h => [h.id, h.label]));
 
 export function harnessFor(app) {
