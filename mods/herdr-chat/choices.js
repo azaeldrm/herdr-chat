@@ -3,7 +3,7 @@ import { v_flex, h_flex, Textarea } from "gpui-base";
 import { switchTo, sessionOf } from "./common.js";
 import { target, readPrompt, pressKeys, sendMessage, inputBox } from "./terminal.js";
 import { parsePrompt, keysFor, typedAnswer, sameOption } from "./prompts.js";
-import { COLUMN, mono } from "./ui.js";
+import { COLUMN, mono, icon } from "./ui.js";
 
 const BODY_HEIGHT = 264;
 const ROW_CHARS = 96;
@@ -165,17 +165,32 @@ export const ChoiceMethods = {
     });
   },
 
+  toggleCard(cx) {
+    // Folds the prompt card down to its title row, or opens it again.
+    this.cardFolded = !this.cardFolded;
+    if (this.following) this.follow();
+    cx.notify();
+  },
+
   promptCard(t, active) {
     // The card for a prompt on screen: a question with its choices, or a blocked agent's last lines.
     const q = active && (active.status === "blocked" || active.status === "working") ? this.choices : null;
     if (active?.status !== "blocked" && !q && !this.unread) return null;
+    const fold = q ? JSON.stringify(q.steps.length ? q.steps.map(s => s.label) : q.question) : `screen:${active?.address}`;
+    if (fold !== this.cardFold) { this.cardFold = fold; this.cardFolded = false; }
+    const title = active.kind === "permission" ? `${active.label} needs permission` : q ? `${active.label} is asking` : `${active.label} needs your input`;
+    const titleRow = h_flex().id("card-title").gap(8).items_center().cursor_pointer().on_click((_e, cx) => this.toggleCard(cx))
+      .child(div().size(7).rounded(4).flex_none().bg(t.blocked))
+      .child(div().flex_none().text_size(12.5).font_semibold().text_color(t.foreground).child(title))
+      .when(this.cardFolded && Boolean(q?.question.at(-1)), el => el.child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(t.muted).child(`· ${q.question.at(-1)}`)))
+      .when(!this.cardFolded, el => el.child(div().flex_1()))
+      .child(icon(this.cardFolded ? "chevron-right" : "chevron-down", 14, t.dim));
+    if (this.cardFolded) return v_flex().flex_none().w_full().max_w(COLUMN).px(10).py(8).rounded(12).border_1().border_color(t.blocked).bg(t.surface).child(titleRow);
     const key = (id, label, k) => div().id(id).h(24).px(9).flex().items_center().rounded(6).cursor_pointer()
       .border_1().border_color(t.border).bg(t.background).text_size(12).text_color(t.foreground)
       .hover(s => s.bg(t.hover)).on_click((_e, cx) => k === "terminal" ? switchTo("terminal", active ? sessionOf(active) : "") : this.press(k, cx)).child(label);
     return v_flex().flex_none().w_full().max_w(COLUMN).p(10).gap(7).rounded(12).border_1().border_color(t.blocked).bg(t.surface)
-      .child(h_flex().gap(8).items_center()
-        .child(div().size(7).rounded(4).bg(t.blocked))
-        .child(div().text_size(12.5).font_semibold().text_color(t.foreground).child(active.kind === "permission" ? `${active.label} needs permission` : q ? `${active.label} is asking` : `${active.label} needs your input`)))
+      .child(titleRow)
       .when(Boolean(q), el => el
         .when(q.steps.length > 0, el => el.child(h_flex().gap(2).items_center().flex_wrap()
           .child(key("k-back", "←", "left"))
