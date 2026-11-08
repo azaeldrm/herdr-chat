@@ -167,7 +167,7 @@ export class QuestionCard {
     cx.spawn(async cx => {
       try {
         if (key !== "esc") await this.flushRow(t, cx);
-        if (key !== "esc" && !(await this.promptStillCurrent(t))) throw new Error("The prompt changed. Review it again before answering.");
+        if (key !== "esc" && !(await this.stillCurrent(t))) throw new Error("The prompt changed. Review it again before answering.");
         const r = await pressKeys(t, [key]);
         if (r.code !== 0) throw new Error(r.stderr || "Key send failed");
       } catch (e) { this.host.note = String(e); }
