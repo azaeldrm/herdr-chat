@@ -39,10 +39,11 @@ export function removeFiles(files) {
     : exec("rm", ["-f", "--", ...files])).catch(() => null);
 }
 
-export function pruneOld(dir) {
-  // Deletes the files in `dir`, and the folders in it, older than a day.
+export function pruneOld(dir, keep = []) {
+  // Deletes the files in `dir`, and the folders in it, older than a day, except those named in `keep`.
+  const skip = keep.flatMap(name => ["!", "-name", name]);
   (onWindows()
     ? exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
-        `Get-ChildItem -LiteralPath ${psQuote(dir)} -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) } | Remove-Item -Force`])
-    : exec("sh", ["-c", '[ -d "$1" ] && find "$1" -type f -mmin +1440 -delete; exit 0', "sh", dir])).catch(() => null);
+        `$keep = @(${keep.map(psQuote).join(", ")}); Get-ChildItem -LiteralPath ${psQuote(dir)} -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) -and $keep -notcontains $_.Name } | Remove-Item -Force`])
+    : exec("sh", ["-c", '[ -d "$1" ] || exit 0; d=$1; shift; find "$d" -type f -mmin +1440 "$@" -delete; exit 0', "sh", dir, ...skip])).catch(() => null);
 }

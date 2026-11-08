@@ -13,12 +13,14 @@ ap.add_argument("--offset", type=int, default=0)
 ap.add_argument("--screen", default="")
 ap.add_argument("--peers", type=int, default=0)
 ap.add_argument("--leaf", default="")
+ap.add_argument("--tail", type=int, default=24)
+ap.add_argument("--entries", type=int, default=400)
 A = ap.parse_args()
 
 HOME = os.path.expanduser("~")
 ELLIPSIS = "\u2026"
-MAX_ENTRIES = 400
-TAIL = 24 * 1024 * 1024
+MAX_ENTRIES = A.entries
+TAIL = A.tail * 1024 * 1024
 out = []
 entries = []
 state = {"hint": "", "clipped": False, "fresh": True, "next": 0, "waiting": "", "need": "", "chain": None}
@@ -178,6 +180,22 @@ def candidate_cwds():
             except OSError: pass
     return cwds or ([A.cwd] if A.cwd else [])
 
+def belongs(pid):
+    """Whether a process is the terminal's own or one of its descendants."""
+    parents = None
+    for _ in range(9):
+        if not pid: return False
+        if pid == A.pid: return True
+        if os.path.isdir("/proc"):
+            try:
+                with open("/proc/%d/stat" % pid) as f: stat = f.read()
+                pid = int(stat[stat.rindex(")") + 2:].split()[1])
+            except (OSError, ValueError, IndexError): return False
+        else:
+            parents = parents if parents is not None else parent_map()
+            pid = parents.get(pid, 0)
+    return False
+
 def find_claude():
     sessions = os.path.join(HOME, ".claude", "sessions")
     if not os.path.isdir(sessions): return None
@@ -186,6 +204,7 @@ def find_claude():
         try:
             with open(os.path.join(sessions, A.hint + ".json")) as f: info = json.load(f)
         except (OSError, ValueError): info = None
+        if info and A.pid and not belongs(int(info.get("pid") or 0)): info = None
     if not info and A.pid:
         parents = parent_map()
         for fp in glob.glob(os.path.join(sessions, "*.json")):

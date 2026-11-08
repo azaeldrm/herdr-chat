@@ -3,6 +3,7 @@ import { h_flex } from "gpui-base";
 import { appHome, exec, hc } from "herdr";
 import { onWindows, modFile, removeFiles, pruneOld } from "./platform.js";
 import { sessionOf } from "./common.js";
+import { savedDraft, storeDraft, keptImages } from "./draft.js";
 import { icon } from "./ui.js";
 
 export const IMAGE_FILE = /\.(png|jpe?g|gif|webp)$/i;
@@ -51,10 +52,12 @@ export const ImageMethods = {
   attach(file, name, cx, owner = this.key) {
     // Adds an image to the draft of `owner`, the session it was added in, even if another one shows now.
     const a = { name, file, rel: `${ATTACH_DIR}/${file.split(/[\\/]/).pop()}` };
-    if (owner === this.key) this.attachments.push(a);
+    if (owner === this.key) { this.attachments.push(a); this.keepDraft(cx); }
     else {
-      const d = this.drafts.get(owner) ?? { text: "", attachments: [] };
-      this.drafts.set(owner, { ...d, attachments: [...d.attachments, a] });
+      const d = this.drafts.get(owner) ?? savedDraft(owner) ?? { text: "", attachments: [] };
+      const next = { ...d, attachments: [...d.attachments, a] };
+      this.drafts.set(owner, next);
+      storeDraft(owner, next);
     }
     cx.notify();
   },
@@ -66,7 +69,7 @@ export const ImageMethods = {
 
   pruneCache() {
     // Preview copies left by a copy that closed before sending them: anything older than a day.
-    pruneOld(attachDir());
+    pruneOld(attachDir(), keptImages().map(f => f.split(/[\\/]/).pop()));
   },
 
   dropFiles(paths, cx) {
@@ -110,7 +113,7 @@ export const ImageMethods = {
         .child(div().id(`attachment-remove-${i}`).absolute().top(3).right(3).size(18).flex().items_center().justify_center()
           .rounded(9).bg(t.background).border_1().border_color(t.border).text_color(t.muted).cursor_pointer()
           .hover(s => s.text_color(t.foreground))
-          .on_click((_e, cx) => { cx.stop_propagation(); this.forget(this.attachments.splice(i, 1).map(x => x.file)); cx.notify(); })
+          .on_click((_e, cx) => { cx.stop_propagation(); this.forget(this.attachments.splice(i, 1).map(x => x.file)); this.keepDraft(cx); cx.notify(); })
           .child(icon("close", 10, t.muted)))));
   },
 };

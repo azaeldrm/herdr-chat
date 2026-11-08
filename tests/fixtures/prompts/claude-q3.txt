@@ -1,0 +1,26 @@
+
+ ▐▛███▛█   Claude Code v2.1.318
+▝▜██████▀  Haiku 5.5 · Claude Max
+ ▝▝   ▝▝   /work
+
+
+❯ <hc from="t33">This is a test of your question UI, not real work. Use your built-in tool for asking the user structured questions (not plain text). In ONE call, ask three questions: (1) single
+  choice "Pick a color" with options Red, Green, Blue, each with a one-line description; (2) multi-select "Pick toppings" with options Cheese, Olives, Basil; (3) single choice "Pick a size" with
+  options Small, Medium, Large. If you have no such tool, reply exactly: NO QUESTION TOOL and name the tools you do have for asking. Do nothing else.</hc>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Color  ☒ Toppings  ☐ Size  ✔ Submit  →
+
+Pick toppings
+
+  1. [ ] Cheese
+         Classic melted cheese.
+❯ 2. [✔] Olives
+         Sliced black or green olives.
+  3. [ ] Basil
+         Fresh basil leaves.
+  4. [ ] Type something
+     Next
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel
