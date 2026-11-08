@@ -1,24 +1,19 @@
-import { View, div, svg, image } from "gpui-kit";
-import { set_theme, v_flex, h_flex, TextareaState, Textarea, VirtualListScrollHandle, v_virtual_list } from "gpui-base";
+import { View, div, image } from "gpui-kit";
+import { set_theme, v_flex, h_flex } from "gpui-base";
 import { panes, focused, props, hc, theme, shared } from "herdr";
-import { ICONS, switchTo, showView, preferredView, sessionOf, chatKey } from "./common.js";
-import { target, sendMessage, pressKeys, inputBox, interruptAgent } from "./terminal.js";
-import { ChoiceMethods } from "./choices.js";
-import { ImageMethods } from "./images.js";
-import { DraftMethods, storeDraft } from "./draft.js";
+import { switchTo, showView, preferredView, sessionOf, chatKey } from "./common.js";
+import { target, inputBox, interruptAgent } from "./terminal.js";
 import { TranscriptMethods, keyRows, stepRows, stepText, withoutRetracted } from "./transcript.js";
 import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle, clock } from "./ui.js";
 import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
-import { caretOf, lineMove } from "./caret.js";
-import { imageStyle, canMirror, withImages } from "./harnesses/index.js";
+import { canMirror } from "./harnesses/index.js";
 import { isHeader, terminalHeader } from "./header.js";
-import { ReadingMethods } from "./reading.js";
-import { designPx, designHeight, zoomProbe } from "./measure.js";
+import { designPx, zoomProbe } from "./measure.js";
+import { ChatList } from "./components/chat-list.js";
+import { QuestionCard } from "./components/question-card.js";
+import { Composer } from "./components/composer.js";
+import { SessionReader } from "./components/session-reader.js";
 
-const TAIL = 32;
-const rowPadding = m => m.kind === "step" ? 0 : 8;
-const MEASURE_AT_ONCE = 12;
-const FADE = 20;
 function inputHighlight(cx) {
   const t = theme(), th = cx.theme();
   const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
@@ -39,82 +34,55 @@ export default class HerdrChat extends View {
 
   initInner(cx) {
     if (isHeader(props())) { this.asHeader = true; this.hovered = false; return; }
-    this.input = TextareaState.new({ placeholder: "Reply…", rows: 1 });
-    this.input.set_soft_wrap(true);
-    this.input.set_auto_grow(1, 4);
-    this.scroll = VirtualListScrollHandle.new();
-    this.input.on("submit", (e, cx) => { if (!e?.shift) this.enter(cx); });
-    this.rowInputs = {
-      text: TextareaState.new({ placeholder: "Type something…", rows: 1 }),
-      chat: TextareaState.new({ placeholder: "Chat about this…", rows: 1 }),
-    };
-    for (const [kind, box] of Object.entries(this.rowInputs)) {
-      box.on("submit", (e, cx) => { if (!e?.shift) this.answerRow(kind, cx); });
-      box.on("change", (_e, cx) => this.rowChanged(kind, cx));
-    }
-    this.input.on("change", (_e, cx) => {
-      if (Date.now() - (this.enterAt ?? 0) < 400) {
-        const v = this.input.value(), s = v.replace(/\r?\n$/, "");
-        if (s !== v) this.input.set_value(s);
-      }
-      this.keepDraft(cx);
-      cx.notify();
-    });
-    if (!globalThis.herdrChatLineKeys) {
-      globalThis.herdrChatLineKeys = cx.bind_keys([
-        { keystroke: "up", action: "herdr_chat::LineUp", context: "HerdrChatReply > Input" },
-        { keystroke: "down", action: "herdr_chat::LineDown", context: "HerdrChatReply > Input" },
-      ]);
-    }
-    if (!globalThis.herdrChatStopKey) {
-      globalThis.herdrChatStopKey = cx.bind_keys([{ keystroke: "escape", action: "herdr_chat::Stop", context: "HerdrChatReply > Input" }]);
-    }
-    this.input.on("paste_other", (_e, cx) => { if (Date.now() - (this.imagePasteAt ?? 0) > 800) this.pasteImage(cx); });
-    this.following = true; this.visibleEnd = 0; this.rowCount = 0;
-    this.messages = []; this.open = {};
-    this.width = 900; this.zoom = 1; this.rootPx = 0; this.needsScroll = true; this.scrollAskedAt = Date.now(); this.lastAsk = Date.now(); this.laidOut = 0; this.pendingCount = -1; this.settling = true; this.isEmpty = true;
-    this.heights = {}; this.changedAt = {}; this.measuredAt = 0;
-    this.lastHeight = {};
-    this.attachments = [];
-    this.mirror = null;
-    this.lastMode = shared("herdr-chat.mode"); this.lastModeSession = "";
-    this.mirrorChain = Promise.resolve();
-    this.pruneCache();
+    this.list = new ChatList();
+    this.reader = new SessionReader(this);
+    this.card = new QuestionCard(this);
+    this.composer = new Composer(this, cx);
+    this.width = 900; this.zoom = 1; this.rootPx = 0;
     this.visit = shared("herdr-chat.visit");
-    this.screen = "";
-    this.initReading();
-    this.drafts = new Map();
     this.refresh(cx);
     cx.timer.every(1500, cx => inputHighlight(cx));
     cx.timer.every(100, cx => {
       this.applyView();
-      this.mirrorOnSwitch(cx);
+      this.composer.mirrorOnSwitch(cx);
       const t = target();
-      if (chatKey(t) !== this.key || this.needsFirstRead || this.pendingDraft) this.refresh(cx);
-      this.noticeAgents(cx);
+      if (chatKey(t) !== this.key || this.reader.needsFirstRead || this.composer.pendingDraft) this.refresh(cx);
+      this.reader.noticeAgents(cx);
       this.noticeVisit();
-      const cue = this.readCue();
+      const cue = this.reader.readCue();
       if (cue !== this.shownCue) { this.shownCue = cue; cx.notify(); }
       if (shared("herdr-chat.mode") !== "chat") return;
       if (hasQueuedDiagrams() && !this.drawingDiagram) {
         this.drawingDiagram = true;
         cx.spawn(async cx => { try { if (await renderQueuedDiagrams()) cx.notify(); } finally { this.drawingDiagram = false; } });
       }
-      if (this.following && this.needsScroll) {
-        const drawn = (this.laidOut ?? 0) >= this.lastAsk;
-        if (drawn && (this.pendingCount === 0 || Date.now() - this.scrollAskedAt > 1500)) {
-          this.needsScroll = false;
-          this.settledSig = this.sig;
-          if (!this.isEmpty) this.settling = false;
-          this.scroll.scroll_to_bottom();
-        }
-        cx.notify();
-        return;
-      }
-      if (this.settling) { if (!this.isEmpty) this.follow(); return; }
-      const atBottom = this.isEmpty || this.rowCount === 0 || this.visibleEnd >= this.rowCount;
-      if (atBottom !== this.following) { this.following = atBottom; cx.notify(); }
+      this.list.tick(cx);
     });
+  }
+
+  get key() { return this.reader?.key ?? ""; }
+  get note() { return this.reader?.session.note ?? ""; }
+  set note(text) { if (this.reader) this.reader.session.note = text; }
+  get open() { return this.reader?.session.open ?? {}; }
+
+  refresh(cx) {
+    // Switches to the selected agent's session and reads it, and its screen for a question.
+    const t = target();
+    const key = chatKey(t);
+    if (key !== this.key) { this.switchSession(t, key); cx.notify(); }
+    if (this.composer.pendingDraft) { this.composer.swapDraft(this.key, this.composer.pendingDraft.from); this.composer.pendingDraft = null; cx.notify(); }
+    const switched = this.reader.needsFirstRead;
+    this.reader.needsFirstRead = false;
+    if (!t) return;
+    if (switched) { this.reader.read(cx); this.card.read(cx, t); }
+  }
+
+  switchSession(t, key) {
+    // Shows another session: its draft swapped in once read, the reader on it, the list and card reset.
+    if (!this.composer.pendingDraft) this.composer.pendingDraft = { from: this.key };
+    this.reader.switchTo(t, key);
+    this.list.reset();
+    this.card.clear();
   }
 
   applyView() {
@@ -125,31 +93,14 @@ export default class HerdrChat extends View {
     showView(t ? preferredView(sessionOf(t)) : "terminal");
   }
 
-  follow(restart = false) {
-    // Keeps the chat at its newest message.
-    this.following = true;
-    this.lastAsk = Date.now();
-    if (!this.needsScroll || restart) { this.needsScroll = true; this.scrollAskedAt = Date.now(); }
-  }
-
   noticeVisit() {
     // On a switch to Chat: back to the newest message, hidden until it lands if anything changed.
     const visit = shared("herdr-chat.visit");
     if (visit === this.visit) return;
     this.visit = visit;
-    if (this.sig !== this.settledSig) this.settling = true;
-    this.follow(true);
+    this.list.revisit();
   }
 
-  lineKey(dir) {
-    // ↑ (dir -1) or ↓ (+1) in the reply box.
-    const { start, end } = caretOf(this.input);
-    const from = dir < 0 ? start : end;
-    const goal = this.lineGoal && this.lineGoal.at === from ? this.lineGoal.column : null;
-    const { at, column } = lineMove(this.input.value(), from, dir, goal);
-    this.input.set_selected_range({ start: at, end: at });
-    this.lineGoal = { at, column };
-  }
 
   stop(cx) {
     // Stops the working agent (its own stop key, through hc interrupt).
@@ -163,79 +114,20 @@ export default class HerdrChat extends View {
         await cx.sleep(600);
         if (canMirror(t.harness)) {
           const box = (await inputBox("read", t)).box;
-          const last = [...this.messages].reverse().find(m => m.kind === "message");
+          const last = [...this.reader.session.messages].reverse().find(m => m.kind === "message");
           if (box && last?.role === "user" && box.trim() === last.text.trim()) this.retracted = { key: this.key, text: last.text };
-          if (!this.input.value().trim() && !this.attachments.length) this.pullDraft(t, sessionOf(t), cx);
+          if (this.composer.blank()) this.composer.pullDraft(t, sessionOf(t), cx);
         }
       } catch (e) { this.note = String(e?.message ?? e); }
       finally { this.stopping = false; cx.notify(); }
     });
   }
 
-  enter(cx) {
-    // Enter (without Shift): sends, and never leaves a new line in the box.
-    this.enterAt = Date.now();
-    const v = this.input.value(), s = v.replace(/\r?\n$/, "");
-    if (s !== v) this.input.set_value(s);
-    this.send(cx);
-  }
 
-  send(cx) {
-    const t = target(), typed = this.input.value().trim(), attached = this.attachments.slice();
-    if (!t || (!typed && !attached.length) || this.sending) return;
-    this.sending = true;
-    this.input.set_value("");
-    this.attachments = this.attachments.filter(a => !attached.includes(a));
-    this.keepDraft(cx);
-    cx.notify();
-    const owner = this.key;
-    const restore = () => {
-      if (this.key !== owner) {
-        const d = this.drafts.get(owner) ?? { text: "", attachments: [] };
-        this.drafts.set(owner, { text: d.text.trim() ? d.text : typed, attachments: [...attached, ...d.attachments] });
-        storeDraft(owner, this.drafts.get(owner));
-        return;
-      }
-      if (!this.input.value().trim()) this.input.set_value(typed);
-      this.attachments = [...attached.filter(a => !this.attachments.includes(a)), ...this.attachments];
-      storeDraft(owner, { text: this.input.value(), attachments: this.attachments });
-    };
-    cx.spawn(async cx => {
-      try {
-        if (t.status === "blocked" && !(await this.promptStillCurrent(t))) throw new Error("The prompt changed. Review it again before answering.");
-        if (canMirror(t.harness) && t.status !== "blocked") {
-          await this.mirrorChain;
-          if (this.mirror?.session === sessionOf(t) && this.mirror.foreign)
-            throw new Error(`${t.label}'s input box has an image pasted in the terminal. Send that draft from the terminal, or clear it there, first.`);
-          if ((await inputBox("set", t, "[]")).ok) this.mirror = null;
-        }
-        const placed = await this.placeImages(t, attached);
-        if (imageStyle(t.harness) === "paste") {
-          for (const path of placed) {
-            const p = await inputBox("paste", t, path);
-            if (!p.ok) throw new Error(`Couldn't paste the image into ${t.label}: ${p.error}`);
-          }
-          if (!typed) {
-            const k = await pressKeys(t, ["enter"]);
-            if (k.code !== 0) throw new Error(k.stderr || "Send failed");
-            this.forget(attached.map(a => a.file));
-            this.follow();
-            return;
-          }
-        }
-        const r = await sendMessage(t, withImages(t.harness, placed, typed), t.status === "blocked");
-        if (r.code !== 0) throw new Error(r.stderr || "Send failed");
-        this.mirror = { session: sessionOf(t), sig: "\u0000", images: [], paths: [], pasted: "", textBox: "", box: "", foreign: false };
-        this.forget(attached.map(a => a.file));
-        this.follow();
-      } catch (e) { this.note = String(e); restore(); }
-      finally { this.sending = false; cx.notify(); }
-    });
-  }
 
   fresh(active) {
     // Whether the agent's conversation hasn't started: no log yet, rather than loading or failing.
-    return Boolean(active) && !this.path && !this.readError && /hasn't written|Waiting for this/.test(this.note || "");
+    return Boolean(active) && !this.reader.session.path && !this.reader.readError && /hasn't written|Waiting for this/.test(this.note || "");
   }
 
   welcome(t, active) {
@@ -260,18 +152,18 @@ export default class HerdrChat extends View {
   }
 
   status(t, active) {
-    const card = this.promptCard(t, active);
+    const card = this.card.render(t, active);
     if (card) return card;
-    const cue = this.readCue();
+    const cue = this.reader.readCue();
     if (cue === "silent") {
       const who = active?.machine ? `${active.machine} isn't answering` : "Couldn't read new messages";
       return h_flex().w_full().max_w(COLUMN).h(26).gap(8).items_center()
         .child(div().size(8).mx(3).rounded(4).flex_none().bg(t.blocked ?? t.muted))
         .child(div().flex_1().min_w(0).truncate().text_size(13.5).text_color(t.muted)
-          .child(this.readAt ? `${who} · messages as of ${clock(this.readAt)}` : who))
+          .child(this.reader.session.readAt ? `${who} · messages as of ${clock(this.reader.session.readAt)}` : who))
         .child(div().id("read-retry").px(10).h(24).flex().items_center().rounded(12).cursor_pointer()
           .border_1().border_color(t.border).text_size(12.5).text_color(t.foreground).hover(s => s.bg(t.hover))
-          .on_click((_e, cx) => this.retry(cx)).child("Retry"));
+          .on_click((_e, cx) => this.reader.retry(cx)).child("Retry"));
     }
     if (active?.status === "working") return h_flex().w_full().max_w(COLUMN).h(26).gap(8).items_center()
       .child(div().w(14).text_size(15).text_color(t.accent).frames(SPARK, 120).child(SPARK[0]))
@@ -297,37 +189,6 @@ export default class HerdrChat extends View {
         .child(v_flex().w_full().gap(10).child(line(480, 1)).child(line(380, 1))));
   }
 
-  composer(t, active) {
-    const ready = (Boolean(this.input.value().trim()) || this.attachments.length > 0) && !this.sending && Boolean(active);
-    const stopping = active?.status === "working" && !this.input.value().trim() && !this.attachments.length;
-    return v_flex().w_full().max_w(COLUMN).gap(6)
-      .child(h_flex().id("composer-box").w_full().pl(16).pr(8).py(8).gap(8).items_end().rounded(18).border_1().border_color(t.input).bg(t.surface)
-        .child(v_flex().flex_1().min_w(0)
-          .when(this.attachments.length > 0, el => el.child(this.attachmentStrip(t)))
-          .child(div().id("composer-input").w_full().min_w(0).py(4).key_context("HerdrChatReply")
-          .on_action("herdr_chat::LineUp", () => this.lineKey(-1))
-          .on_action("herdr_chat::LineDown", () => this.lineKey(1))
-          .on_action("herdr_chat::Stop", (_e, cx) => this.stop(cx))
-          .on_key_down((e, cx) => {
-            const paste = e.key === "v" && (e.modifiers.control || e.modifiers.platform) && !e.modifiers.alt;
-            if (paste && cx.read_from_clipboard() === undefined) { cx.stop_propagation(); this.imagePasteAt = Date.now(); this.pasteImage(cx); return; }
-            if (e.key !== "enter" || e.modifiers.shift || e.modifiers.alt) return;
-            cx.stop_propagation();
-            this.enter(cx);
-          })
-          .child(Textarea.new(this.input).w_full().text_size(15).text_color(t.foreground))))
-        .child(stopping
-          ? div().id("stop").size(32).flex_none().flex().items_center().justify_center().rounded(16)
-            .bg(t.foreground).text_color(t.background).tooltip("Stop (Esc)")
-            .when(!this.stopping, el => el.cursor_pointer().hover(s => s.opacity(0.85)).on_click((_e, cx) => this.stop(cx)))
-            .child(svg(`${ICONS}/stop.svg`).size(14))
-          : div().id("send").size(32).flex_none().flex().items_center().justify_center().rounded(16)
-            .bg(ready ? t.accent : t.raised).text_color(ready ? t.accent_foreground : t.dim)
-            .when(ready, el => el.cursor_pointer().hover(s => s.opacity(0.88)).on_click((_e, cx) => this.send(cx)))
-            .child(svg(`${ICONS}/arrow-up.svg`).size(16))))
-      .child(div().w_full().text_center().text_size(11.5).text_color(t.dim)
-        .child(active ? `Sends to the live ${active.label} terminal · drop or paste an image to attach it` : ""));
-  }
 
   render(cx) {
     if (this.initError) return div().p(20).text_color(theme().blocked).child(`herdr-chat init error: ${this.initError}`);
@@ -340,53 +201,35 @@ export default class HerdrChat extends View {
     const t = theme();
     const active = target();
     if (chatKey(active) !== this.key) this.switchSession(active, chatKey(active));
-    const shown = withoutRetracted(this.messages, this.retracted?.key === this.key ? this.retracted.text : null);
+    const shown = withoutRetracted(this.reader.session.messages, this.retracted?.key === this.key ? this.retracted.text : null);
     if (!shown.retracted && this.retracted?.key === this.key) this.retracted = null;
     const rows = shown.rows.flatMap(m => {
       const parts = m.kind === "message" && m.role !== "user" && m.text?.includes("```mermaid") ? splitDiagrams(m.text) : null;
       return parts ? parts.map(p => p.kind === "diagram" ? { kind: "diagram", text: p.text } : { ...m, text: p.text }) : [m];
     });
     if (this.note) rows.push({ kind: "note", text: this.note });
-    const empty = rows.length === 0 || (rows.length === 1 && rows[0].kind === "note" && !this.messages.length);
-    this.isEmpty = empty;
+    const empty = rows.length === 0 || (rows.length === 1 && rows[0].kind === "note" && !this.reader.session.messages.length);
     keyRows(rows);
     rows.splice(0, rows.length, ...rows.flatMap(r => r.kind === "tools" && this.open[r.key] ? [r, ...stepRows(r)] : [r]));
     const inner = Math.min(COLUMN, Math.max(280, Math.floor(this.width) - 50));
-    const measuredAt = `${inner}@${window.rem_size()}`;
-    if (measuredAt !== this.measuredAt) { this.heights = {}; this.changedAt = {}; this.lastHeight = {}; this.measuredAt = measuredAt; }
-    const t0 = theme();
-    const hkey = m => `${m.key}${this.open[m.key] ? ":open" : ""}${m.kind === "diagram" ? `:${diagramFor(m.text, t0).state}` : ""}`;
-    const unmeasured = rows.filter(m => !(hkey(m) in this.heights)).slice(-MEASURE_AT_ONCE);
-    const now = Date.now();
-    const settling = rows.filter(m => { const k = hkey(m); return k in this.heights && now - (this.changedAt[k] ?? 0) < 2000; });
-    const pending = [...settling, ...unmeasured];
-    const sizes = rows.map(m => (this.heights[hkey(m)] ?? this.lastHeight[m.key] ?? 40) + rowPadding(m) * 2);
-    let bottom = rows.length;
-    for (let h = 0; bottom > 0 && h < (this.listH || 900) + 240; ) h += sizes[--bottom];
-    const near = rows.slice(bottom);
-    this.pendingCount = near.filter(m => !(hkey(m) in this.heights)).length + near.filter(m => m.kind === "diagram" && diagramFor(m.text, t0).state === "queued").length;
-    this.sig = `${rows.length}:${sizes.reduce((a, b) => a + b, 0)}`;
-    this.noticeVisit();
-    if (this.needsScroll && this.following && this.pendingCount === 0 && rows.length) {
-      this.scroll.scroll_to_bottom();
-      this.needsScroll = false; this.settledSig = this.sig;
-      if (this.settling) {
-        const token = this.revealToken = (this.revealToken ?? 0) + 1;
-        const reveal = (cx, tries) => cx.timer.after(20, cx => {
-          if (this.revealToken !== token) return;
-          if (this.visibleEnd < this.rowCount && tries < 10) { this.scroll.scroll_to_bottom(); cx.notify(); reveal(cx, tries + 1); return; }
-          this.settling = false; cx.notify();
-        });
-        try { reveal(cx, 0); } catch { this.settling = false; }
-      }
-    }
+    const { body, measure } = this.list.render(cx, {
+      rows, empty, t, inner, zoom: this.zoom, beforeScroll: () => this.noticeVisit(),
+      heightKey: m => `${m.key}${this.open[m.key] ? ":open" : ""}${m.kind === "diagram" ? `:${diagramFor(m.text, t).state}` : ""}`,
+      waitsFor: m => m.kind === "diagram" && diagramFor(m.text, t).state === "queued",
+      row: m => this.row(m, m.key, t),
+      onItemClick: (key, cx) => {
+        const row = rows.find(r => r.key === key);
+        const opens = row?.kind === "tools" || (row?.kind === "step" && (this.open[key] || stepText(row.call, false).more));
+        if (opens) { this.open[key] = !this.open[key]; cx.notify(); }
+      },
+      canJump: !this.card.showing && active?.status !== "blocked",
+    });
     const status = this.status(t, active);
-    this.rowCount = rows.length + 1;
     return v_flex().id("herdr-chat-root").relative().size_full().min_h(0).rounded(10).border_1().border_color(t.border)
       .bg(t.background).text_color(t.foreground)
       .on_size_change((size, cx) => { this.rootPx = size.width; const w = designPx(size.width, this.zoom); if (w >= 200 && Math.abs(w - this.width) > 8) { this.width = w; cx.notify(); } })
       .child(zoomProbe((zoom, cx) => { if (Math.abs(zoom - this.zoom) > 0.001) { this.zoom = zoom; if (this.rootPx) this.width = designPx(this.rootPx, zoom); cx.notify(); } }))
-      .on_drop((e, cx) => this.dropFiles(e.paths ?? [], cx))
+      .on_drop((e, cx) => this.composer.dropFiles(e.paths ?? [], cx))
       .child(this.header(t, active))
       .when(empty && /^Opening/.test(this.note || ""), el => el.child(this.placeholder(t)))
       .when(empty && this.fresh(active), el => el.child(this.welcome(t, active)))
@@ -394,54 +237,13 @@ export default class HerdrChat extends View {
         .child(image("frame/welcome/herdr.png").size(64).rounded(14).flex_none()
           .when(/^(Opening|Finding)/.test(this.note || ""), el => el.loop("opacity", { from: 0.4, to: 1, period: 1600 })))
         .child(div().max_w(420).text_center().text_size(14).text_color(t.muted).child(this.note))))
-      .when(!empty, el => el.child(v_flex().relative().flex_1().min_h(0).when(this.settling, el => el.opacity(0))
-        .on_size_change(size => { this.listH = designPx(size.height, this.zoom); })
-        .child(v_virtual_list("herdr-chat-messages", rows.length + 1, [...sizes, TAIL], i => i < rows.length ? rows[i].key : "end-of-chat", range => {
-        this.visibleEnd = range.end;
-        this.laidOut = Date.now();
-        const out = [];
-        for (let i = range.start; i < range.end; i++)
-          out.push(i < rows.length
-            ? h_flex().w_full().justify_center().px(24).py(rowPadding(rows[i])).child(div().w_full().max_w(COLUMN).child(this.row(rows[i], rows[i].key, t)))
-            : div().w_full().h(TAIL));
-        return out;
-      }).track_scroll(this.scroll).on_item_click((key, cx) => {
-        const row = rows.find(r => r.key === key);
-        const opens = row?.kind === "tools" || (row?.kind === "step" && (this.open[key] || stepText(row.call, false).more));
-        if (opens) { this.open[key] = !this.open[key]; cx.notify(); }
-      }).size_full())
-        .child(v_flex().absolute().bottom(0).left(0).right(0).h(FADE)
-          .children(Array.from({ length: 8 }, (_, i) => div().w_full().flex_1().bg(t.background).opacity((i + 1) / 8))))
-        .when(!this.following && !this.needsScroll && !this.choices && !this.unread && active?.status !== "blocked", el => el.child(h_flex().absolute().bottom(12).left(0).right(0).justify_center()
-          .child(div().id("jump-bottom").size(34).flex().items_center().justify_center().rounded(17).cursor_pointer()
-            .bg(t.popover ?? t.surface).border_1().border_color(t.border).shadow_md().text_color(t.foreground)
-            .hover(s => s.bg(t.hover))
-            .on_click((_e, cx) => { this.follow(); cx.notify(); })
-            .child(svg(`${ICONS}/chevron-down.svg`).size(16)))))))
-      .when(pending.length > 0, el => el.child(v_flex().id("herdr-chat-measure").absolute().top(0).left(-20000).w(inner)
-        .children(pending.map(m => {
-          const k = hkey(m);
-          return div().id(`measure-${k}`).w(inner).flex_none()
-            .on_size_change((size, cx) => {
-              const height = designHeight(size, inner);
-              if (Math.abs((this.heights[k] ?? -1) - height) > 0.5) {
-                this.heights[k] = height; this.lastHeight[m.key] = height; this.changedAt[k] = Date.now();
-                if (this.following) this.follow();
-                cx.notify();
-                cx.timer.after(2100, cx => cx.notify());
-              }
-            })
-            .child(this.row(m, m.key, t));
-        }))))
+      .when(!empty, el => el.child(body))
+      .when(Boolean(measure), el => el.child(measure))
       .child(v_flex().w_full().flex_none().items_center().px(24).pt(12).pb(14).gap(12)
         .when(Boolean(status), el => el.child(status))
-        .child(this.composer(t, active)));
+        .child(this.composer.render(t, active)));
   }
 }
 
-Object.assign(HerdrChat.prototype, ChoiceMethods);
-Object.assign(HerdrChat.prototype, ImageMethods);
-Object.assign(HerdrChat.prototype, DraftMethods);
 Object.assign(HerdrChat.prototype, TranscriptMethods);
-Object.assign(HerdrChat.prototype, ReadingMethods);
 

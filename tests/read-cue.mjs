@@ -1,7 +1,7 @@
 import { stage } from "./stage.mjs";
-const Chat = (await stage().load("main.js")).default;
+const { SessionReader } = await stage().load("components/session-reader.js");
 const now = Date.now();
-const cue = s => Chat.prototype.readCue.call({ messages: [{}], readStaleFor: 0, readStartedAt: 0, readError: "", ...s });
+const cue = ({ messages = [{}], ...s }) => SessionReader.prototype.readCue.call({ session: { messages }, readStaleFor: 0, readStartedAt: 0, readError: "", ...s });
 let failed = 0;
 const check = (name, got, want) => { const ok = got === want; console.log(`${ok ? "PASS" : "FAIL"} ${name}${ok ? "" : `: got "${got}"`}`); if (!ok) failed++; };
 check("no read under way: nothing", cue({}), "");
