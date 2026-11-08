@@ -1,7 +1,7 @@
 import { div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { settings, run } from "herdr";
-import { ICONS } from "./common.js";
+import { ICONS } from "../common.js";
 
 export const COLUMN = 740;
 
@@ -53,4 +53,32 @@ export function clock(ms) {
   // A time as the clock shows it (3:42 PM).
   const d = new Date(ms), h = d.getHours();
   return `${h % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+}
+
+export function disclosure(t, glyph, title, open) {
+  // A row that opens and closes: an icon, its title, and a chevron saying which way it's set.
+  return h_flex().h(30).gap(8).items_center().text_size(13.5).text_color(open ? t.foreground : t.muted)
+    .child(icon(glyph, 14, t.muted))
+    .child(div().flex_shrink(1).min_w(0).truncate().child(title))
+    .child(icon(open ? "chevron-down" : "chevron-right", 13, t.dim));
+}
+
+export function bubble(t, width, body) {
+  // A message from the person: right-aligned, in a rounded bubble up to `width`.
+  return h_flex().w_full().justify_end()
+    .child(div().max_w(width).px(16).py(11).rounded(18).bg(t.raised).text_size(15).text_color(t.foreground).child(body));
+}
+
+export function keyButton(t, id, label, onClick, accent = false) {
+  // A small key-like button, as the question card uses for ←, ↑, Esc and the like.
+  return div().id(id).h(24).px(9).flex().items_center().rounded(6).cursor_pointer()
+    .border_1().border_color(accent ? t.accent : t.border).bg(t.background).text_size(12).text_color(t.foreground)
+    .hover(s => s.bg(t.hover)).on_click(onClick).child(label);
+}
+
+export function checkbox(t, checked) {
+  // A multi-select row's box.
+  return div().flex_none().size(12).flex().items_center().justify_center().rounded(3).border_1()
+    .border_color(checked ? t.accent : t.dim).bg(checked ? t.accent : t.background)
+    .text_size(9).text_color(t.background).child(checked ? "✓" : "");
 }

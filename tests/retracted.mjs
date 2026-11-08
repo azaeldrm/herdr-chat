@@ -1,6 +1,6 @@
 import { stage } from "./stage.mjs";
 const s = stage();
-const { withoutRetracted } = await s.load("transcript.js");
+const { withoutRetracted } = await s.load("model/transcript.js");
 let failed = 0;
 const check = (ok, what) => { console.log(`${ok ? "PASS" : "FAIL"} ${what}`); if (!ok) failed++; };
 const said = [{ kind: "message", role: "assistant", text: "hi" }, { kind: "message", role: "user", text: "write a story" }];

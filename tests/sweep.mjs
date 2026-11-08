@@ -1,8 +1,11 @@
-import { readdirSync } from "fs";
+import { readdirSync, statSync } from "fs";
+import { join, relative } from "path";
 import { stage, MOD } from "./stage.mjs";
 
 const staged = stage();
-const files = readdirSync(MOD).filter(f => f.endsWith(".js"));
+globalThis.window ??= { rem_size: () => 16, line_height: () => 20 };
+const walk = dir => readdirSync(dir).flatMap(f => f === "vendor" ? [] : statSync(join(dir, f)).isDirectory() ? walk(join(dir, f)) : f.endsWith(".js") ? [relative(MOD, join(dir, f))] : []);
+const files = walk(MOD);
 
 const found = new Set();
 const late = e => { if (e instanceof ReferenceError) found.add(`(later) ${e.message}`); };
@@ -34,6 +37,16 @@ for (const [f, m] of Object.entries(modules)) {
         lastModeSession: "t1:1", input: { value: () => "hi", set_value: () => {}, focus: () => {} },
       }, ...mixins);
       await sweep(`${f} ${name}.${method}`, fn, self);
+    }
+    if (typeof value === "function" && /^[A-Z]/.test(name) && value.prototype && name !== "default") {
+      const list = { following: true, follow: () => {}, reset: () => {} };
+      const host = { key: "t1:1:claude-code", note: "", sending: false, list };
+      let self;
+      try { self = new value(host); } catch (e) { if (e instanceof ReferenceError) found.add(`${f} new ${name}: ${e.message}`); continue; }
+      for (const method of Object.getOwnPropertyNames(value.prototype).filter(k => k !== "constructor")) {
+        const d = Object.getOwnPropertyDescriptor(value.prototype, method);
+        if (typeof d.value === "function") await sweep(`${f} ${name}.${method}`, d.value, self);
+      }
     }
   }
 }

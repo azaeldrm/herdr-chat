@@ -1,5 +1,5 @@
-import { readFileSync, readdirSync } from "fs";
-import { join } from "path";
+import { readFileSync, readdirSync, statSync } from "fs";
+import { join, relative } from "path";
 import { stage, MOD } from "./stage.mjs";
 const { zoomFrom, designPx, designHeight, PROBE_PX } = await stage().load("measure.js");
 let failed = 0;
@@ -26,8 +26,13 @@ function handlers(source) {
   }
   return out;
 }
-for (const file of readdirSync(MOD).filter(f => f.endsWith(".js") && f !== "measure.js")) {
-  for (const h of handlers(readFileSync(join(MOD, file), "utf8")))
+function files(dir) {
+  // Every .js file under dir except vendored code.
+  return readdirSync(dir).flatMap(f => f === "vendor" ? [] : statSync(join(dir, f)).isDirectory() ? files(join(dir, f)) : f.endsWith(".js") ? [join(dir, f)] : []);
+}
+for (const path of files(MOD).filter(f => !f.endsWith("measure.js"))) {
+  const file = relative(MOD, path);
+  for (const h of handlers(readFileSync(path, "utf8")))
     check(`${file}: on_size_change converts zoomed pixels through measure.js (${h.slice(0, 60).replace(/\s+/g, " ")}…)`,
       /designPx\(|designHeight\(|zoomFrom\(/.test(h), true);
 }
