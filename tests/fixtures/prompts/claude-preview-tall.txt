@@ -1,0 +1,45 @@
+
+ ▐▛███▛█   Claude Code v2.1.319
+▝▜██████▀  Haiku 5.5 · Claude Max
+ ▝▝   ▝▝   /work
+
+
+❯ This is a test of the question UI, not real work. Use your AskUserQuestion tool in ONE call with exactly 2 single-select questions. Question 1, header "Connector", question text: a long
+  two-sentence question of about 40 words about how a connector should work, with backticks around a word. Options "Hybrid (Recommended)", "Pure alias", "Keep native", and EVERY option must have a
+  preview field containing a 20-line YAML config snippet. Question 2, header "Probe", question "Which probe?", options "Fast" and "Slow", each with a 3-line preview. Do nothing else.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☐ Connector  ☐ Probe  ✔ Submit  →
+
+│ Should the `connector` route requests through the shared gateway or keep its own native client? A hybrid mode would use the gateway for reads while writes stay on the native path, which keeps
+│ latency low without losing per-account features.
+
+❯ 1. Hybrid (Recommended)         ┌──────────────────────────────────────────┐
+  2. Pure alias                   │ connector:                               │
+  3. Keep native                  │   name: example-connector                │
+                                  │   mode: hybrid                           │
+                                  │   read_path:                             │
+                                  │     via: gateway                         │
+                                  │     cache_ttl_seconds: 300               │
+                                  │     retry:                               │
+                                  │       max_attempts: 3                    │
+                                  │       backoff: exponential               │
+                                  │       base_delay_ms: 200                 │
+                                  │   write_path:                            │
+                                  │     via: native                          │
+                                  │     idempotency_key: required            │
+                                  │     timeout_ms: 5000                     │
+                                  │   auth:                                  │
+                                  │     type: oauth2                         │
+                                  │     token_store: keychain                │
+                                  │     refresh_margin_seconds: 60           │
+                                  │   fallback:                              │
+                                  │     on_gateway_error: native             │
+                                  └──────────────────────────────────────────┘
+
+                                  Notes: press n to add notes
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Chat about this
+
+Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel

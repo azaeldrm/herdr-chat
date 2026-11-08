@@ -13,6 +13,30 @@ function screenLines(screen) {
   return screen.replace(/\u00a0/g, " ").split("\n").filter(l => !l.startsWith("[hc]")).map(l => l.replace(/^\s*[┃│] ?/, "").replace(/\s*[┃│]?\s*$/, ""));
 }
 
+function pullPreview(screen) {
+  // Takes a question's preview box off the lines it shares with the options: the screen without it, and what it showed (its text, how many lines it cut).
+  const lines = screen.split("\n");
+  let top = -1, bottom = -1;
+  for (let y = lines.length - 1; y >= 0 && top < 0; y--) {
+    if (bottom < 0 && /[└]─+[┘]\s*$/.test(lines[y])) bottom = y;
+    else if (bottom >= 0 && /[┌]─+[┐]\s*$/.test(lines[y])) top = y;
+  }
+  if (top < 0) return { screen, preview: null };
+  const text = [];
+  let hidden = 0;
+  for (let y = top; y <= bottom; y++) {
+    const at = lines[y].search(/[┌│├└]/);
+    if (at < 0) continue;
+    const cell = lines[y].slice(at).trim();
+    const cut = /(\d+) lines? hidden/.exec(cell);
+    if (cut) hidden = Number(cut[1]);
+    else if (cell[0] === "│") text.push(cell.slice(1).replace(/\s*│$/, "").replace(/^ /, ""));
+    lines[y] = lines[y].slice(0, at).trimEnd();
+  }
+  for (let y = bottom + 1; y <= bottom + 3 && y < lines.length; y++) if (/^\s*Notes:/.test(lines[y])) lines[y] = "";
+  return { screen: lines.join("\n"), preview: { text, hidden } };
+}
+
 function findFooter(lines, end) {
   // The line that closes a prompt, or -1. The review step has no footer, so its question closes it.
   for (let y = end; y >= Math.max(0, end - 6); y--) if (FOOTER.test(lines[y])) return y;
@@ -26,6 +50,17 @@ export function looksLikePrompt(screen) {
   let end = lines.length - 1;
   while (end >= 0 && !lines[end].trim()) end--;
   return findFooter(lines, end) >= 0;
+}
+
+export function previewKey(prompt) {
+  // What a preview belongs to: this question and the option the cursor is on.
+  return `${prompt.sig}\u0000${prompt.options.find(o => o.selected)?.label ?? ""}`;
+}
+
+export function fullPreview(harness, screen, shown) {
+  // The whole preview from a taller reading of the screen, when it's still the same question and option; null otherwise.
+  const seen = parsePrompt(harness, screen);
+  return seen?.preview && !seen.preview.hidden && previewKey(seen) === previewKey(shown) ? seen.preview.text : null;
 }
 
 export function parsePrompt(harness, screen) {
@@ -82,7 +117,8 @@ function stepsOf(tabs) {
   return bare.split(/\s+(?=[□☐■☑☒✓✔])/).map(s => ({ label: s.replace(/^[□☐■☑☒✓✔]\s*/, ""), done: /^[■☑☒]/.test(s) }));
 }
 
-export function parseChoices(screen, { byNumber = false, columns = false } = {}) {
+export function parseChoices(shown, { byNumber = false, columns = false } = {}) {
+  const { screen, preview } = pullPreview(shown);
   const lines = screenLines(screen);
   const RULE = /^\s*[─━═]{8,}\s*$/;
   const SOFT_RULE = /^\s*[╌┄┈-]{8,}\s*$/;
@@ -100,6 +136,8 @@ export function parseChoices(screen, { byNumber = false, columns = false } = {})
   for (; y >= 0 && footer - y < 40; y--) {
     const line = lines[y];
     const n = NUMBERED.exec(line), c = CURSOR.exec(line);
+    if (numbered === null && preview && CHAT_ROW.test(line.replace(/^\s*[❯›>▸➤]?\s*/, ""))) { block.unshift({ y, line, chat: true }); continue; }
+    if (numbered === null && preview && RULE.test(line)) continue;
     if (numbered !== false && NEXT_ROW.test(line)) { numbered = true; block.unshift({ y, line, next: true }); continue; }
     if (numbered !== false && n) { numbered = true; block.unshift({ y, line }); continue; }
     if (numbered === true && RULE.test(line)) continue;
@@ -116,10 +154,15 @@ export function parseChoices(screen, { byNumber = false, columns = false } = {})
   while (block[0]?.desc) block.shift();
   const options = [];
   for (const b of block) {
-    if (b.desc) { if (options.length && b.line.trim()) options.at(-1).desc.push(b.line.trim()); continue; }
+    if (b.desc) {
+      if (preview && options.length && /^\s{0,4}\S/.test(b.line)) options.at(-1).label += ` ${b.line.trim()}`;
+      else if (options.length && b.line.trim()) options.at(-1).desc.push(b.line.trim());
+      continue;
+    }
     const n = NUMBERED.exec(b.line), c = CURSOR.exec(b.line);
     const selected = Boolean(c) || /^\s*[❯›>▸➤]/.test(b.line);
     if (b.next) { options.push({ n: null, label: "Next", desc: [], selected, next: true }); continue; }
+    if (b.chat) { options.push({ n: null, label: b.line.replace(/^\s*[❯›>▸➤]?\s*/, "").trim(), desc: [], selected, input: "chat" }); continue; }
     const text = (n ? n[3] : c ? c[3] : b.line.trim()).trim();
     const box = CHECKBOX.exec(text);
     const [written, ...desc] = columns ? text.split(/\s{2,}/) : [box ? box[2] : text];
@@ -127,6 +170,7 @@ export function parseChoices(screen, { byNumber = false, columns = false } = {})
     const input = TEXT_ROW.test(label) ? "text" : CHAT_ROW.test(label) ? "chat" : undefined;
     options.push({ n: n ? Number(n[2]) : options.length + 1, label, desc, selected, answered, ...(box ? { checked: box[1] !== " " } : {}), ...(input ? { input } : {}) });
   }
+  if (options.at(-1)?.input === "chat" && options.at(-1).selected && preview) for (const o of options.slice(0, -1)) o.selected = false;
   const multi = options.some(o => o.checked !== undefined);
   if (more && !options.some(o => o.next || TEXT_ROW.test(o.label))) {
     options.push({ n: null, label: "Type something", desc: [], selected: false, input: "text", hidden: true, ...(multi ? { checked: false } : {}) });
@@ -149,7 +193,7 @@ export function parseChoices(screen, { byNumber = false, columns = false } = {})
     if (/^\s*[•●⎿⏺]/.test(line) || /^\s*[❯›]\s/.test(line)) break;
     if (!line.trim()) { whole = asked.length > 0; if (++blanks >= 2 && asked.length) break; continue; }
     blanks = 0;
-    if (/^\s*Tip:/.test(line) || /^\s*[↑↓]\s*$/.test(line)) continue;
+    if (/^\s*Tip:/.test(line) || /^\s*[↑↓]\s*$/.test(line) || /^\s*[☐☒☑]\s+\S[^.?!]*$/.test(line)) continue;
     (whole ? question : asked).unshift(line.trim());
   }
   if (/^Question \d+\/\d+/.test(asked[0] ?? "")) tabs = asked.shift();
@@ -161,5 +205,5 @@ export function parseChoices(screen, { byNumber = false, columns = false } = {})
   const review = reviewOf(lines, top, block[0].y);
   if (review) question.splice(0, question.length, "Review your answers");
   const sig = JSON.stringify([question, multi ? "multi" : options.map(o => o.input ? "" : o.label)]);
-  return { question, tabs, steps: stepsOf(tabs), review, options, multi, more, sig };
+  return { question, tabs, steps: stepsOf(tabs), review, options, multi, more, preview, sig };
 }
