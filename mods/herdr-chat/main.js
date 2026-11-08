@@ -5,7 +5,7 @@ import { ICONS, switchTo, showView, preferredView, sessionOf, chatKey } from "./
 import { target, sendMessage, pressKeys, inputBox, interruptAgent } from "./terminal.js";
 import { ChoiceMethods } from "./choices.js";
 import { ImageMethods } from "./images.js";
-import { DraftMethods } from "./draft.js";
+import { DraftMethods, storeDraft } from "./draft.js";
 import { TranscriptMethods, keyRows, stepRows, stepText, withoutRetracted } from "./transcript.js";
 import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle, clock } from "./ui.js";
 import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
@@ -13,6 +13,7 @@ import { caretOf, lineMove } from "./caret.js";
 import { imageStyle, canMirror, withImages } from "./agents.js";
 import { isHeader, terminalHeader } from "./header.js";
 import { ReadingMethods } from "./reading.js";
+import { designPx, designHeight, zoomProbe } from "./measure.js";
 
 const TAIL = 32;
 const rowPadding = m => m.kind === "step" ? 0 : 8;
@@ -71,7 +72,7 @@ export default class HerdrChat extends View {
     this.input.on("paste_other", (_e, cx) => { if (Date.now() - (this.imagePasteAt ?? 0) > 800) this.pasteImage(cx); });
     this.following = true; this.visibleEnd = 0; this.rowCount = 0;
     this.messages = []; this.open = {};
-    this.width = 900; this.needsScroll = true; this.scrollAskedAt = Date.now(); this.lastAsk = Date.now(); this.laidOut = 0; this.pendingCount = -1; this.settling = true; this.isEmpty = true;
+    this.width = 900; this.zoom = 1; this.rootPx = 0; this.needsScroll = true; this.scrollAskedAt = Date.now(); this.lastAsk = Date.now(); this.laidOut = 0; this.pendingCount = -1; this.settling = true; this.isEmpty = true;
     this.heights = {}; this.changedAt = {}; this.measuredAt = 0;
     this.lastHeight = {};
     this.attachments = [];
@@ -185,16 +186,19 @@ export default class HerdrChat extends View {
     this.sending = true;
     this.input.set_value("");
     this.attachments = this.attachments.filter(a => !attached.includes(a));
+    this.keepDraft(cx);
     cx.notify();
     const owner = this.key;
     const restore = () => {
       if (this.key !== owner) {
         const d = this.drafts.get(owner) ?? { text: "", attachments: [] };
         this.drafts.set(owner, { text: d.text.trim() ? d.text : typed, attachments: [...attached, ...d.attachments] });
+        storeDraft(owner, this.drafts.get(owner));
         return;
       }
       if (!this.input.value().trim()) this.input.set_value(typed);
       this.attachments = [...attached.filter(a => !this.attachments.includes(a)), ...this.attachments];
+      storeDraft(owner, { text: this.input.value(), attachments: this.attachments });
     };
     cx.spawn(async cx => {
       try {
@@ -348,7 +352,8 @@ export default class HerdrChat extends View {
     keyRows(rows);
     rows.splice(0, rows.length, ...rows.flatMap(r => r.kind === "tools" && this.open[r.key] ? [r, ...stepRows(r)] : [r]));
     const inner = Math.min(COLUMN, Math.max(280, Math.floor(this.width) - 50));
-    if (inner !== this.measuredAt) { this.heights = {}; this.changedAt = {}; this.lastHeight = {}; this.measuredAt = inner; }
+    const measuredAt = `${inner}@${window.rem_size()}`;
+    if (measuredAt !== this.measuredAt) { this.heights = {}; this.changedAt = {}; this.lastHeight = {}; this.measuredAt = measuredAt; }
     const t0 = theme();
     const hkey = m => `${m.key}${this.open[m.key] ? ":open" : ""}${m.kind === "diagram" ? `:${diagramFor(m.text, t0).state}` : ""}`;
     const unmeasured = rows.filter(m => !(hkey(m) in this.heights)).slice(-MEASURE_AT_ONCE);
@@ -379,7 +384,8 @@ export default class HerdrChat extends View {
     this.rowCount = rows.length + 1;
     return v_flex().id("herdr-chat-root").relative().size_full().min_h(0).rounded(10).border_1().border_color(t.border)
       .bg(t.background).text_color(t.foreground)
-      .on_size_change((size, cx) => { if (size.width >= 200 && Math.abs(size.width - this.width) > 8) { this.width = size.width; cx.notify(); } })
+      .on_size_change((size, cx) => { this.rootPx = size.width; const w = designPx(size.width, this.zoom); if (w >= 200 && Math.abs(w - this.width) > 8) { this.width = w; cx.notify(); } })
+      .child(zoomProbe((zoom, cx) => { if (Math.abs(zoom - this.zoom) > 0.001) { this.zoom = zoom; if (this.rootPx) this.width = designPx(this.rootPx, zoom); cx.notify(); } }))
       .on_drop((e, cx) => this.dropFiles(e.paths ?? [], cx))
       .child(this.header(t, active))
       .when(empty && /^Opening/.test(this.note || ""), el => el.child(this.placeholder(t)))
@@ -389,7 +395,7 @@ export default class HerdrChat extends View {
           .when(/^(Opening|Finding)/.test(this.note || ""), el => el.loop("opacity", { from: 0.4, to: 1, period: 1600 })))
         .child(div().max_w(420).text_center().text_size(14).text_color(t.muted).child(this.note))))
       .when(!empty, el => el.child(v_flex().relative().flex_1().min_h(0).when(this.settling, el => el.opacity(0))
-        .on_size_change(size => { this.listH = size.height; })
+        .on_size_change(size => { this.listH = designPx(size.height, this.zoom); })
         .child(v_virtual_list("herdr-chat-messages", rows.length + 1, [...sizes, TAIL], i => i < rows.length ? rows[i].key : "end-of-chat", range => {
         this.visibleEnd = range.end;
         this.laidOut = Date.now();
@@ -417,8 +423,9 @@ export default class HerdrChat extends View {
           const k = hkey(m);
           return div().id(`measure-${k}`).w(inner).flex_none()
             .on_size_change((size, cx) => {
-              if (this.heights[k] !== size.height) {
-                this.heights[k] = size.height; this.lastHeight[m.key] = size.height; this.changedAt[k] = Date.now();
+              const height = designHeight(size, inner);
+              if (Math.abs((this.heights[k] ?? -1) - height) > 0.5) {
+                this.heights[k] = height; this.lastHeight[m.key] = height; this.changedAt[k] = Date.now();
                 if (this.following) this.follow();
                 cx.notify();
                 cx.timer.after(2100, cx => cx.notify());

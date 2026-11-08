@@ -241,6 +241,12 @@ Things a fresh build would get wrong:
 - **Rows.** `v_virtual_list` draws each row at the height it is given and clips what doesn't fit.
   Heights are measured by drawing each row once off-screen at the column's width; estimating them
   from text length clipped long replies.
+- **Measured sizes are zoomed; layout sizes aren't.** `on_size_change` reports pixels after the
+  app's zoom, while `.w()`, `.h()` and `v_virtual_list` sizes take unzoomed px and zoom them again.
+  Feeding one straight into the other shrinks every row by the zoom (at 0.9 a long reply loses a
+  tenth of its slot and the next message draws over it), and it looks fine at zoom 1. Every
+  measured size goes through `measure.js` (`designHeight`, `designPx`, the zoom probe), and
+  `tests/measure.mjs` fails if an `on_size_change` handler skips it.
 - **`set_theme` restarts every mod copy.** Calling it at start-up, or on every tick when a colour
   comparison never matches (herdr returns colours without their alpha), restarts the mod in a loop.
   It is applied from a timer, and only when the RGB part differs.
