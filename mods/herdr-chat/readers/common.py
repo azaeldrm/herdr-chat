@@ -46,11 +46,13 @@ def clip(s):
     s = str(s or "").replace("\r", "").rstrip()
     return s[:12000] + "\n" + ELLIPSIS if len(s) > 12000 else s
 
-def add_message(role, phase, text):
+def add_message(role, phase, text, images=()):
     text = str(text or "").strip()
-    if not text: return
+    if not text and not images: return
     if len(text) > 12000: text = text[:12000] + "\n" + ELLIPSIS
-    entries.append({"kind": "message", "role": role, "phase": phase, "text": text})
+    e = {"kind": "message", "role": role, "phase": phase, "text": text}
+    if images: e["images"] = [str(p or "") for p in images]
+    entries.append(e)
 
 def add_reasoning(text):
     text = str(text or "").strip()
@@ -62,6 +64,27 @@ def add_call(call, cid): entries.append({"kind": "call", "id": cid or "", "call"
 
 def set_output(cid, text):
     if cid: entries.append({"kind": "out", "id": cid, "text": clip(text)})
+
+PLACED = r'herdr-core[\\/][^\\/"\s]+[\\/]files[\\/]'
+PLACED_PATH = r'[^"\s]*' + PLACED + r'[^"\s]*\.(?:png|jpe?g|gif|webp)'
+PLACED_QUOTED = r'[^"]*' + PLACED + r'[^"]*\.(?:png|jpe?g|gif|webp)'
+PLACED_IMAGE = re.compile(r'<image\s+name=(\[Image #\d+\])\s+path="(%s)">(?:\s*</image>)?|@?"(%s)"|@?(%s)' % (PLACED_QUOTED, PLACED_QUOTED, PLACED_PATH), re.I)
+
+def unwrap_hc(text):
+    """The message inside hc's <hc from="…"> wrapper, which `hc send` adds; the text itself when there's none."""
+    m = re.match(r'(?s)^\s*<hc from="[^"]*"[^>]*>(.*?)</hc>\s*$', text)
+    return m.group(1) if m else text
+
+def placed_images(text):
+    """The images herdr placed beside the terminal (`hc put`), however the harness wrote their paths, taken out of the text: (text, paths)."""
+    paths, refs = [], []
+    def take(m):
+        paths.append(m.group(2) or m.group(3) or m.group(4))
+        if m.group(1): refs.append(m.group(1))
+        return ""
+    text = PLACED_IMAGE.sub(take, unwrap_hc(str(text or "")))
+    for ref in refs: text = text.replace(ref, "")
+    return re.sub(r"[ \t]{2,}", " ", text).strip(), paths
 
 def content_text(content):
     if isinstance(content, str): return content

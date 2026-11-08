@@ -13,6 +13,11 @@ const said = s => s.messages.filter(m => m.kind === "message").map(m => m.text);
 const s = blankSession();
 applyRead(s, parseReader(["PATH|" + enc("/log.jsonl"), "OFFSET|100", "RESET", "M|user||" + enc("hi"), "C|c1|" + enc(JSON.stringify({ k: "read", d: "a.js" })), "M|assistant|final|" + enc("done")].join("\n")));
 check("a fresh read sets path and offset", s.path === "/log.jsonl" && s.offset === 100);
+{
+  const r = parseReader(["M|user||" + enc("what colour?") + "|" + enc(JSON.stringify(["/x/herdr-core/d/files/t1/a.png", ""])), "M|user||" + enc("50%|done")].join("\n"));
+  check("a message's images come through, and text with a bar or percent sign stays whole",
+    JSON.stringify(r.added.map(m => [m.text, m.images ?? null])) === JSON.stringify([["what colour?", ["/x/herdr-core/d/files/t1/a.png", ""]], ["50%|done", null]]));
+}
 check("its messages and tool call", JSON.stringify(said(s)) === '["hi","done"]' && s.messages.some(m => m.kind === "tools"));
 applyRead(s, parseReader(["PATH|" + enc("/log.jsonl"), "OFFSET|180", "O|c1|" + enc("file text"), "M|user||" + enc("more")].join("\n")));
 check("a later read adds to it", JSON.stringify(said(s)) === '["hi","done","more"]' && s.offset === 180);
