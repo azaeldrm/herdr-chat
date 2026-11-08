@@ -1,6 +1,7 @@
 import { div, image } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { COLUMN, icon, mono, disclosure, bubble } from "./primitives.js";
+import { SENT_DIR, previewName } from "../images.js";
 import { KINDS, STEP, summary, stepText } from "../model/transcript.js";
 import { diagramFor } from "../diagrams.js";
 
@@ -49,9 +50,25 @@ function stepRow(m, { t, open: opened }) {
     .when(body, el => el.child(body));
 }
 
-function messageRow(m, { t, width }) {
-  // A message: the person's in a bubble, the agent's as plain markdown across the column.
-  if (m.role === "user") return bubble(t, Math.min(620, Math.round(Math.min(COLUMN, width - 48) * 0.85)), markdown(`body-${m.key}`, m.text, t));
+function sentImage(t, id, path, sent, machine) {
+  // An image in the person's message: its preview in sent/, else a chip with its name.
+  const name = path.split(/[\\/]/).pop(), preview = previewName(path, machine);
+  if (sent?.has(preview)) return div().id(id).size(120).flex_none().rounded(12).overflow_hidden().border_1().border_color(t.border).bg(t.raised)
+    .tooltip(name).child(image(`${SENT_DIR}/${preview}`).size_full());
+  return h_flex().id(id).h(32).px(10).gap(6).flex_none().items_center().rounded(8).bg(t.raised).text_size(12.5).text_color(t.muted)
+    .child(icon("image", 14, t.muted)).child(name || "Pasted image");
+}
+
+function messageRow(m, { t, width, sent, machine }) {
+  // A message: the person's in a bubble (its images above it), the agent's as plain markdown across the column.
+  if (m.role === "user") {
+    const room = Math.min(620, Math.round(Math.min(COLUMN, width - 48) * 0.85));
+    const text = m.text ? bubble(t, room, markdown(`body-${m.key}`, m.text, t)) : null;
+    if (!m.images?.length) return text;
+    return v_flex().w_full().gap(8)
+      .child(h_flex().w_full().justify_end().flex_wrap().gap(8).children(m.images.map((p, i) => sentImage(t, `img-${m.key}-${i}`, p, sent, machine))))
+      .when(Boolean(text), el => el.child(text));
+  }
   return div().w_full().text_size(15).text_color(t.foreground).child(markdown(`body-${m.key}`, m.text, t));
 }
 
@@ -68,7 +85,7 @@ function diagramRow(m, { t, width }) {
 }
 
 export function row(m, ctx) {
-  // One conversation row, drawn from the row alone and `ctx` ({ t, open, width }), with the gap that starts a turn.
+  // One conversation row, drawn from the row alone and `ctx` ({ t, open, width, sent, machine }), with the gap that starts a turn.
   const body = m.kind === "tools" ? toolsRow(m, ctx)
     : m.kind === "step" ? stepRow(m, ctx)
     : m.kind === "note" ? div().w_full().text_size(12.5).text_color(ctx.t.dim).child(m.text)
