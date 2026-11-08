@@ -4,7 +4,7 @@ import { sessionOf, chatKey } from "../common.js";
 import { base64Utf8, python } from "../platform.js";
 import { target, agentTargets, readScreen } from "../terminal.js";
 import { supportedNames } from "../harnesses/index.js";
-import { blankSession, parseReaderInSlices, applyRead, readerArgs, batchProgram, splitBatch } from "../session.js";
+import { blankSession, parseReaderInSlices, applyRead, readerArgs, batchProgram, splitBatch } from "../model/session.js";
 
 const SESSIONS_KEPT = 32;
 const READ_AFTER = [1000, 4000];

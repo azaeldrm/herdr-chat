@@ -7,8 +7,8 @@ import { target, sendMessage, pressKeys, inputBox } from "../terminal.js";
 import { imageStyle, canMirror, withImages, draftPastes, textOfBox, readBack } from "../harnesses/index.js";
 import { savedDraft, storeDraft, keptImages } from "../draft.js";
 import { IMAGE_FILE, attachDir, attachName, ATTACH_DIR } from "../images.js";
-import { caretOf, lineMove } from "../caret.js";
-import { COLUMN, icon } from "../ui.js";
+import { caretOf, lineMove } from "../model/caret.js";
+import { COLUMN, icon } from "../ui/primitives.js";
 
 const DRAFT_PAUSE = 400;
 

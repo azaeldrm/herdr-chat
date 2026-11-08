@@ -3,8 +3,8 @@ import { v_flex, h_flex, Textarea, TextareaState } from "gpui-base";
 import { switchTo, sessionOf, chatKey } from "../common.js";
 import { onWindows } from "../platform.js";
 import { target, readPrompt, pressKeys, sendMessage, inputBox } from "../terminal.js";
-import { parsePrompt, looksLikePrompt, keysFor, typedAnswer, sameOption } from "../prompts.js";
-import { COLUMN, mono, icon } from "../ui.js";
+import { parsePrompt, looksLikePrompt, keysFor, typedAnswer, sameOption } from "../model/prompts.js";
+import { COLUMN, mono, icon, keyButton, checkbox } from "../ui/primitives.js";
 
 const BODY_HEIGHT = 264;
 const ROW_CHARS = 96;
@@ -12,13 +12,6 @@ const DESC_CHARS = 110;
 const ROW_PAUSE = 500;
 const SCROLL_TRIES = 12;
 const ROW_SETTLE = 3000;
-
-function checkbox(t, checked) {
-  // A multi-select row's box.
-  return div().flex_none().size(12).flex().items_center().justify_center().rounded(3).border_1()
-    .border_color(checked ? t.accent : t.dim).bg(checked ? t.accent : t.background)
-    .text_size(9).text_color(t.background).child(checked ? "✓" : "");
-}
 
 function stacked(o) {
   // Whether an option's description needs a line of its own.
@@ -213,9 +206,7 @@ export class QuestionCard {
       .when(!this.cardFolded, el => el.child(div().flex_1()))
       .child(icon(this.cardFolded ? "chevron-right" : "chevron-down", 14, t.dim));
     if (this.cardFolded) return v_flex().flex_none().w_full().max_w(COLUMN).px(10).py(8).rounded(12).border_1().border_color(t.blocked).bg(t.surface).child(titleRow);
-    const key = (id, label, k) => div().id(id).h(24).px(9).flex().items_center().rounded(6).cursor_pointer()
-      .border_1().border_color(t.border).bg(t.background).text_size(12).text_color(t.foreground)
-      .hover(s => s.bg(t.hover)).on_click((_e, cx) => k === "terminal" ? switchTo("terminal", active ? sessionOf(active) : "") : this.press(k, cx)).child(label);
+    const key = (id, label, k) => keyButton(t, id, label, (_e, cx) => k === "terminal" ? switchTo("terminal", active ? sessionOf(active) : "") : this.press(k, cx));
     return v_flex().flex_none().w_full().max_w(COLUMN).p(10).gap(7).rounded(12).border_1().border_color(t.blocked).bg(t.surface)
       .child(titleRow)
       .when(Boolean(q), el => el
@@ -265,9 +256,7 @@ export class QuestionCard {
         .when(!q || q.more, el => el.child(key("k-up", "↑", "up")).child(key("k-down", "↓", "down")))
         .when(!q, el => el.child(key("k-enter", "Enter", "enter")))
         .child(key("k-esc", "Esc", "esc"))
-        .when(Boolean(q?.options.some(o => o.next)), el => el.child(div().id("k-next").h(24).px(9).flex().items_center().rounded(6).cursor_pointer()
-          .border_1().border_color(t.accent).bg(t.background).text_size(12).text_color(t.foreground)
-          .hover(s => s.bg(t.hover)).on_click((_e, cx) => this.choose(q.options.findIndex(o => o.next), cx)).child("Next →")))
+        .when(Boolean(q?.options.some(o => o.next)), el => el.child(keyButton(t, "k-next", "Next →", (_e, cx) => this.choose(q.options.findIndex(o => o.next), cx), true)))
         .child(div().flex_1())
         .child(key("k-term", "Open terminal", "terminal")));
   }

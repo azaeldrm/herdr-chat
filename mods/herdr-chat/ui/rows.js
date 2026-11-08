@@ -1,0 +1,78 @@
+import { div, image } from "gpui-kit";
+import { v_flex, h_flex, TextView } from "gpui-base";
+import { COLUMN, icon, mono, disclosure, bubble } from "./primitives.js";
+import { KINDS, STEP, summary, stepText } from "../model/transcript.js";
+import { diagramFor } from "../diagrams.js";
+
+const TURN_GAP = 28;
+
+function markdown(id, source, t) {
+  // Markdown with each fenced code block in a titled box of its own.
+  const parts = source.split(/```([^\n`]*)\n([\s\S]*?)```/g);
+  if (parts.length === 1) return TextView.markdown(id, source).selectable(true);
+  const blocks = [];
+  for (let i = 0; i < parts.length; i += 3) {
+    if (parts[i]?.trim()) blocks.push(TextView.markdown(`${id}-t${i}`, parts[i].trim()).selectable(true));
+    if (i + 2 < parts.length) {
+      const lang = parts[i + 1]?.trim();
+      blocks.push(v_flex().id(`${id}-c${i}`).w_full().rounded(10).border_1().border_color(t.border).bg(t.surface).overflow_hidden()
+        .child(h_flex().h(30).px(12).items_center().border_b(1).border_color(t.border)
+          .child(div().text_size(11.5).text_color(t.muted).child(lang || "text")))
+        .child(div().px(2).text_size(13).child(TextView.markdown(`${id}-ct${i}`, `\`\`\`${parts[i + 1] || ""}\n${parts[i + 2]}\n\`\`\``).selectable(true))));
+    }
+  }
+  return v_flex().w_full().gap(12).children(blocks);
+}
+
+function toolsRow(m, { t, open }) {
+  // A group's title line; opened, its steps follow as rows of their own (stepRows).
+  const kinds = [...new Set(m.calls.map(c => c.k).filter(k => k !== "think"))];
+  const glyph = !kinds.length ? "brain" : kinds.length === 1 ? (KINDS[kinds[0]] ?? KINDS.other).icon : "layers";
+  return v_flex().w_full().child(disclosure(t, glyph, summary(m.calls), Boolean(open[m.key])));
+}
+
+function stepRow(m, { t, open: opened }) {
+  // One step of an opened group: a thought in full markdown, or a call with its output in a box.
+  const i = m.key, c = m.call, open = Boolean(opened[i]), shown = stepText(c, open);
+  const toggle = shown.more || open && stepText(c, false).more;
+  const body = !shown.text ? null
+    : c.k === "think" ? div().w_full().pb(4).child(TextView.markdown(`think-${i}`, shown.text).selectable(true).text_size(13).text_color(t.muted))
+    : v_flex().w_full().px(10).py(7).rounded(7).bg(t.surface).font_family(mono()).text_size(12).text_color(t.muted)
+      .children(shown.text.split("\n").map((l, k) => div().id(`o-${i}-${k}`).w_full().min_h(18).child(l || " ")));
+  return v_flex().w_full().ml(6).pl(16).border_l(1).border_color(t.border).pb(m.last ? 6 : 2)
+    .child(h_flex().h(28).gap(10).items_center().min_w(0)
+      .child(div().flex_none().text_size(12.5).font_semibold().text_color(t.foreground).child(STEP[c.k] ?? c.k))
+      .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_family(mono()).text_color(t.muted).child(c.d || ""))
+      .when(toggle, el => el.child(h_flex().flex_none().gap(4).items_center().text_size(12).text_color(t.dim)
+        .child(open ? "Show less" : shown.hidden ? `${shown.hidden} more lines` : "Show all")
+        .child(icon(open ? "chevron-down" : "chevron-right", 12, t.dim)))))
+    .when(body, el => el.child(body));
+}
+
+function messageRow(m, { t, width }) {
+  // A message: the person's in a bubble, the agent's as plain markdown across the column.
+  if (m.role === "user") return bubble(t, Math.min(620, Math.round(Math.min(COLUMN, width - 48) * 0.85)), markdown(`body-${m.key}`, m.text, t));
+  return div().w_full().text_size(15).text_color(t.foreground).child(markdown(`body-${m.key}`, m.text, t));
+}
+
+function diagramRow(m, { t, width }) {
+  // A ```mermaid block from a reply, as its own row: the picture alone, in the reply's column.
+  const d = diagramFor(m.text, t);
+  if (d.state === "queued") return div().w_full().h(24).flex().items_center().text_size(12.5).text_color(t.dim).child("Drawing diagram…");
+  if (d.state === "failed") return v_flex().w_full().gap(6)
+    .child(markdown(`diagram-src-${m.key}`, "```mermaid\n" + m.text + "\n```", t))
+    .child(div().text_size(12).text_color(t.dim).child(`Couldn't draw this diagram: ${d.error}`));
+  const room = Math.min(COLUMN, Math.max(280, Math.floor(width) - 50));
+  const w = Math.min(d.width, room), h = Math.round(d.height * w / d.width);
+  return div().w_full().child(image(d.rel).w(w).h(h));
+}
+
+export function row(m, ctx) {
+  // One conversation row, drawn from the row alone and `ctx` ({ t, open, width }), with the gap that starts a turn.
+  const body = m.kind === "tools" ? toolsRow(m, ctx)
+    : m.kind === "step" ? stepRow(m, ctx)
+    : m.kind === "note" ? div().w_full().text_size(12.5).text_color(ctx.t.dim).child(m.text)
+    : m.kind === "diagram" ? diagramRow(m, ctx)
+    : messageRow(m, ctx);
+  return m.turnGap ? v_flex().w_full().pt(TURN_GAP).child(body) : body;
+}

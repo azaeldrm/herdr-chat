@@ -11,7 +11,7 @@ import pie from "./vendor/pele/diagrams/pie.js";
 import mindmap from "./vendor/pele/diagrams/mindmap.js";
 import timeline from "./vendor/pele/diagrams/timeline.js";
 import gitGraph from "./vendor/pele/diagrams/gitGraph.js";
-import { hash } from "./common.js";
+import { hash } from "./model/hash.js";
 import { onWindows } from "./platform.js";
 
 register(flowchart, sequence, state, klass, er, gantt, pie, mindmap, timeline, gitGraph);

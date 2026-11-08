@@ -1,7 +1,7 @@
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, VirtualListScrollHandle, v_virtual_list } from "gpui-base";
 import { ICONS } from "../common.js";
-import { COLUMN } from "../ui.js";
+import { COLUMN } from "../ui/primitives.js";
 import { designPx, designHeight } from "../measure.js";
 
 const TAIL = 32;

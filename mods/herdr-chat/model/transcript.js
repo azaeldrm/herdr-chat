@@ -1,11 +1,6 @@
-import { div, image } from "gpui-kit";
-import { v_flex, h_flex, TextView } from "gpui-base";
-import { COLUMN, icon, mono } from "./ui.js";
-import { hash } from "./common.js";
-import { diagramFor } from "./diagrams.js";
+import { hash } from "./hash.js";
 
-const TURN_GAP = 28;
-const KINDS = {
+export const KINDS = {
   shell:  { icon: "terminal",    label: "Ran",     one: "command",  many: "commands" },
   read:   { icon: "file-text",   label: "Read",    one: "file",     many: "files" },
   edit:   { icon: "square-pen",  label: "Edited",  one: "file",     many: "files" },
@@ -16,9 +11,10 @@ const KINDS = {
   todo:   { icon: "circle-check", label: "Updated the to-do list", one: "", many: "" },
   other:  { icon: "settings",    label: "Used",    one: "tool",     many: "tools" },
 };
-const STEP = { think: "Thought", shell: "Bash", read: "Read", edit: "Edit", search: "Search", web: "Web", image: "View", agent: "Agent", todo: "Todos", other: "Tool" };
+export const STEP = { think: "Thought", shell: "Bash", read: "Read", edit: "Edit", search: "Search", web: "Web", image: "View", agent: "Agent", todo: "Todos", other: "Tool" };
 
-function summary(steps) {
+export function summary(steps) {
+  // A group of steps in a few words: "Ran 2 commands, edited main.js".
   const calls = steps.filter(c => c.k !== "think");
   if (!calls.length) return "Thought process";
   const order = [], counts = {}, files = {};
@@ -128,82 +124,3 @@ export function keyRows(rows) {
   });
   return rows;
 }
-
-function markdown(id, source, t) {
-  const parts = source.split(/```([^\n`]*)\n([\s\S]*?)```/g);
-  if (parts.length === 1) return TextView.markdown(id, source).selectable(true);
-  const blocks = [];
-  for (let i = 0; i < parts.length; i += 3) {
-    if (parts[i]?.trim()) blocks.push(TextView.markdown(`${id}-t${i}`, parts[i].trim()).selectable(true));
-    if (i + 2 < parts.length) {
-      const lang = parts[i + 1]?.trim();
-      blocks.push(v_flex().id(`${id}-c${i}`).w_full().rounded(10).border_1().border_color(t.border).bg(t.surface).overflow_hidden()
-        .child(h_flex().h(30).px(12).items_center().border_b(1).border_color(t.border)
-          .child(div().text_size(11.5).text_color(t.muted).child(lang || "text")))
-        .child(div().px(2).text_size(13).child(TextView.markdown(`${id}-ct${i}`, `\`\`\`${parts[i + 1] || ""}\n${parts[i + 2]}\n\`\`\``).selectable(true))));
-    }
-  }
-  return v_flex().w_full().gap(12).children(blocks);
-}
-
-export const TranscriptMethods = {
-  disclosure(i, t, glyph, title, open) {
-    return h_flex().h(30).gap(8).items_center().text_size(13.5).text_color(open ? t.foreground : t.muted)
-      .child(icon(glyph, 14, t.muted))
-      .child(div().flex_shrink(1).min_w(0).truncate().child(title))
-      .child(icon(open ? "chevron-down" : "chevron-right", 13, t.dim));
-  },
-
-  toolsRow(m, i, t) {
-    // A group's title line; opened, its steps follow as rows of their own (stepRows).
-    const kinds = [...new Set(m.calls.map(c => c.k).filter(k => k !== "think"))];
-    const glyph = !kinds.length ? "brain" : kinds.length === 1 ? (KINDS[kinds[0]] ?? KINDS.other).icon : "layers";
-    return v_flex().w_full().child(this.disclosure(i, t, glyph, summary(m.calls), Boolean(this.open[i])));
-  },
-
-  stepRow(m, i, t) {
-    // One step of an opened group: a thought in full markdown, or a call with its output in a box.
-    const c = m.call, open = Boolean(this.open[i]), shown = stepText(c, open);
-    const toggle = shown.more || open && stepText(c, false).more;
-    const body = !shown.text ? null
-      : c.k === "think" ? div().w_full().pb(4).child(TextView.markdown(`think-${i}`, shown.text).selectable(true).text_size(13).text_color(t.muted))
-      : v_flex().w_full().px(10).py(7).rounded(7).bg(t.surface).font_family(mono()).text_size(12).text_color(t.muted)
-        .children(shown.text.split("\n").map((l, k) => div().id(`o-${i}-${k}`).w_full().min_h(18).child(l || " ")));
-    return v_flex().w_full().ml(6).pl(16).border_l(1).border_color(t.border).pb(m.last ? 6 : 2)
-      .child(h_flex().h(28).gap(10).items_center().min_w(0)
-        .child(div().flex_none().text_size(12.5).font_semibold().text_color(t.foreground).child(STEP[c.k] ?? c.k))
-        .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_family(mono()).text_color(t.muted).child(c.d || ""))
-        .when(toggle, el => el.child(h_flex().flex_none().gap(4).items_center().text_size(12).text_color(t.dim)
-          .child(open ? "Show less" : shown.hidden ? `${shown.hidden} more lines` : "Show all")
-          .child(icon(open ? "chevron-down" : "chevron-right", 12, t.dim)))))
-      .when(body, el => el.child(body));
-  },
-
-  messageRow(m, i, t) {
-    if (m.role === "user") return h_flex().w_full().justify_end()
-      .child(div().max_w(Math.min(620, Math.round(Math.min(COLUMN, this.width - 48) * 0.85))).px(16).py(11)
-        .rounded(18).bg(t.raised).text_size(15).text_color(t.foreground).child(markdown(`body-${i}`, m.text, t)));
-    return div().w_full().text_size(15).text_color(t.foreground).child(markdown(`body-${i}`, m.text, t));
-  },
-
-  diagramRow(m, i, t) {
-    // A ```mermaid block from a reply, as its own row: the picture alone, in the reply's column.
-    const d = diagramFor(m.text, t);
-    if (d.state === "queued") return div().w_full().h(24).flex().items_center().text_size(12.5).text_color(t.dim).child("Drawing diagram…");
-    if (d.state === "failed") return v_flex().w_full().gap(6)
-      .child(markdown(`diagram-src-${i}`, "```mermaid\n" + m.text + "\n```", t))
-      .child(div().text_size(12).text_color(t.dim).child(`Couldn't draw this diagram: ${d.error}`));
-    const room = Math.min(COLUMN, Math.max(280, Math.floor(this.width) - 50));
-    const w = Math.min(d.width, room), h = Math.round(d.height * w / d.width);
-    return div().w_full().child(image(d.rel).w(w).h(h));
-  },
-
-  row(m, i, t) {
-    const body = m.kind === "tools" ? this.toolsRow(m, i, t)
-      : m.kind === "step" ? this.stepRow(m, i, t)
-      : m.kind === "note" ? div().w_full().text_size(12.5).text_color(t.dim).child(m.text)
-      : m.kind === "diagram" ? this.diagramRow(m, i, t)
-      : this.messageRow(m, i, t);
-    return m.turnGap ? v_flex().w_full().pt(TURN_GAP).child(body) : body;
-  },
-};

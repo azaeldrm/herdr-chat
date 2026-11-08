@@ -1,4 +1,4 @@
-import { lineMove, caretOf } from "../mods/herdr-chat/caret.js";
+import { lineMove, caretOf } from "../mods/herdr-chat/model/caret.js";
 let failed = 0;
 const check = (got, want, what) => { const ok = JSON.stringify(got) === JSON.stringify(want); console.log(`${ok ? "PASS" : "FAIL"} ${what}${ok ? "" : `  got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`}`); if (!ok) failed++; };
 const t = "first line\nsecond, longer line\nend";

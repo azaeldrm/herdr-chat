@@ -3,8 +3,9 @@ import { set_theme, v_flex, h_flex } from "gpui-base";
 import { panes, focused, props, hc, theme, shared } from "herdr";
 import { switchTo, showView, preferredView, sessionOf, chatKey } from "./common.js";
 import { target, inputBox, interruptAgent } from "./terminal.js";
-import { TranscriptMethods, keyRows, stepRows, stepText, withoutRetracted } from "./transcript.js";
-import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle, clock } from "./ui.js";
+import { keyRows, stepRows, stepText, withoutRetracted } from "./model/transcript.js";
+import { row } from "./ui/rows.js";
+import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle, clock } from "./ui/primitives.js";
 import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
 import { canMirror } from "./harnesses/index.js";
 import { isHeader, terminalHeader } from "./header.js";
@@ -63,7 +64,6 @@ export default class HerdrChat extends View {
   get key() { return this.reader?.key ?? ""; }
   get note() { return this.reader?.session.note ?? ""; }
   set note(text) { if (this.reader) this.reader.session.note = text; }
-  get open() { return this.reader?.session.open ?? {}; }
 
   refresh(cx) {
     // Switches to the selected agent's session and reads it, and its screen for a question.
@@ -210,17 +210,17 @@ export default class HerdrChat extends View {
     if (this.note) rows.push({ kind: "note", text: this.note });
     const empty = rows.length === 0 || (rows.length === 1 && rows[0].kind === "note" && !this.reader.session.messages.length);
     keyRows(rows);
-    rows.splice(0, rows.length, ...rows.flatMap(r => r.kind === "tools" && this.open[r.key] ? [r, ...stepRows(r)] : [r]));
+    rows.splice(0, rows.length, ...rows.flatMap(r => r.kind === "tools" && this.reader.session.open[r.key] ? [r, ...stepRows(r)] : [r]));
     const inner = Math.min(COLUMN, Math.max(280, Math.floor(this.width) - 50));
     const { body, measure } = this.list.render(cx, {
       rows, empty, t, inner, zoom: this.zoom, beforeScroll: () => this.noticeVisit(),
-      heightKey: m => `${m.key}${this.open[m.key] ? ":open" : ""}${m.kind === "diagram" ? `:${diagramFor(m.text, t).state}` : ""}`,
+      heightKey: m => `${m.key}${this.reader.session.open[m.key] ? ":open" : ""}${m.kind === "diagram" ? `:${diagramFor(m.text, t).state}` : ""}`,
       waitsFor: m => m.kind === "diagram" && diagramFor(m.text, t).state === "queued",
-      row: m => this.row(m, m.key, t),
+      row: m => row(m, { t, open: this.reader.session.open, width: this.width }),
       onItemClick: (key, cx) => {
         const row = rows.find(r => r.key === key);
-        const opens = row?.kind === "tools" || (row?.kind === "step" && (this.open[key] || stepText(row.call, false).more));
-        if (opens) { this.open[key] = !this.open[key]; cx.notify(); }
+        const opens = row?.kind === "tools" || (row?.kind === "step" && (this.reader.session.open[key] || stepText(row.call, false).more));
+        if (opens) { this.reader.session.open[key] = !this.reader.session.open[key]; cx.notify(); }
       },
       canJump: !this.card.showing && active?.status !== "blocked",
     });
@@ -245,5 +245,4 @@ export default class HerdrChat extends View {
   }
 }
 
-Object.assign(HerdrChat.prototype, TranscriptMethods);
 

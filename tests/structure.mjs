@@ -28,7 +28,10 @@ for (const file of walk(MOD).filter(f => f.startsWith("components/"))) {
   check(`${file} doesn't reach into another component's fields`, read(file).match(/this\.(list|card|composer|reader)\.\w+/g) ?? [], []);
 }
 const mixins = [...read("main.js").matchAll(/Object\.assign\(HerdrChat\.prototype, (\w+)\)/g)].map(m => m[1]);
-check("the view mixes in nothing but the row drawing (moving to ui/rows.js)", mixins.filter(m => m !== "TranscriptMethods"), []);
+check("the view mixes in nothing", mixins, []);
+for (const file of walk(MOD).filter(f => f.startsWith("model/")))
+  check(`${file} is pure data (no gpui or herdr imports)`, read(file).match(/from "(gpui-kit|gpui-base|herdr)"/g) ?? [], []);
+check("rows are drawn from (row, ctx), not from the view", /\bthis\./.test(read("ui/rows.js")), false);
 for (const file of walk(MOD)) check(`${file} keeps state off other objects (no Object.assign onto this)`, /Object\.assign\(this,/.test(read(file)), false);
 
 process.exit(failed ? 1 : 0);
