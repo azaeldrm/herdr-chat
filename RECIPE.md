@@ -129,27 +129,23 @@ Mod (`mods/herdr-chat/`, `mod.json` is `{"place":"none"}`):
 
 | File | Role |
 |---|---|
-| `main.js` | the chat View: its state and timers, the layout, scrolling, sending |
-| `reading.js` | reading conversations: the one shown, every other agent's in the background, switching, the loading row's rules (mixed in) |
-| `session.js` | a session's state, the reader's output applied to it, the batch run for one machine's agents (pure) |
-| `transcript.js` | conversation rows: folding tool calls and thinking, a step's preview, row keys, drawing each kind |
-| `choices.js` | a question card, choosing a choice, the key buttons (mixed into the View) |
-| `prompts.js` | `parseChoices`: a choice prompt read off the screen (pure) |
-| `images.js` | attaching images, their preview copies, placing them beside a terminal (mixed in) |
-| `draft.js` | one draft per session, mirrored into the agent's own input box (mixed in) |
-| `agents.js` | one profile per agent: how a message carries images, how its box shows the draft |
+| `main.js` | the chat View: creates the components, runs the timers, switches sessions, lays out the header, list, card and composer, stops the agent |
+| `components/` | the View's parts, each a class owning its state and given the View as `host`; `tests/structure.mjs` holds each one to its listed host API. `chat-list.js`: rows, heights, measuring, following. `question-card.js`: a question read off the screen, shown and answered. `composer.js`: the reply box, drafts and images, mirroring, sending. `session-reader.js`: the shown conversation (`session`) and the ones kept in memory, read and kept fresh |
+| `model/` | pure data, no gpui or herdr imports (`tests/structure.mjs` checks): `transcript.js` (folding tool calls and thinking, a step's preview, row keys, a group's summary), `session.js` (a session's state, the reader's output applied to it, the batch run), `prompts.js` (`parseChoices`: a choice prompt read off the screen, the harness's `prompt` options deciding how), `caret.js`, `hash.js` |
+| `ui/` | drawing: `primitives.js` (column width, icons, program icon, pane buttons, status badge, view toggle, clock, disclosure, bubble, key button, checkbox) and `rows.js` (each conversation row, drawn from the row and `{ t, open, width }`) |
+| `images.js` | where image preview copies go and what they're named |
+| `draft.js` | kept drafts in shared state: `storeDraft` is their one writer |
+| `harnesses/` | one adapter per harness (`claude-code.js`, `codex.js`, `pi.js`): its label, how it takes images, whether drafts mirror, its prompt options, its input box's shape and its reader. `index.js` is the registry and the image/draft logic driven by those fields. Nothing outside this folder names a harness (`tests/harnesses.mjs` checks) |
 | `terminal.js` | the target agent, reading its screen, sending as the person, keys, `input-box.py` |
 | `platform.js` | Windows and Unix differences: paths, quoting, base64, deleting files |
 | `diagrams.js` | mermaid diagrams: Pele's SVG with the theme's colors and font lists written in, drawn one per tick |
 | `vendor/pele/` | Pele, copied by `scripts/vendor-pele.mjs` from the version `package.json` pins (don't edit) |
-| `ui.js` | shared look: column width, icons, program icon, pane buttons, status badge, view toggle, clock time |
 | `header.js` | the terminal pane header with the toggle |
 | `common.js` | session keys, per-session view memory, `layout.select` |
-| `read-session.ps1` | session reader on Windows (PowerShell 5.1) |
-| `read_session.py` | the same reader for Linux, macOS and other machines (Python 3.6+) |
+| `readers/` | the session reader (Python 3.6+), one file per harness (`claude_code.py`, `codex.py`, `pi.py`) beside `common.py` (arguments, output tags, process helpers) and `main.py` (dispatch through `READERS`). The mod joins them in `manifest.json` order into one script for `python3 -c`, here and on other machines; Windows runs the same script with `py -3` or `python` |
 | `send.ps1` | sends text on Windows without hc's terminal identity |
 | `prepare-image.sh` / `prepare-image.ps1` | copy an image (or the clipboard's) into the preview folder, shrunk under 240 KB |
-| `input-box.py` | reads, sets or pastes into an agent's own input box without Enter, through `hc attach` in a pty (the one draft, Codex images) |
+| `input-box.py` | reads, sets or pastes into an agent's own input box without Enter, through `hc attach` in a pty (the one draft, pasted images); the box is found by the adapter's `box` shape |
 | `icons/` | the mod's own SVG icons |
 
 Herdr functions used: `agents()`, `terminals()`, `panes()`, `focused()`, `props()`, `theme()`,
@@ -164,8 +160,9 @@ with `set_theme` from `gpui-base`. UI parts: `v_virtual_list` with a `VirtualLis
 
 - runs programs: `powershell.exe` (Windows), `python3`, `sh`, `env`, `hc` (also `hc attach`,
   `hc put`), `wl-paste` / `xclip` / `pngpaste` and ImageMagick (`magick`) or `sips`, including on other
-  machines through `exec(…, { on: machine })`; the Python reader is passed to `python3 -c`, so
-  nothing is installed on the other machine, but `python3` and `hc` must be there;
+  machines through `exec(…, { on: machine })`; the Python reader is joined from `readers/` and passed to `python3 -c`
+  (`py -3` or `python` on Windows), so nothing is installed on the other machine, but `python3` and
+  `hc` must be there;
 - reads files outside its own folder: the agents' session logs under `~/.claude/projects`,
   `~/.claude/sessions`, `~/.codex/sessions` and `~/.pi/agent/sessions`, and reads the terminal's
   screen with `hc read`;
@@ -190,7 +187,7 @@ Things a fresh build would get wrong:
   neither say where its cursor is nor be asked to move it by action name (`dispatch_action` reaches
   only handlers a script registered). So the chat binds `up`/`down` in context
   `HerdrChatReply > Input` (the textarea's context is `Input`) to its own actions, reads the cursor
-  by typing an invisible marker at it with `replace()` and putting the text back (`caret.js`), and
+  by typing an invisible marker at it with `replace()` and putting the text back (`model/caret.js`), and
   moves it with `set_selected_range`. Bind once per engine: the keymap is the app's.
 - **Scrolling a virtual list to the bottom takes a frame or more.** `scroll_to_bottom()` lines up
   the last row's *top* with the view's (so the list ends with a short spacer row, or a long last
@@ -200,7 +197,7 @@ Things a fresh build would get wrong:
   (`visibleEnd`), scrolling again meanwhile. `render` can't `notify()`, but its `cx.timer` works.
 - **Every agent's chat is kept read in the background.** When herdr reports a change in an agent,
   `warm()` (reading.js) reads its machine's agents' logs from where they last stopped, all in one Python run
-  (`batchProgram` in session.js runs the reader once per session and separates their output), so a
+  (`batchProgram` in model/session.js runs the reader once per session and separates their output), so a
   switch shows the conversation at once. The chat shows once its bottom screenful is measured; older
   rows are measured after. A slow read of a stale conversation shows "Checking for new messages…"
   after 300 ms, and after 5 s (or a failed read) "<machine> isn't answering", with Retry.
@@ -233,11 +230,17 @@ Things a fresh build would get wrong:
   focused: the image then lands in the agent's box, not the chat.
 
 - **Escaping.** `\\` in a JavaScript template string is one backslash; the Windows paths to the
-  `.ps1` files need it doubled, and a missed one makes `\r` a carriage return and the reader never
+  `.ps1` files need it doubled, and a missed one makes `\r` a carriage return and the script never
   starts.
 - **`this.header`.** The View already has a `header()` method for the chat's top bar; the flag that
   marks a header copy is `asHeader`. Naming it `header` made every copy draw the header and the
   chat panel blank.
+- **Adding a harness.** Write `harnesses/<id>.js` (label, image style, mirroring, prompt options,
+  input box shape or `null` without mirroring, reader id) and add it to the list in
+  `harnesses/index.js`; write `readers/<id>.py` registering `READERS["<id>"] = (find, parse)` and add it
+  to `readers/manifest.json` before `main.py`. Nothing else should need to change:
+  `tests/harnesses.mjs` fails if a harness is named anywhere else or an adapter is incomplete. OpenCode
+  went in this way.
 - **Rows.** `v_virtual_list` draws each row at the height it is given and clips what doesn't fit.
   Heights are measured by drawing each row once off-screen at the column's width; estimating them
   from text length clipped long replies.
@@ -264,9 +267,10 @@ Limits and gaps:
 - A session file is read from its last 24 MB on first open; older history isn't shown.
 - Questions appear as terminal text with key buttons, not as parsed options.
 - Messages sent while an agent is busy are typed straight in, not queued; there is no stop button.
-- Other agents (OpenCode, Gemini, …) aren't read.
-- Tested on Windows with agents on this computer and on a Linux machine over herdr's machine link;
-  the Python reader has not been run on macOS.
+- OpenCode is read from its `session_v2` tables only (current versions), and its drafts don't mirror into its own box (its box shape isn't described yet). Other agents (Gemini, …) aren't read.
+- Tested on Windows with agents on this computer and on a Linux machine over herdr's machine link,
+  when Windows read sessions with PowerShell; the Python reader that replaced it hasn't been run on
+  Windows or macOS yet.
 
 ## Done when
 

@@ -1,6 +1,6 @@
 import { run, shared, setShared, terminals } from "herdr";
 
-export { SUPPORTED } from "./agents.js";
+export { SUPPORTED } from "./harnesses/index.js";
 export const ICONS = "mods/herdr-chat/icons";
 
 const VIEWS_KEY = "herdr-chat.views";
@@ -44,11 +44,4 @@ export function showView(mode) {
   setShared("herdr-chat.mode", mode);
   if (mode === "chat") setShared("herdr-chat.visit", Date.now());
   run("layout.select", { stack: "chat-view", child: mode === "terminal" ? "terminal-panel" : "chat-panel" });
-}
-
-export function hash(text) {
-  // A short text digest (djb2), for keys and file names.
-  let h = 5381;
-  for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
-  return (h >>> 0).toString(36);
 }

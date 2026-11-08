@@ -8,13 +8,6 @@ const STEP_ROW = /\bsubmit\s*→?\s*$/i;
 const CUT_STEP_ROW = /^\s*←\s.*[□☐■☑☒]/;
 const REVIEW_TITLE = /^\s*review your answers\s*$/i;
 
-const ADAPTERS = {
-  "claude-code": {},
-  pi: {},
-  codex: { columns: true, notes: true },
-  opencode: { byNumber: true },
-};
-
 function screenLines(screen) {
   // The screen's lines without hc's notes, trailing space or the frame some harnesses draw around a prompt.
   return screen.replace(/\u00a0/g, " ").split("\n").filter(l => !l.startsWith("[hc]")).map(l => l.replace(/^\s*[┃│] ?/, "").replace(/\s*[┃│]?\s*$/, ""));
@@ -35,15 +28,15 @@ export function looksLikePrompt(screen) {
   return findFooter(lines, end) >= 0;
 }
 
-export function parsePrompt(app, screen) {
-  // The prompt on an agent's screen, read the way that agent draws it.
-  return parseChoices(screen, ADAPTERS[app] ?? {});
+export function parsePrompt(harness, screen) {
+  // The prompt on an agent's screen, read the way its harness draws it.
+  return parseChoices(screen, harness?.prompt ?? {});
 }
 
-export function keysFor(app, prompt, index) {
+export function keysFor(harness, prompt, index) {
   // The keys that act on one option: its number where the harness takes one, else arrows from the selected one and Enter.
   const option = prompt.options[index];
-  if (ADAPTERS[app]?.byNumber) return option.next ? ["tab"] : [String(option.n)];
+  if (harness?.prompt?.byNumber) return option.next ? ["tab"] : [String(option.n)];
   if (option.next && option.hidden) return ["right"];
   return [...moves(prompt, index), "enter"];
 }
@@ -59,9 +52,9 @@ export function sameOption(a, b) {
   return a.next ? Boolean(b.next) : a.input ? a.input === b.input : a.label === b.label;
 }
 
-export function typedAnswer(app, prompt, index) {
+export function typedAnswer(harness, prompt, index) {
   // The keys that put the cursor in a text row, ready for a typed answer.
-  const { byNumber, notes } = ADAPTERS[app] ?? {};
+  const { byNumber, notes } = harness?.prompt ?? {};
   const to = byNumber ? [String(prompt.options[index].n)] : moves(prompt, index);
   if (prompt.options[index].input === "chat") return { before: [...to, "enter"] };
   return { before: notes ? [...to, "tab"] : to };

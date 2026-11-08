@@ -1,15 +1,14 @@
-import { exec, appHome, shared, setShared, watchFolder } from "herdr";
+import { appHome, shared, setShared, watchFolder } from "herdr";
 import { readFile } from "fs/promises";
-import { sessionOf, chatKey } from "./common.js";
-import { onWindows, base64Utf8 } from "./platform.js";
-import { target, agentTargets, readScreen, readPrompt, inputBox } from "./terminal.js";
-import { parsePrompt, looksLikePrompt } from "./prompts.js";
-import { blankSession, parseReaderInSlices, applyRead, readerArgs, batchProgram, splitBatch } from "./session.js";
+import { sessionOf, chatKey } from "../common.js";
+import { base64Utf8, python } from "../platform.js";
+import { target, agentTargets, readScreen } from "../terminal.js";
+import { supportedNames } from "../harnesses/index.js";
+import { blankSession, parseReaderInSlices, applyRead, readerArgs, batchProgram, splitBatch } from "../model/session.js";
 
 const SESSIONS_KEPT = 32;
 const READ_AFTER = [1000, 4000];
 const QUIET_EVERY = 1500;
-const ROW_SETTLE = 3000;
 const WAIT_EVERY = 3000;
 const RETRY_AFTER = 5000;
 const STALE_AFTER = 3000, CHECK_AFTER = 300, SILENT_AFTER = 5000;
@@ -17,27 +16,27 @@ const PATHS_KEY = "herdr-chat.paths";
 
 let readerBase64 = null;
 async function readerSource() {
-  if (!readerBase64) readerBase64 = base64Utf8(await readFile(`${appHome()}/mods/herdr-chat/read_session.py`, "utf8"));
+  // The session reader as one script: readers/*.py joined in manifest order, so another machine runs it from one `python3 -c`.
+  if (!readerBase64) {
+    const dir = `${appHome()}/mods/herdr-chat/readers`;
+    const order = JSON.parse(await readFile(`${dir}/manifest.json`, "utf8"));
+    readerBase64 = base64Utf8((await Promise.all(order.map(f => readFile(`${dir}/${f}`, "utf8")))).join("\n"));
+  }
   return readerBase64;
 }
 
+const NO_PYTHON = { code: 0, stdout: `NOTE|${encodeURIComponent("Reading conversations on Windows needs Python 3 (python.org, or the py launcher).")}\n`, stderr: "" };
+
 async function runReader(t, at) {
-  const { path, hint, offset, leaf } = at;
-  if (!t.remote && onWindows()) {
-    return exec("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-      `${appHome()}\\mods\\herdr-chat\\read-session.ps1`,
-      "-App", t.app, "-TermPid", String(t.pid), "-CreatedMs", String(t.created), "-Cwd", t.cwd,
-      "-KnownPath", path || "", "-Hint", hint || "", "-Offset", String(offset || 0), "-Leaf", leaf || ""]);
-  }
   const boot = `import base64,sys;sys.argv[0]='read_session';exec(compile(base64.b64decode('${await readerSource()}'),'read_session.py','exec'))`;
-  return exec("python3", ["-c", boot, ...readerArgs(t, at)], t.machine ? { on: t.machine } : undefined);
+  return (await python(["-c", boot, ...readerArgs(t, at)], t.machine ? { on: t.machine } : undefined)) ?? NO_PYTHON;
 }
 
 async function runReaders(machine, list) {
   // Reads several sessions on one machine (null: this one) in one Python run; each one's output, or null.
   const program = batchProgram(await readerSource());
-  const r = await exec("python3", ["-c", program, base64Utf8(JSON.stringify(list.map(([t, at]) => readerArgs(t, at))))], machine ? { on: machine } : undefined);
-  return r.code === 0 ? splitBatch(r.stdout) : null;
+  const r = await python(["-c", program, base64Utf8(JSON.stringify(list.map(([t, at]) => readerArgs(t, at))))], machine ? { on: machine } : undefined);
+  return r?.code === 0 ? splitBatch(r.stdout) : null;
 }
 
 function peersOf(t, all = agentTargets()) {
@@ -45,13 +44,15 @@ function peersOf(t, all = agentTargets()) {
   return all.filter(a => a.app === t.app && a.address !== t.address && a.machine === t.machine).length;
 }
 
-export const ReadingMethods = {
-  initReading() {
-    // The view's reading state before anything is read.
-    Object.assign(this, blankSession());
-    this.note = "Loading conversation…"; this.lastRead = 0; this.sessions = new Map();
+export class SessionReader {
+  constructor(host) {
+    // The shown conversation and the others kept in memory: read from the agents' logs, here and on other machines, and kept fresh. `host` is the view: its `card` (to read a question when the agent changes) and `list` (to follow new messages).
+    this.host = host;
+    this.session = blankSession();
+    this.session.note = "Loading conversation…";
+    this.key = ""; this.lastRead = 0; this.sessions = new Map();
     this.facts = null; this.dueReads = [];
-  },
+  }
 
   noticeAgents(cx) {
     // Reads what changed in herdr's agent list since the last look: the session on screen, others in the background.
@@ -64,7 +65,7 @@ export const ReadingMethods = {
       if (!first && this.facts.get(key) === now.get(key)) continue;
       if (key === this.key) {
         this.shownChangedAt = at;
-        if (!first) { this.read(cx); this.readQuestion(cx, t); }
+        if (!first) { this.read(cx); this.host.card.read(cx, t); }
         for (const ms of READ_AFTER) this.dueReads.push({ key, at: at + ms });
       } else if (!first) {
         for (const ms of READ_AFTER) this.dueReads.push({ machine: t.machine, at: at + ms });
@@ -76,7 +77,7 @@ export const ReadingMethods = {
     if ((shown?.status === "working" || shown?.status === "blocked") && at - Math.max(this.shownChangedAt ?? 0, this.quietReadAt ?? 0) >= QUIET_EVERY) {
       this.quietReadAt = at;
       if (shown.remote && shown.status === "working") this.read(cx);
-      this.readQuestion(cx, shown);
+      this.host.card.read(cx, shown);
     }
     const ready = this.dueReads.filter(d => d.at <= at);
     if (!ready.length) return;
@@ -84,108 +85,38 @@ export const ReadingMethods = {
     if (ready.some(d => d.key !== undefined && d.key === this.key)) this.read(cx);
     const machines = new Set(ready.filter(d => d.key === undefined).map(d => d.machine));
     if (machines.size) this.warm(cx, machines);
-  },
+  }
 
-  readQuestion(cx, t) {
-    // Reads the agent's screen for a question while it works or is blocked (Pi asks while working).
-    if (t.status !== "blocked" && t.status !== "working") {
-      if (this.screen) { this.screen = ""; this.choices = null; this.unread = false; cx.notify(); }
-      return;
-    }
-    if (this.readingScreen) { this.screenAgain = true; return; }
-    this.readingScreen = true;
-    cx.spawn(async cx => {
-      try {
-        const text = (await readPrompt(t)) ?? "";
-        if (text !== this.screen) {
-          this.screen = text; this.choices = parsePrompt(t.app, text);
-          this.unread = !this.choices && looksLikePrompt(text);
-          this.syncRowBox();
-          this.readStep(cx, t);
-          cx.notify();
-        }
-      } finally {
-        this.readingScreen = false;
-        if (this.screenAgain) { this.screenAgain = false; const now = target(); if (now && chatKey(now) === this.key) this.readQuestion(cx, now); }
-      }
-    });
-  },
-
-  syncRowBox() {
-    // Shows a multi-select's typed text in its box, and clears the box when the question changes.
-    if (this.rowDirty) return;
-    const q = this.choices, page = q?.question.join("\n") ?? "";
-    const box = this.rowInputs.text, kept = this.rowKept ??= new Map();
-    const typed = q?.options.find(o => o.input === "text")?.typed;
-    const moved = page !== this.rowPage;
-    if (moved && this.rowPage) kept.set(this.rowPage, box.value());
-    this.rowPage = page;
-    if (typed === undefined && !moved) return;
-    if (!moved && Date.now() - (this.rowEditedAt ?? 0) < ROW_SETTLE) return;
-    const text = typed ?? kept.get(page) ?? "";
-    if (box.value() === text) return;
-    this.rowSetting = true;
-    box.set_value(text);
-    this.rowSetting = false;
-  },
-
-  readStep(cx, t) {
-    // Finds which step a prompt is on when it changes page: the screen's text doesn't show it, only its colours.
-    const sig = JSON.stringify([this.choices?.question, this.choices?.steps]);
-    if (sig === this.stepSig) return;
-    this.stepSig = sig; this.currentStep = "";
-    if (!(this.choices?.steps.length > 1) || onWindows()) return;
-    cx.spawn(async cx => {
-      const r = await inputBox("step", t);
-      if (this.stepSig === sig && r.box) { this.currentStep = r.box; cx.notify(); }
-    });
-  },
-
-  switchSession(t, key) {
+  switchTo(t, key) {
     // Shows another session: the one on screen kept, the new one restored (or started).
     this.shownChangedAt = Date.now();
     this.stash();
-    if (!this.pendingDraft) this.pendingDraft = { from: this.key };
-    this.key = key; this.needsScroll = false; this.settling = true; this.pendingCount = -1; this.follow(); this.screen = ""; this.choices = null; this.unread = false; this.lastId = ""; this.screenAskedAt = 0;
+    this.key = key; this.lastId = ""; this.screenAskedAt = 0;
     this.watchToken = (this.watchToken ?? 0) + 1; this.watchedPath = ""; this.readError = ""; this.readStartedAt = 0;
     const kept = key ? this.sessions.get(key) : null;
-    if (kept) Object.assign(this, kept);
+    if (kept) this.session = kept;
     else {
       const known = t ? (shared(PATHS_KEY) ?? {})[sessionOf(t)] : null;
-      Object.assign(this, blankSession(known?.path ?? "", known?.hint ?? ""));
-      this.note = !t ? "Select a Claude Code, Codex or Pi terminal to see it as a chat." : `Opening this ${t.label} conversation…`;
+      this.session = blankSession(known?.path ?? "", known?.hint ?? "");
+      this.session.note = !t ? `Select a ${supportedNames()} terminal to see it as a chat.` : `Opening this ${t.label} conversation…`;
     }
     this.needsFirstRead = Boolean(t);
-  },
+  }
 
   stash() {
     // The session on screen kept in memory, to show at once when it is selected again.
-    if (!this.key || !this.path) return;
-    const kept = {};
-    for (const k of Object.keys(blankSession())) kept[k] = this[k];
+    if (!this.key || !this.session.path) return;
     this.sessions.delete(this.key);
-    this.sessions.set(this.key, kept);
+    this.sessions.set(this.key, this.session);
     this.trimSessions();
-  },
+  }
 
   trimSessions(live) {
     // Down to SESSIONS_KEPT: sessions whose agent is gone go first, then the least recently shown.
     if (this.sessions.size <= SESSIONS_KEPT) return;
     if (live) for (const k of [...this.sessions.keys()]) if (this.sessions.size > SESSIONS_KEPT && !live.has(k) && k !== this.key) this.sessions.delete(k);
     while (this.sessions.size > SESSIONS_KEPT) this.sessions.delete(this.sessions.keys().next().value);
-  },
-
-  refresh(cx) {
-    // Switches to the selected agent's session and reads it, and its screen for a question.
-    const t = target();
-    const key = chatKey(t);
-    if (key !== this.key) { this.switchSession(t, key); cx.notify(); }
-    if (this.pendingDraft) { this.swapDraft(this.key, this.pendingDraft.from); this.pendingDraft = null; cx.notify(); }
-    const switched = this.needsFirstRead;
-    this.needsFirstRead = false;
-    if (!t) return;
-    if (switched) { this.read(cx); this.readQuestion(cx, t); }
-  },
+  }
 
   read(cx) {
     // Reads the session on screen from where it last stopped.
@@ -195,11 +126,11 @@ export const ReadingMethods = {
     if (this.reading === key) { this.dirty = true; return; }
     const token = this.readSeq = (this.readSeq ?? 0) + 1;
     this.reading = key; this.dirty = false; this.lastRead = Date.now();
-    this.readStartedAt = Date.now(); this.readStaleFor = Date.now() - (this.readAt || 0);
+    this.readStartedAt = Date.now(); this.readStaleFor = Date.now() - (this.session.readAt || 0);
     const mine = () => this.key === key && this.readSeq === token;
     cx.spawn(async cx => {
       try {
-        const at = { path: this.path, hint: this.hint, offset: this.offset, peers: peersOf(t), leaf: this.leaf };
+        const at = { path: this.session.path, hint: this.session.hint, offset: this.session.offset, peers: peersOf(t), leaf: this.session.leaf };
         let r = await runReader(t, at);
         if (!mine()) return;
         if (r.code === 0 && /^NEED\|screen/m.test(r.stdout) && Date.now() - (this.screenAskedAt ?? 0) > 15000) {
@@ -214,12 +145,12 @@ export const ReadingMethods = {
         if (!mine()) return;
         this.merge(update, t);
         this.readError = "";
-        if (!t.remote) this.watch(cx, this.path);
+        if (!t.remote) this.watch(cx, this.session.path);
       } catch (e) {
         if (!mine()) return;
-        if (this.messages.length) this.readError = String(e?.message ?? e).split("\n")[0] || "no answer";
+        if (this.session.messages.length) this.readError = String(e?.message ?? e).split("\n")[0] || "no answer";
         else {
-          this.note = t.remote ? `${t.machine} is slow to answer. Trying again…` : `Couldn't read this conversation yet. Trying again…`;
+          this.session.note = t.remote ? `${t.machine} is slow to answer. Trying again…` : `Couldn't read this conversation yet. Trying again…`;
           this.dueReads.push({ key, at: Date.now() + RETRY_AFTER });
         }
       }
@@ -229,23 +160,23 @@ export const ReadingMethods = {
           if (this.reading === key) {
             this.reading = null;
             if (this.dirty) this.read(cx);
-            else if (!this.path && this.key === key) this.dueReads.push({ key, at: Date.now() + WAIT_EVERY });
+            else if (!this.session.path && this.key === key) this.dueReads.push({ key, at: Date.now() + WAIT_EVERY });
           }
         }
         cx.notify();
       }
     });
-  },
+  }
 
   merge(update, t) {
     // Applies the reader's update to the session on screen and remembers its log, for the agent it was read from.
-    applyRead(this, update);
-    this.readAt = Date.now();
-    this.rememberPath(sessionOf(t), this.path, this.hint);
-    const last = this.messages[this.messages.length - 1];
-    const id = last ? `${this.messages.length}:${last.kind}:${last.text ?? last.calls.length}:${last.calls?.at(-1)?.o?.length ?? 0}` : "";
-    if (id !== this.lastId) { this.lastId = id; if (this.following) this.follow(); }
-  },
+    applyRead(this.session, update);
+    this.session.readAt = Date.now();
+    this.rememberPath(sessionOf(t), this.session.path, this.session.hint);
+    const last = this.session.messages[this.session.messages.length - 1];
+    const id = last ? `${this.session.messages.length}:${last.kind}:${last.text ?? last.calls.length}:${last.calls?.at(-1)?.o?.length ?? 0}` : "";
+    if (id !== this.lastId) { this.lastId = id; if (this.host.list.following) this.host.list.follow(); }
+  }
 
   watch(cx, path) {
     // Reads again whenever the log's folder changes (agents on this computer).
@@ -261,7 +192,7 @@ export const ReadingMethods = {
         if (changed.some(p => /\.jsonl$/i.test(p))) this.read(cx);
       }
     });
-  },
+  }
 
   rememberPath(id, path, hint) {
     // Which log a session reads, kept across restarts (herdr's shared state), so it isn't searched for again.
@@ -273,7 +204,7 @@ export const ReadingMethods = {
     const ids = Object.keys(all);
     for (const old of ids.slice(0, Math.max(0, ids.length - 200))) delete all[old];
     setShared(PATHS_KEY, all);
-  },
+  }
 
   warm(cx, machines) {
     // Reads every other agent's session in the background (those on `machines`, or all), so switching to one shows it at once.
@@ -288,7 +219,7 @@ export const ReadingMethods = {
         for (const t of all) {
           const key = chatKey(t);
           live.add(key);
-          if (key === this.key || !t.pid || (!t.remote && onWindows()) || (machines && !machines.has(t.machine))) continue;
+          if (key === this.key || !t.pid || (machines && !machines.has(t.machine))) continue;
           const s = this.sessions.get(key);
           const known = s ? null : (shared(PATHS_KEY) ?? {})[sessionOf(t)];
           const at = s ? { path: s.path, hint: s.hint, offset: s.offset, leaf: s.leaf } : { path: known?.path ?? "", hint: known?.hint ?? "", offset: 0, leaf: "" };
@@ -320,20 +251,20 @@ export const ReadingMethods = {
         if (next) this.warm(cx, next === 'all' ? undefined : next);
       }
     });
-  },
+  }
 
   readCue() {
     // The row under the conversation while a read is slow: "checking", "silent" (no answer), or "".
-    if (!this.messages.length) return "";
+    if (!this.session.messages.length) return "";
     const since = this.readStartedAt ? Date.now() - this.readStartedAt : 0;
     if (this.readError || since > SILENT_AFTER) return "silent";
     return since > CHECK_AFTER && this.readStaleFor > STALE_AFTER ? "checking" : "";
-  },
+  }
 
   retry(cx) {
     // Retry on the "isn't answering" row: a new read, taking over from one that hangs.
     this.readError = ""; this.reading = null;
     this.read(cx);
     cx.notify();
-  },
-};
+  }
+}
