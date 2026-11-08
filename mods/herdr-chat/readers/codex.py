@@ -111,9 +111,23 @@ def parse_codex(path):
         if role == "assistant" and phase not in ("final", "final_answer", "commentary"): continue
         body = content_text(p.get("content")).strip()
         if role == "user":
-            if re.match(r"^<(environment_context|user_instructions|permissions)", body) or body.startswith("# AGENTS.md"): continue
+            if re.match(r"^<(environment_context|user_instructions|permissions|skill>)", body) or body.startswith("# AGENTS.md"): continue
             text, images = placed_images(body)
             add_message(role, phase, re.sub(r'<image\s+name=\[Image #\d+\]\s+path="[^"]*">\s*(?:</image>)?\s*', "", text), images); continue
         add_message(role, phase, body)
+
+def codex_listed_skills(path):
+    """The skills Codex told its model about, from the newest list in its log."""
+    found = []
+    for line in log_lines(path, b"skills_instructions"):
+        p = (loads(line) or {}).get("payload") or {}
+        if p.get("role") != "developer": continue
+        for c in p.get("content") or []:
+            text = str(c.get("text", "")) if isinstance(c, dict) else ""
+            if "<skills_instructions>" in text:
+                found = [(n, d, "") for n, d in re.findall(r"(?m)^- ([^:\n]+): (.*?)(?: \(file: [^)]*\))?$", text.split("</skills_instructions>")[0])]
+    return found
+
+SKILL_LOGS["codex"] = codex_listed_skills
 
 READERS["codex"] = (find_codex, parse_codex)

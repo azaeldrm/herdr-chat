@@ -16,6 +16,7 @@ const SHAPE = {
   mirror: v => typeof v === "boolean",
   prompt: v => v && typeof v === "object" && Object.keys(v).every(k => ["columns", "notes", "byNumber"].includes(k)),
   box: (v, h) => v === null ? h.mirror === false : Boolean(v && (v.style === "rules" || (v.style === "mark" && typeof v.mark === "string" && v.mark.length > 0))),
+  skills: v => Boolean(v && Array.isArray(v.triggers) && v.triggers.length && typeof v.invoke === "string" && v.triggers.includes(v.invoke[0]) && Array.isArray(v.user) && Array.isArray(v.project) && Array.isArray(v.skip) && Object.keys(v).every(k => ["triggers", "invoke", "user", "project", "skip", "enterTwice"].includes(k))),
   reader: v => typeof v === "string" && v.length > 0,
 };
 for (const [app, h] of Object.entries(HARNESSES)) {

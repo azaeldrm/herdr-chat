@@ -32,6 +32,16 @@ async function runReader(t, at) {
   return (await python(["-c", boot, ...readerArgs(t, at)], t.machine ? { on: t.machine } : undefined)) ?? NO_PYTHON;
 }
 
+export async function readSkills(t, path) {
+  // The reader's list of an agent's skills, run on the agent's machine.
+  const { user, project, skip } = t.harness.skills;
+  const boot = `import base64,sys;sys.argv[0]='read_session';exec(compile(base64.b64decode('${await readerSource()}'),'read_session.py','exec'))`;
+  const args = ["--app", t.harness.reader, "--pid", String(t.pid), "--skills", JSON.stringify({ user, project, skip })];
+  if (t.cwd) args.push("--cwd", t.cwd);
+  if (path) args.push("--known", path);
+  return python(["-c", boot, ...args], t.machine ? { on: t.machine } : undefined);
+}
+
 async function runReaders(machine, list) {
   // Reads several sessions on one machine (null: this one) in one Python run; each one's output, or null.
   const program = batchProgram(await readerSource());
