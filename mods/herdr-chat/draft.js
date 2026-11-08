@@ -5,7 +5,7 @@ const DRAFTS_KEPT = 50;
 const DRAFT_PAUSE = 400;
 import { sessionOf } from "./common.js";
 import { target, inputBox } from "./terminal.js";
-import { canMirror, draftPastes, textOfBox, readBack } from "./agents.js";
+import { canMirror, draftPastes, textOfBox, readBack } from "./harnesses/index.js";
 
 export function savedDraft(key) {
   // The draft kept in shared state for session `key`, as { text, attachments }, or null.
@@ -39,7 +39,7 @@ export const DraftMethods = {
     const was = this.lastMode, wasSession = this.lastModeSession;
     this.lastMode = mode; this.lastModeSession = session;
     if (mode === "chat" && was !== "chat") this.input.focus();
-    if (mode === was || !t || session !== wasSession || !canMirror(t.app) || this.sending || this.choices) return;
+    if (mode === was || !t || session !== wasSession || !canMirror(t.harness) || this.sending || this.choices) return;
     if (was === "chat" && mode === "terminal") this.pushDraft(t, session, cx);
     else if (was === "terminal" && mode === "chat") this.pullDraft(t, session, cx);
   },
@@ -57,11 +57,11 @@ export const DraftMethods = {
     if (this.mirror?.session === session && this.mirror.sig === sig) return;
     this.queueMirror(cx, async () => {
       const paths = await this.placeImages(t, images);
-      const { pastes, pasted } = draftPastes(t.app, paths, text);
-      const r = await inputBox("set", t, t.app, JSON.stringify(pastes));
+      const { pastes, pasted } = draftPastes(t.harness, paths, text);
+      const r = await inputBox("set", t, JSON.stringify(pastes));
       if (!r.ok) return;
       const box = r.box ?? "";
-      const textBox = textOfBox(t.app, box);
+      const textBox = textOfBox(t.harness, box);
       this.mirror = { session, sig, images, paths, pasted, textBox, box, foreign: false };
     });
   },
@@ -69,13 +69,13 @@ export const DraftMethods = {
   pullDraft(t, session, cx) {
     // The agent's box back into the chat.
     this.queueMirror(cx, async cx => {
-      const r = await inputBox("read", t, t.app);
+      const r = await inputBox("read", t);
       if (!r.ok) return;
       const box = r.box;
       if (box == null || target()?.address !== t.address || shared("herdr-chat.mode") !== "chat") return;
       const m = this.mirror?.session === session ? this.mirror : null;
       if (m && box === m.box) return;
-      const { text, kept, foreign } = readBack(t.app, box, m);
+      const { text, kept, foreign } = readBack(t.harness, box, m);
       if (foreign) {
         this.mirror = { ...(m ?? { session, sig: "", images: [], paths: [], pasted: "", textBox: "" }), box, foreign: true };
         this.note = `${t.label}'s input box has an image that was pasted into the terminal itself, and ${t.label} keeps that image where the chat can't read it. Send that draft from the Terminal view, or remove the image there.`;

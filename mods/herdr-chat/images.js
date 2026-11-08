@@ -39,7 +39,7 @@ export const ImageMethods = {
       : await exec("sh", args.unix).catch(e => ({ code: 1, stderr: String(e) }));
     const file = (r.stdout ?? "").trim().split(/\r?\n/).pop();
     if ((r.code === 0 || r.code === 5) && file) {
-      if (r.code === 5) this.note = `${label} is over 256 KB and nothing here can shrink it (install ImageMagick), so Claude Code may not attach it.`;
+      if (r.code === 5) this.note = `${label} is over 256 KB and nothing here can shrink it (install ImageMagick), so the agent may not attach it.`;
       return file;
     }
     if (r.code === 3) return null;

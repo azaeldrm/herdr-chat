@@ -1,6 +1,6 @@
 import { run, shared, setShared, terminals } from "herdr";
 
-export { SUPPORTED } from "./agents.js";
+export { SUPPORTED } from "./harnesses/index.js";
 export const ICONS = "mods/herdr-chat/icons";
 
 const VIEWS_KEY = "herdr-chat.views";

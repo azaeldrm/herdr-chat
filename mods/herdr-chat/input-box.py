@@ -173,13 +173,14 @@ def join(lines):
 PROMPT_KEYS = re.compile(r"enter to (select|confirm|submit)|↑/↓|↑↓|to navigate|esc to cancel|esc (back|dismiss)", re.I)
 
 
-def box(grid, app):
+def box(grid, shape):
+    """The text typed in the input box, found the way `shape` (the harness adapter's `box`) describes it, or None."""
     rows, cols = len(grid), len(grid[0]) if grid else 0
     texts = [text_of(row) for row in grid]
     if any(PROMPT_KEYS.search(line) for line in [x for x in texts if x.strip()][-6:]):
         return None
-    if app in ("claude-code", "codex"):
-        mark = "❯" if app == "claude-code" else "›"
+    if shape.get("style") == "mark":
+        mark = shape["mark"]
         start = next((y for y in range(rows - 1, -1, -1) if texts[y].startswith(mark + " ") or texts[y] == mark), None)
         if start is None:
             return None
@@ -187,14 +188,14 @@ def box(grid, app):
         for y in range(start, rows):
             if y > start and (not texts[y].startswith("  ") or is_rule(grid[y])):
                 break
-            if y > start and app == "codex" and not texts[y].strip():
+            if y > start and shape.get("stopAtBlank") and not texts[y].strip():
                 break
             line = typed_of(grid[y], 2)
             lines.append((line, len(texts[y]) >= cols - 1))
         while lines and not lines[-1][0]:
             lines.pop()
         return join(lines)
-    if app == "pi":
+    if shape.get("style") == "rules":
         rules = [y for y in range(rows) if is_rule(grid[y])]
         if len(rules) < 2:
             return None
@@ -215,12 +216,12 @@ def quiet_for(terminal):
     return 0.5 if "/" in terminal else 0.15
 
 
-def read(terminal, app):
+def read(terminal, shape):
     rows, cols = size(terminal)
     pid, fd = attach(terminal, True, rows, cols)
     paint = drain(fd, quiet_for(terminal), 4.0).decode("utf-8", "replace")
     detach(pid, fd)
-    return box(render(paint, rows, cols), app) if paint else None
+    return box(render(paint, rows, cols), shape) if paint else None
 
 
 STEP_ROW = re.compile(r"(?:Submit\s*→|←[^\r\n]*[□☐■☑☒])[^\r\n]*\r?\n")
@@ -294,7 +295,7 @@ def paste(terminal, text):
 def main():
     cmd = sys.argv[1]
     if cmd == "read":
-        print(json.dumps({"box": read(sys.argv[2], sys.argv[3])}))
+        print(json.dumps({"box": read(sys.argv[2], json.loads(sys.argv[3]))}))
     elif cmd == "step":
         step(sys.argv[2])
     elif cmd == "fill":
@@ -302,14 +303,14 @@ def main():
     elif cmd == "paste":
         paste(sys.argv[2], sys.argv[3])
     elif cmd == "set":
-        terminal, app, pastes = sys.argv[2], sys.argv[3], [p for p in json.loads(sys.argv[4]) if p]
-        now = read(terminal, app)
+        terminal, shape, pastes = sys.argv[2], json.loads(sys.argv[3]), [p for p in json.loads(sys.argv[4]) if p]
+        now = read(terminal, shape)
         if now is None:
             sys.exit("no input box on screen")
         if now or pastes:
             type_into(terminal, len(now) + now.count("\n") + 8 if now else 0, pastes)
             time.sleep(0.15)
-            now = read(terminal, app)
+            now = read(terminal, shape)
         print(json.dumps({"box": now}))
 
 
