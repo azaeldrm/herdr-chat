@@ -3,7 +3,8 @@ from pathlib import Path
 
 if not os.path.isdir("/proc"):
     print("SKIP codex-logs: needs /proc"); sys.exit(0)
-reader = Path(__file__).resolve().parent.parent / "mods" / "herdr-chat" / "read_session.py"
+from reader_bundle import bundle
+reader = bundle()
 ID = "01a185bc-bc6d-7860-b909-dfd06239af87"
 
 def iso(t): return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(t)) + ".000Z"

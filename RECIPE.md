@@ -145,8 +145,7 @@ Mod (`mods/herdr-chat/`, `mod.json` is `{"place":"none"}`):
 | `ui.js` | shared look: column width, icons, program icon, pane buttons, status badge, view toggle, clock time |
 | `header.js` | the terminal pane header with the toggle |
 | `common.js` | session keys, per-session view memory, `layout.select` |
-| `read-session.ps1` | session reader on Windows (PowerShell 5.1) |
-| `read_session.py` | the same reader for Linux, macOS and other machines (Python 3.6+) |
+| `readers/` | the session reader (Python 3.6+), one file per harness (`claude_code.py`, `codex.py`, `pi.py`) beside `common.py` (arguments, output tags, process helpers) and `main.py` (dispatch through `READERS`). The mod joins them in `manifest.json` order into one script for `python3 -c`, here and on other machines; Windows runs the same script with `py -3` or `python` |
 | `send.ps1` | sends text on Windows without hc's terminal identity |
 | `prepare-image.sh` / `prepare-image.ps1` | copy an image (or the clipboard's) into the preview folder, shrunk under 240 KB |
 | `input-box.py` | reads, sets or pastes into an agent's own input box without Enter, through `hc attach` in a pty (the one draft, pasted images); the box is found by the adapter's `box` shape |
@@ -164,8 +163,9 @@ with `set_theme` from `gpui-base`. UI parts: `v_virtual_list` with a `VirtualLis
 
 - runs programs: `powershell.exe` (Windows), `python3`, `sh`, `env`, `hc` (also `hc attach`,
   `hc put`), `wl-paste` / `xclip` / `pngpaste` and ImageMagick (`magick`) or `sips`, including on other
-  machines through `exec(…, { on: machine })`; the Python reader is passed to `python3 -c`, so
-  nothing is installed on the other machine, but `python3` and `hc` must be there;
+  machines through `exec(…, { on: machine })`; the Python reader is joined from `readers/` and passed to `python3 -c`
+  (`py -3` or `python` on Windows), so nothing is installed on the other machine, but `python3` and
+  `hc` must be there;
 - reads files outside its own folder: the agents' session logs under `~/.claude/projects`,
   `~/.claude/sessions`, `~/.codex/sessions` and `~/.pi/agent/sessions`, and reads the terminal's
   screen with `hc read`;
@@ -233,7 +233,7 @@ Things a fresh build would get wrong:
   focused: the image then lands in the agent's box, not the chat.
 
 - **Escaping.** `\\` in a JavaScript template string is one backslash; the Windows paths to the
-  `.ps1` files need it doubled, and a missed one makes `\r` a carriage return and the reader never
+  `.ps1` files need it doubled, and a missed one makes `\r` a carriage return and the script never
   starts.
 - **`this.header`.** The View already has a `header()` method for the chat's top bar; the flag that
   marks a header copy is `asHeader`. Naming it `header` made every copy draw the header and the
@@ -265,8 +265,9 @@ Limits and gaps:
 - Questions appear as terminal text with key buttons, not as parsed options.
 - Messages sent while an agent is busy are typed straight in, not queued; there is no stop button.
 - Other agents (OpenCode, Gemini, …) aren't read.
-- Tested on Windows with agents on this computer and on a Linux machine over herdr's machine link;
-  the Python reader has not been run on macOS.
+- Tested on Windows with agents on this computer and on a Linux machine over herdr's machine link,
+  when Windows read sessions with PowerShell; the Python reader that replaced it hasn't been run on
+  Windows or macOS yet.
 
 ## Done when
 

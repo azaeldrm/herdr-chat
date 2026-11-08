@@ -1,7 +1,7 @@
-import { exec, appHome, shared, setShared, watchFolder } from "herdr";
+import { appHome, shared, setShared, watchFolder } from "herdr";
 import { readFile } from "fs/promises";
 import { sessionOf, chatKey } from "./common.js";
-import { onWindows, base64Utf8 } from "./platform.js";
+import { onWindows, base64Utf8, python } from "./platform.js";
 import { target, agentTargets, readScreen, readPrompt, inputBox } from "./terminal.js";
 import { parsePrompt, looksLikePrompt } from "./prompts.js";
 import { supportedNames } from "./harnesses/index.js";
@@ -18,27 +18,27 @@ const PATHS_KEY = "herdr-chat.paths";
 
 let readerBase64 = null;
 async function readerSource() {
-  if (!readerBase64) readerBase64 = base64Utf8(await readFile(`${appHome()}/mods/herdr-chat/read_session.py`, "utf8"));
+  // The session reader as one script: readers/*.py joined in manifest order, so another machine runs it from one `python3 -c`.
+  if (!readerBase64) {
+    const dir = `${appHome()}/mods/herdr-chat/readers`;
+    const order = JSON.parse(await readFile(`${dir}/manifest.json`, "utf8"));
+    readerBase64 = base64Utf8((await Promise.all(order.map(f => readFile(`${dir}/${f}`, "utf8")))).join("\n"));
+  }
   return readerBase64;
 }
 
+const NO_PYTHON = { code: 0, stdout: `NOTE|${encodeURIComponent("Reading conversations on Windows needs Python 3 (python.org, or the py launcher).")}\n`, stderr: "" };
+
 async function runReader(t, at) {
-  const { path, hint, offset, leaf } = at;
-  if (!t.remote && onWindows()) {
-    return exec("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-      `${appHome()}\\mods\\herdr-chat\\read-session.ps1`,
-      "-App", t.app, "-TermPid", String(t.pid), "-CreatedMs", String(t.created), "-Cwd", t.cwd,
-      "-KnownPath", path || "", "-Hint", hint || "", "-Offset", String(offset || 0), "-Leaf", leaf || ""]);
-  }
   const boot = `import base64,sys;sys.argv[0]='read_session';exec(compile(base64.b64decode('${await readerSource()}'),'read_session.py','exec'))`;
-  return exec("python3", ["-c", boot, ...readerArgs(t, at)], t.machine ? { on: t.machine } : undefined);
+  return (await python(["-c", boot, ...readerArgs(t, at)], t.machine ? { on: t.machine } : undefined)) ?? NO_PYTHON;
 }
 
 async function runReaders(machine, list) {
   // Reads several sessions on one machine (null: this one) in one Python run; each one's output, or null.
   const program = batchProgram(await readerSource());
-  const r = await exec("python3", ["-c", program, base64Utf8(JSON.stringify(list.map(([t, at]) => readerArgs(t, at))))], machine ? { on: machine } : undefined);
-  return r.code === 0 ? splitBatch(r.stdout) : null;
+  const r = await python(["-c", program, base64Utf8(JSON.stringify(list.map(([t, at]) => readerArgs(t, at))))], machine ? { on: machine } : undefined);
+  return r?.code === 0 ? splitBatch(r.stdout) : null;
 }
 
 function peersOf(t, all = agentTargets()) {
@@ -289,7 +289,7 @@ export const ReadingMethods = {
         for (const t of all) {
           const key = chatKey(t);
           live.add(key);
-          if (key === this.key || !t.pid || (!t.remote && onWindows()) || (machines && !machines.has(t.machine))) continue;
+          if (key === this.key || !t.pid || (machines && !machines.has(t.machine))) continue;
           const s = this.sessions.get(key);
           const known = s ? null : (shared(PATHS_KEY) ?? {})[sessionOf(t)];
           const at = s ? { path: s.path, hint: s.hint, offset: s.offset, leaf: s.leaf } : { path: known?.path ?? "", hint: known?.hint ?? "", offset: 0, leaf: "" };

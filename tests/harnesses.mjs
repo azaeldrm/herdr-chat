@@ -35,7 +35,7 @@ check("a path harness keeps the image whose path is still in its box", readBack(
 
 const ids = Object.keys(HARNESSES).concat(["opencode"]);
 const literal = new RegExp(`["'](${ids.map(i => i.replace(/[-]/g, "\\-")).join("|")})["']`);
-const ALLOWED = [/^harnesses\//, /^read_session\.py$/, /^read-session\.ps1$/, /^vendor\//];
+const ALLOWED = [/^harnesses\//, /^readers\/(?!common\.py$|main\.py$)/, /^vendor\//];
 function files(dir) {
   // Every file under dir, as paths relative to the mod.
   return readdirSync(dir).flatMap(f => statSync(join(dir, f)).isDirectory() ? files(join(dir, f)) : [join(dir, f)]);
@@ -46,5 +46,11 @@ for (const file of files(MOD).filter(f => /\.(js|py|ps1|sh)$/.test(f))) {
   const hit = readFileSync(file, "utf8").split("\n").find(l => literal.test(l));
   check(`${rel} names no harness (harness behavior belongs in harnesses/)`, hit ?? null, null);
 }
+
+const readers = readdirSync(join(MOD, "readers")).filter(f => f.endsWith(".py")).map(f => readFileSync(join(MOD, "readers", f), "utf8")).join("\n");
+const order = JSON.parse(readFileSync(join(MOD, "readers", "manifest.json"), "utf8"));
+for (const h of Object.values(HARNESSES)) check(`${h.id}: its reader "${h.reader}" is registered in readers/`, readers.includes(`READERS["${h.reader}"] = `), true);
+check("every reader file is in the manifest", readdirSync(join(MOD, "readers")).filter(f => f.endsWith(".py")).sort(), [...order].sort());
+check("the manifest starts with common.py and ends with main.py", [order[0], order.at(-1)], ["common.py", "main.py"]);
 
 process.exit(failed ? 1 : 0);

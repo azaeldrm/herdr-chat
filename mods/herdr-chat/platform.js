@@ -2,6 +2,16 @@ import { appHome, exec } from "herdr";
 
 export function onWindows() { return appHome().includes("\\"); }
 
+export async function python(args, opts) {
+  // Runs Python 3 with `args`: python3 here and on other machines, the py launcher (or python) on Windows; null when there's none.
+  if (opts?.on || !onWindows()) return exec("python3", args, opts);
+  for (const [cmd, pre] of [["py", ["-3"]], ["python", []]]) {
+    const r = await exec(cmd, [...pre, ...args], opts).catch(() => null);
+    if (r && !(r.code === 9009 || (r.code !== 0 && /not recognized|not found|was not found/i.test(r.stderr || "")))) return r;
+  }
+  return null;
+}
+
 export function modFile(name) {
   // A file of this mod, as a path for programs to open.
   return onWindows() ? `${appHome()}\\mods\\herdr-chat\\${name}` : `${appHome()}/mods/herdr-chat/${name}`;

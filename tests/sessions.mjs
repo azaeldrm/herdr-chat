@@ -33,9 +33,11 @@ for (const [pid, sid, words] of [[4101, "s1", ["one", "two"]], [4102, "s2", ["th
   writeFileSync(join(home, ".claude", "projects", "-work", `${sid}.jsonl`),
     entry("user", U(pid), null, words[0]) + "\n" + entry("assistant", U(pid + 1), U(pid), [{ type: "text", text: words[1] }]) + "\n");
 }
-const reader = readFileSync(join(MOD, "read_session.py"));
+const order = JSON.parse(readFileSync(join(MOD, "readers", "manifest.json"), "utf8"));
+const reader = Buffer.from(order.map(f => readFileSync(join(MOD, "readers", f), "utf8")).join("\n"));
 const env = { ...process.env, HOME: home };
-const terms = [{ app: "claude-code", pid: 4101, created: 1, cwd: "/work" }, { app: "claude-code", pid: 4102, created: 1, cwd: "/work" }];
+const claude = { reader: "claude-code" };
+const terms = [{ app: "claude-code", harness: claude, label: "Claude Code", pid: 4101, created: 1, cwd: "/work" }, { app: "claude-code", harness: claude, label: "Claude Code", pid: 4102, created: 1, cwd: "/work" }];
 const single = terms.map(t => execFileSync("python3", ["-c", reader.toString(), ...readerArgs(t, { offset: 0 })], { env }).toString().replace(/^/, ""));
 const batch = splitBatch(execFileSync("python3", ["-c", batchProgram(reader.toString("base64")), Buffer.from(JSON.stringify(terms.map(t => readerArgs(t, { offset: 0 })))).toString("base64")], { env }).toString());
 check("the batch gives one output per session", batch.length === 2);
