@@ -1,3 +1,6 @@
+if A.skills:
+    emit_skills()
+    sys.exit(0)
 label = A.label or A.app
 if A.app not in READERS: done("Chat view doesn't read %s sessions yet." % label)
 find, parse = READERS[A.app]

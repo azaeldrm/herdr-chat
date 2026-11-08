@@ -50,6 +50,7 @@ export default class HerdrChat extends View {
       if (chatKey(t) !== this.key || this.reader.needsFirstRead || this.composer.pendingDraft) this.refresh(cx);
       this.reader.noticeAgents(cx);
       this.composer.previewsFor(t, this.reader.session.messages, cx);
+      this.composer.menu.warm(t, this.reader.session.path, cx);
       this.noticeVisit();
       const cue = this.reader.readCue();
       if (cue !== this.shownCue) { this.shownCue = cue; cx.notify(); }

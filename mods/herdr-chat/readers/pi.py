@@ -67,7 +67,8 @@ def parse_pi(path):
         role = m.get("role")
         content = m.get("content") or []
         if role == "user":
-            add_message("user", "", *placed_images(content_text(content)))
+            said = re.sub(r'(?s)<skill name="([^"]+)"[^>]*>.*?</skill>\s*', r"/skill:\1 ", content_text(content))
+            add_message("user", "", *placed_images(said))
         elif role == "assistant":
             for c in content if isinstance(content, list) else []:
                 if not isinstance(c, dict): continue

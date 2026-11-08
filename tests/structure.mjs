@@ -15,6 +15,7 @@ const HOST = {
   "components/question-card.js": ["sending", "note", "key", "list.following", "list.follow"],
   "components/composer.js": ["sending", "note", "key", "list.following", "list.follow", "card.choices", "card.stillCurrent", "stop", "stopping"],
   "components/session-reader.js": ["card.read", "list.following", "list.follow"],
+  "components/skill-menu.js": ["input", "keepDraft"],
 };
 for (const [file, allowed] of Object.entries(HOST)) {
   const used = [...new Set([...read(file).matchAll(/this\.host\.(\w+)(?:\.(\w+))?/g)].map(m => {
@@ -35,7 +36,7 @@ check("rows are drawn from (row, ctx), not from the view", /\bthis\./.test(read(
 for (const file of walk(MOD)) check(`${file} keeps state off other objects (no Object.assign onto this)`, /Object\.assign\(this,/.test(read(file)), false);
 const methodsOf = file => new Set([...read(file).matchAll(/^  (?:async )?(\w+)\(.*\) \{$/gm)].map(m => m[1]));
 const fieldsOf = file => new Set([...read(file).matchAll(/this\.(\w+)\s*(?:=[^=]|\?\?=)/g)].map(m => m[1]));
-const COMPONENTS = { list: "components/chat-list.js", card: "components/question-card.js", composer: "components/composer.js", reader: "components/session-reader.js" };
+const COMPONENTS = { list: "components/chat-list.js", card: "components/question-card.js", composer: "components/composer.js", reader: "components/session-reader.js", menu: "components/skill-menu.js" };
 for (const file of [...Object.values(COMPONENTS), "main.js"]) {
   const own = new Set([...methodsOf(file), ...fieldsOf(file)]);
   const called = [...read(file).matchAll(/\bthis\.(\w+)\(/g)].map(m => m[1]);
