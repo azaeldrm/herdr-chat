@@ -81,10 +81,14 @@ runs in. Icons are the mod's own SVGs drawn in the theme's text colour.
 - **Images in the conversation.** One rule for every harness: a message's images are the paths in
   its text under herdr's `herdr-core/*/files/` folder, however the harness wrote them (`path`,
   `@path`, `@"path"`, Codex's `<image path="…">`). `placed_images()` in `readers/common.py` takes
-  them out of the text and the bubble shows them above it. An image's thumbnail is always
+  them out of the text and the bubble shows them above it. The agent's copy stays in herdr's folder,
+  which herdr-core removes with the terminal: the chat's ways of sending read it without a permission
+  prompt in Claude Code's default mode and in a read-only Codex. `image()` draws only from the herdr
+  home (absolute paths, `..` and symlinks stay blank), so a thumbnail is a display copy in
   `cache/herdr-chat/sent/<machine>~<terminal>~<file name>`: the chat moves a sent preview there, and
-  fetches any other placed image from the agent's machine the first time it shows; a chip with the
-  file name stands in when the file is gone. Previews go after 30 days or beyond the newest 300.
+  fetches any other placed image from the agent's machine the first time it shows, shrunk when big.
+  Thumbnails go with their terminal (checked at start and hourly; a machine that isn't connected
+  keeps its own). A chip with the file name stands in when the file is gone.
   Images attached inside a harness's own terminal aren't translated: they show as it wrote them.
 - **One draft.** The chat box and the agent's own input box hold the same draft. Switching a
   session to Terminal types the chat's draft, images included, into the agent's box without
@@ -175,7 +179,7 @@ with `set_theme` from `gpui-base`. UI parts: `v_virtual_list` with a `VirtualLis
   `~/.claude/sessions`, `~/.codex/sessions` and `~/.pi/agent/sessions`, and reads the terminal's
   screen with `hc read`;
 - types into terminals (`hc send`, `hc keys`, and pastes and Delete/Backspace through `hc attach`);
-- writes image copies under `~/.config/herdr-app/cache/herdr-chat/` (unsent ones removed after a day, sent ones kept in `sent/` for 30 days, at most 300);
+- writes image copies under `~/.config/herdr-app/cache/herdr-chat/` (unsent ones removed after a day, sent ones kept in `sent/` until their terminal is gone); uninstalling the mod leaves them, so delete that folder too;
 - changes one colour in herdr's shared palette for the whole app while it runs: `set_theme` with
   the palette's `accent` (and `selection`) set to a dimmed version of the theme's accent. It's the
   only way to make selected text visible in herdr's built-in text boxes; it follows the theme and

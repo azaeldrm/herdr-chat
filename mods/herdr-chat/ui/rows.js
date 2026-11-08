@@ -1,7 +1,7 @@
 import { div, image } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { COLUMN, icon, mono, disclosure, bubble } from "./primitives.js";
-import { SENT_DIR, previewName } from "../images.js";
+import { SENT_DIR, previewFile } from "../images.js";
 import { KINDS, STEP, summary, stepText } from "../model/transcript.js";
 import { diagramFor } from "../diagrams.js";
 
@@ -52,8 +52,8 @@ function stepRow(m, { t, open: opened }) {
 
 function sentImage(t, id, path, sent, machine) {
   // An image in the person's message: its preview in sent/, else a chip with its name.
-  const name = path.split(/[\\/]/).pop(), preview = previewName(path, machine);
-  if (sent?.has(preview)) return div().id(id).size(120).flex_none().rounded(12).overflow_hidden().border_1().border_color(t.border).bg(t.raised)
+  const name = path.split(/[\\/]/).pop(), preview = previewFile(sent, path, machine);
+  if (preview) return div().id(id).size(120).flex_none().rounded(12).overflow_hidden().border_1().border_color(t.border).bg(t.raised)
     .tooltip(name).child(image(`${SENT_DIR}/${preview}`).size_full());
   return h_flex().id(id).h(32).px(10).gap(6).flex_none().items_center().rounded(8).bg(t.raised).text_size(12.5).text_color(t.muted)
     .child(icon("image", 14, t.muted)).child(name || "Pasted image");

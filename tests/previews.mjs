@@ -1,9 +1,10 @@
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from "fs";
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, statSync, copyFileSync } from "fs";
+import { spawnSync } from "child_process";
 import { join } from "path";
 import { stage } from "./stage.mjs";
 
 const s = stage();
-const { previewName, keepSent, sentNames } = await s.load("images.js");
+const { previewName, previewFile, keepSent, sentNames, staleSent, dropSent } = await s.load("images.js");
 let failed = 0;
 const check = (name, got, want) => {
   const ok = JSON.stringify(got) === JSON.stringify(want);
@@ -26,17 +27,58 @@ check("sent previews move under their placed names", kept, ["local~t4k~same.png"
 check("their bytes are kept, whole", [...readFileSync(join(sent, kept[0]))], [1, 2, 255]);
 check("the originals are gone", [existsSync(a), existsSync(b)], [false, false]);
 
-const old = (Date.now() - 40 * 86400000).toString(36), fresh = Date.now().toString(36);
-writeFileSync(join(sent, `local~t1~${old}abc-old.png`), "x");
-writeFileSync(join(sent, `local~t1~${fresh}abc-new.png`), "x");
-const names = await sentNames();
-check("older than 30 days goes; recent, and names without a time, stay", [...names].sort(), [`local~t1~${fresh}abc-new.png`, "local~t4k~same.png", "local~t4s~same.png"].sort());
-check("and it's gone from disk", readdirSync(sent).some(f => f.includes("-old.png")), false);
-const base = Date.now(), many = i => `local~t2~${(base + i * 1000).toString(36)}abc-n${i}.png`;
-for (let i = 0; i < 305; i++) writeFileSync(join(sent, many(i)), "x");
-const capped = await sentNames();
-check("at most 300 are kept", capped.length, 300);
-check("the newest stay and the oldest go", [capped.includes(many(304)), existsSync(join(sent, many(304))), existsSync(join(sent, many(0)))], [true, true, false]);
+check("sent/ lists them", [...await sentNames()].sort(), ["local~t4k~same.png", "local~t4s~same.png"]);
 
+const on = new Set(["local~t4k~same.png", "local~t4s~big.png.jpg"]);
+check("a preview is found under its name", previewFile(on, placed("t4k", "same.png")), "local~t4k~same.png");
+check("or as the shrunk .jpg", previewFile(on, placed("t4s", "big.png")), "local~t4s~big.png.jpg");
+check("or not at all", previewFile(on, placed("t9", "same.png")), null);
+
+const names = ["local~t1~a.png", "local~gone~a.png", "local~t1~b.png.jpg", "box~t2~a.png", "box~gone~a.png", "down~t3~a.png", "down~t9~a.png", "removed~t1~a.png"];
+const listing = { machines: [{ name: "box", state: "connected" }, { name: "down", state: "needs_login" }], terminals: [{ address: "t1" }, { address: "box/t2" }] };
+check("only previews of terminals that are gone go; a machine that isn't connected keeps its own",
+  staleSent(names, listing), ["local~gone~a.png", "box~gone~a.png", "removed~t1~a.png"]);
+check("a failed listing deletes nothing", [staleSent(names, null), staleSent(names, { path: "/x" })], [[], []]);
+check("a machine name with odd characters still matches", staleSent(["my-box-1~t1~a.png"], { machines: [{ name: "my box/1", state: "connected" }], terminals: [{ address: "my box/1/t1" }] }), []);
+await dropSent(["local~t4k~same.png", "not-there.png"]);
+check("dropping removes the file, and a missing one is fine", readdirSync(sent), ["local~t4s~same.png"]);
+
+const real = stage();
+writeFileSync(join(real.dir, "node_modules", "herdr", "index.js"), `import { execFile } from "child_process";
+export const appHome = () => ${JSON.stringify(real.home)};
+export const hc = async () => ({ code: 1, stdout: "" });
+export const exec = (cmd, args) => new Promise(done => execFile(cmd, args, { maxBuffer: 64 * 1024 * 1024 }, (e, stdout, stderr) => done({ code: e ? (e.code ?? 1) : 0, stdout, stderr })));`);
+const live = await real.load("images.js");
+mkdirSync(join(real.home, "cache", "herdr-chat"), { recursive: true });
+mkdirSync(join(real.home, "mods", "herdr-chat"), { recursive: true });
+copyFileSync(join(real.dir, "mod", "prepare-image.sh"), join(real.home, "mods", "herdr-chat", "prepare-image.sh"));
+const away = join(real.dir, "herdr-core", "default", "files", "t7"), sentHere = join(real.home, "cache", "herdr-chat", "sent");
+mkdirSync(away, { recursive: true });
+const tiny = join(away, "tiny.png"), tinyBytes = new Uint8Array([137, 80, 78, 71, 0, 255, 1, 2]);
+writeFileSync(tiny, tinyBytes);
+check("a small placed image is fetched as it is", await live.fetchSent(tiny, null), "local~t7~tiny.png");
+check("byte for byte", [...readFileSync(join(sentHere, "local~t7~tiny.png"))], [...tinyBytes]);
+check("a missing one gives nothing", await live.fetchSent(join(away, "gone.png"), null), null);
+const fakeBin = join(real.dir, "bin"), elsewhere = join(away, "from-box.png");
+mkdirSync(fakeBin);
+writeFileSync(join(fakeBin, "hc"), `#!/bin/sh\n[ "$1 $2 $3" = "exec --on box" ] || exit 9\nshift 3\nexec "$@"\n`, { mode: 0o755 });
+const moreBytes = new Uint8Array(Array.from({ length: 2048 }, (_, i) => i % 256));
+writeFileSync(elsewhere, moreBytes);
+process.env.PATH = `${fakeBin}:${process.env.PATH}`;
+check("one from another machine comes through hc exec", await live.fetchSent(elsewhere, "box"), "box~t7~from-box.png");
+check("every byte intact, zero bytes and all", [...readFileSync(join(sentHere, "box~t7~from-box.png"))], [...moreBytes]);
+check("one that isn't there leaves nothing behind", [await live.fetchSent(join(away, "gone2.png"), "box"), existsSync(join(sentHere, "box~t7~gone2.png"))], [null, false]);
+const hasMagick = spawnSync("sh", ["-c", "command -v magick || command -v convert"]).status === 0;
+if (hasMagick) {
+  const big = join(away, "big.png");
+  spawnSync(spawnSync("sh", ["-c", "command -v magick"]).status === 0 ? "magick" : "convert", ["-size", "900x700", "plasma:fractal", big]);
+  const name = await live.fetchSent(big, null);
+  check("a big one is shrunk to its .jpg name", name, "local~t7~big.png.jpg");
+  check("under the size limit", statSync(join(sentHere, name)).size <= 250000, true);
+  check("and it's a real JPEG", [...readFileSync(join(sentHere, name)).subarray(0, 2)], [255, 216]);
+  check("no working copies stay behind", readdirSync(join(real.home, "cache", "herdr-chat")).sort(), ["sent"]);
+  check("the bubble finds it", live.previewFile(new Set(await live.sentNames()), big, null), "local~t7~big.png.jpg");
+}
+real.cleanup();
 s.cleanup();
 process.exit(failed ? 1 : 0);

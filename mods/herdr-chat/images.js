@@ -1,19 +1,19 @@
-import { appHome } from "herdr";
+import { appHome, exec } from "herdr";
 import { mkdir, readdir, readFile, writeFile, unlink } from "fs/promises";
-import { onWindows, python, fromBase64 } from "./platform.js";
+import { onWindows, python, modFile } from "./platform.js";
 
 export const IMAGE_FILE = /\.(png|jpe?g|gif|webp)$/i;
 export const ATTACH_DIR = "cache/herdr-chat";
 export function attachDir() { return onWindows() ? `${appHome()}\\cache\\herdr-chat` : `${appHome()}/${ATTACH_DIR}`; }
 export const SENT_DIR = `${ATTACH_DIR}/sent`;
-const SENT_DAYS = 30, SENT_MAX = 300;
 function sentDir() { return onWindows() ? `${attachDir()}\\sent` : `${appHome()}/${SENT_DIR}`; }
+
+function cleanPart(s) { return String(s ?? "").replace(/[^A-Za-z0-9_-]/g, "-"); }
 
 export function previewName(path, machine) {
   // A placed image's name in sent/: its machine, its terminal's folder under files/, and its file name, so images named alike elsewhere stay apart.
-  const clean = s => String(s ?? "").replace(/[^A-Za-z0-9_-]/g, "-");
   const parts = path.split(/[\\/]/);
-  return `${clean(machine) || "local"}~${clean(parts.at(-2))}~${parts.at(-1)}`;
+  return `${cleanPart(machine) || "local"}~${cleanPart(parts.at(-2))}~${parts.at(-1)}`;
 }
 
 export async function keepSent(previews, placed, machine) {
@@ -29,32 +29,71 @@ export async function keepSent(previews, placed, machine) {
   return kept;
 }
 
-const FETCH = "import base64,os,sys;p=sys.argv[1];os.path.getsize(p)<8000000 or sys.exit(1);sys.stdout.write(base64.b64encode(open(p,'rb').read()).decode())";
+const FETCH = `
+import shutil, subprocess, sys
+machine, path, dest = sys.argv[1:4]
+if machine:
+    read = "import sys;sys.stdout.buffer.write(open(sys.argv[1],'rb').read())"
+    got = subprocess.run(["hc", "exec", "--on", machine, "python3", "-c", read, path], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=25)
+    if got.returncode: sys.exit(1)
+    open(dest, "wb").write(got.stdout)
+    print(len(got.stdout))
+else:
+    shutil.copyfile(path, dest)
+    import os
+    print(os.path.getsize(dest))
+`;
+const SHRINK_OVER = 250000;
 
-export async function fetchSent(path, machine) {
-  // Copies an image herdr placed beside a terminal, on its machine (null: this one), into sent/ under its preview name; true when it landed.
-  const r = await python(["-c", FETCH, path], machine ? { on: machine } : undefined).catch(() => null);
-  if (!r || r.code !== 0 || !r.stdout.trim()) return false;
-  await mkdir(sentDir(), { recursive: true }).catch(() => null);
-  return writeFile(`${sentDir()}/${previewName(path, machine)}`, fromBase64(r.stdout)).then(() => true, () => false);
+async function shrink(name) {
+  // A big preview in sent/ through the reply box's prepare script, as <name>.jpg in place of it; the name kept, or null when it can't be shrunk here.
+  const source = `${sentDir()}/${name}`;
+  const r = await (onWindows()
+    ? exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass", "-File", modFile("prepare-image.ps1"), "-Source", source, "-Folder", sentDir(), "-Name", name])
+    : exec("sh", [modFile("prepare-image.sh"), source, sentDir(), name])).catch(() => null);
+  const made = (r?.stdout ?? "").trim().split(/\r?\n/).pop().split(/[\\/]/).pop();
+  if (r?.code === 0 && made === `${name}.jpg`) { await unlink(source).catch(() => null); return made; }
+  if (made && made !== name) await unlink(`${sentDir()}/${made}`).catch(() => null);
+  return null;
 }
 
-function madeAt(name) {
-  // When a preview was made, from the base-36 time that starts its file name (attachName); 0 when it has none.
-  const file = name.split("~").slice(2).join("~");
-  const at = parseInt(file.slice(0, 8), 36);
-  return /^[0-9a-z]{8}/.test(file) && at > 0 ? at : 0;
+export async function fetchSent(path, machine) {
+  // Copies an image herdr placed beside a terminal, on its machine (null: this one), into sent/, shrunk when big; the file's name there, or null.
+  await mkdir(sentDir(), { recursive: true }).catch(() => null);
+  const name = previewName(path, machine);
+  const r = await python(["-c", FETCH, machine ?? "", path, `${sentDir()}/${name}`]).catch(() => null);
+  if (!r || r.code !== 0) { await unlink(`${sentDir()}/${name}`).catch(() => null); return null; }
+  return Number(r.stdout) > SHRINK_OVER ? (await shrink(name).catch(() => null)) ?? name : name;
+}
+
+export function previewFile(sent, path, machine) {
+  // The file in sent/ that shows a placed image, as `sent` lists them: under its preview name, or that with .jpg when it was shrunk; null when there's none.
+  const name = previewName(path, machine);
+  return sent?.has(name) ? name : sent?.has(`${name}.jpg`) ? `${name}.jpg` : null;
 }
 
 export async function sentNames() {
-  // The kept previews, newest last, after dropping those older than SENT_DAYS or beyond the newest SENT_MAX.
-  const dir = sentDir();
-  const names = await readdir(dir).catch(() => []);
-  const files = names.map(n => ({ n, at: madeAt(n) })).sort((a, b) => a.at - b.at);
-  const oldest = Date.now() - SENT_DAYS * 86400000;
-  const drop = files.filter((f, i) => (f.at && f.at < oldest) || i < files.length - SENT_MAX);
-  await Promise.all(drop.map(f => unlink(`${dir}/${f.n}`).catch(() => null)));
-  return files.filter(f => !drop.includes(f)).map(f => f.n);
+  // The previews in sent/.
+  return readdir(sentDir()).catch(() => []);
+}
+
+export function staleSent(names, listing) {
+  // The previews whose terminal is gone, from `hc ls --all --json`; a machine that isn't connected keeps its own, since its terminals only look gone.
+  if (!Array.isArray(listing?.machines) || !Array.isArray(listing?.terminals)) return [];
+  const down = new Set(listing.machines.filter(m => m.state !== "connected").map(m => cleanPart(m.name)));
+  const live = new Set(listing.terminals.map(t => {
+    const at = t.address.lastIndexOf("/");
+    return at < 0 ? `local~${cleanPart(t.address)}` : `${cleanPart(t.address.slice(0, at))}~${cleanPart(t.address.slice(at + 1))}`;
+  }));
+  return names.filter(n => {
+    const [machine, terminal] = n.split("~");
+    return !down.has(machine) && !live.has(`${machine}~${terminal}`);
+  });
+}
+
+export async function dropSent(names) {
+  // Deletes these previews from sent/.
+  await Promise.all(names.map(n => unlink(`${sentDir()}/${n}`).catch(() => null)));
 }
 
 export function attachName(source) {
