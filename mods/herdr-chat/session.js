@@ -95,7 +95,7 @@ const REMOTE_ENTRIES = 150;
 
 export function readerArgs(t, at) {
   // The reader's arguments for a terminal, from where its session was last read.
-  const args = ["--app", t.app, "--pid", String(t.pid), "--created", String(t.created), "--offset", String(at.offset || 0)];
+  const args = ["--app", t.harness.reader, "--label", t.label, "--pid", String(t.pid), "--created", String(t.created), "--offset", String(at.offset || 0)];
   if (at.screen != null) args.push("--screen", at.screen);
   if (at.peers) args.push("--peers", String(at.peers));
   if (t.cwd) args.push("--cwd", t.cwd);

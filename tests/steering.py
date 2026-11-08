@@ -1,7 +1,8 @@
 import json, os, subprocess, sys, tempfile, urllib.parse
 from pathlib import Path
 
-reader = Path(__file__).resolve().parent.parent / "mods" / "herdr-chat" / "read_session.py"
+from reader_bundle import bundle
+reader = bundle()
 
 def entry(kind, uuid, parent, **rest):
     uuid, parent = U[uuid], (U[parent] if parent else None)
