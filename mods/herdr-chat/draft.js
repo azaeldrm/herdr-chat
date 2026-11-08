@@ -7,6 +7,30 @@ import { sessionOf } from "./common.js";
 import { target, inputBox } from "./terminal.js";
 import { canMirror, draftPastes, textOfBox, readBack } from "./agents.js";
 
+export function savedDraft(key) {
+  // The draft kept in shared state for session `key`, as { text, attachments }, or null.
+  const v = (shared(DRAFTS_KEY) ?? {})[key];
+  if (typeof v === "string") return v ? { text: v, attachments: [] } : null;
+  return v && (v.text || v.attachments?.length) ? { text: v.text ?? "", attachments: v.attachments ?? [] } : null;
+}
+
+export function storeDraft(key, { text, attachments }) {
+  // The one writer of kept drafts: text and images always go together, so neither outlives a reload without the other.
+  const all = { ...(shared(DRAFTS_KEY) ?? {}) };
+  const entry = text || attachments.length ? { text, attachments: attachments.map(({ name, file, rel }) => ({ name, file, rel })) } : null;
+  if (JSON.stringify(all[key] ?? null) === JSON.stringify(entry)) return;
+  delete all[key];
+  if (entry) all[key] = entry;
+  const keys = Object.keys(all);
+  for (const old of keys.slice(0, Math.max(0, keys.length - DRAFTS_KEPT))) delete all[old];
+  setShared(DRAFTS_KEY, all);
+}
+
+export function keptImages() {
+  // Files the kept drafts still show, which cache pruning must leave alone.
+  return Object.values(shared(DRAFTS_KEY) ?? {}).flatMap(v => typeof v === "object" && v ? (v.attachments ?? []).map(a => a.file) : []);
+}
+
 export const DraftMethods = {
   mirrorOnSwitch(cx) {
     // The chat box and the agent's own input box hold the same draft.
@@ -64,24 +88,19 @@ export const DraftMethods = {
       if (text !== this.input.value()) this.input.set_value(text);
       const sig = `${text}\u0000${this.attachments.map(a => a.file).join("|")}`;
       this.mirror = { ...(m ?? { session, images: [], paths: [], pasted: "", textBox: "" }), session, sig, box, foreign: false };
+      this.keepDraft(cx);
       cx.notify();
     });
   },
 
   keepDraft(cx) {
-    // Saves the reply box's text for its session in herdr's shared state, once typing pauses, so a reload of the chat keeps it.
+    // Saves the reply box's draft (text and images) once typing pauses, so a reload of the chat keeps it.
     const key = this.key, token = this.draftToken = (this.draftToken ?? 0) + 1;
     if (!key) return;
     cx.spawn(async cx => {
       await cx.sleep(DRAFT_PAUSE);
       if (token !== this.draftToken || key !== this.key) return;
-      const text = this.input.value(), all = { ...(shared(DRAFTS_KEY) ?? {}) };
-      if ((all[key] ?? "") === text) return;
-      delete all[key];
-      if (text) all[key] = text;
-      const keys = Object.keys(all);
-      for (const old of keys.slice(0, Math.max(0, keys.length - DRAFTS_KEPT))) delete all[old];
-      setShared(DRAFTS_KEY, all);
+      storeDraft(key, { text: this.input.value(), attachments: this.attachments });
     });
   },
 
@@ -92,8 +111,7 @@ export const DraftMethods = {
       if (text || attachments.length) this.drafts.set(from, { text, attachments });
       else this.drafts.delete(from);
     }
-    const saved = key ? (shared(DRAFTS_KEY) ?? {})[key] : undefined;
-    const draft = key ? this.drafts.get(key) ?? (saved ? { text: saved, attachments: [] } : null) : null;
+    const draft = key ? this.drafts.get(key) ?? savedDraft(key) : null;
     this.input.set_value(draft?.text ?? "");
     this.attachments = draft?.attachments ?? [];
     this.mirror = null;
