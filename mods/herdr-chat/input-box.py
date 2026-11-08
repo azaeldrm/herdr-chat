@@ -292,10 +292,42 @@ def paste(terminal, text):
     type_into(terminal, 0, [text])
 
 
+def tall(terminal, hidden):
+    """The screen with `hidden` more rows, for a moment: an attach at that height, and back as soon as nothing is cut."""
+    rows, cols = size(terminal)
+    pid, fd = attach(terminal, False, rows + hidden + 4, cols)
+    screen, end = "", time.time() + 2.5
+    try:
+        while time.time() < end:
+            ready, _, _ = select.select([fd], [], [], 0.15)
+            if ready:
+                try:
+                    answer(fd, os.read(fd, 65536))
+                except OSError:
+                    break
+            screen = subprocess.run(["hc", "read", terminal], capture_output=True, text=True, env=ENV).stdout
+            if re.search(r"[┌][─]+[┐]", screen) and not re.search(r"\d+ lines? hidden", screen):
+                break
+    finally:
+        try:
+            os.write(fd, b"\x1c")
+            time.sleep(0.1)
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.waitpid(pid, 0)
+        except OSError:
+            pass
+    return screen
+
+
 def main():
     cmd = sys.argv[1]
     if cmd == "read":
         print(json.dumps({"box": read(sys.argv[2], json.loads(sys.argv[3]))}))
+    elif cmd == "tall":
+        print(json.dumps({"box": tall(sys.argv[2], int(sys.argv[3]))}))
     elif cmd == "step":
         step(sys.argv[2])
     elif cmd == "fill":

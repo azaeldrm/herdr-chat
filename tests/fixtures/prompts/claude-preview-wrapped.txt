@@ -1,0 +1,27 @@
+  and I didn't get an answer to it. Is there something about the question UI you want to look at, or do you
+  want to go back to something else?
+
+✻ Cogitated for 1s · done 10:10 AM
+
+❯ Another question UI test. Use AskUserQuestion once with one single-select question, header "Ollama",
+  question "How should the connector work?". Options exactly: "Hybrid: /v1 calls, native lookup
+  (Recommended)", "Pure alias, as planned", "Keep the native client". Each option gets a preview of a 14-line
+  plain-text diagram with some aligned columns and arrows. Do nothing else.
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Ollama
+
+How should the connector work?
+
+❯ 1. Hybrid: /v1 calls, native    ┌──────────────────────────────────────────────────┐
+    lookup (Recommended)          │ client          gateway            native        │
+  2. Pure alias, as planned       ├─── ✂ ─── 13 lines hidden ────────────────────────┤
+  3. Keep the native client       └──────────────────────────────────────────────────┘
+
+                                  Notes: press n to add notes
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Chat about this
+
+Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel
+[hc] only its screen: it is blocked; history is not scrolled in this state
