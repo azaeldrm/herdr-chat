@@ -9,6 +9,8 @@ import { savedDraft, storeDraft, keptImages } from "../draft.js";
 import { IMAGE_FILE, attachDir, attachName, ATTACH_DIR, keepSent, sentNames, fetchSent, previewName, previewFile, staleSent, dropSent } from "../images.js";
 import { caretOf, lineMove } from "../model/caret.js";
 import { COLUMN, icon } from "../ui/primitives.js";
+import { SkillMenu } from "./skill-menu.js";
+import { skillToken } from "../model/skills.js";
 
 const DRAFT_PAUSE = 400;
 const SENT_PRUNE_EVERY = 3600000;
@@ -39,6 +41,7 @@ export class Composer {
     if (!globalThis.herdrChatStopKey) {
       globalThis.herdrChatStopKey = cx.bind_keys([{ keystroke: "escape", action: "herdr_chat::Stop", context: "HerdrChatReply > Input" }]);
     }
+    this.menu = new SkillMenu(this);
     this.attachments = []; this.drafts = new Map();
     this.mirror = null; this.mirrorChain = Promise.resolve();
     this.lastMode = shared("herdr-chat.mode"); this.lastModeSession = "";
@@ -266,8 +269,9 @@ export class Composer {
           .child(icon("close", 10, t.muted)))));
   }
 
-  lineKey(dir) {
-    // ↑ (dir -1) or ↓ (+1) in the reply box.
+  lineKey(dir, cx) {
+    // ↑ (dir -1) or ↓ (+1) in the reply box: the skill menu's selection while it's open.
+    if (this.menu.move(target(), dir, cx)) return;
     const { start, end } = caretOf(this.input);
     const from = dir < 0 ? start : end;
     const goal = this.lineGoal && this.lineGoal.at === from ? this.lineGoal.column : null;
@@ -281,6 +285,7 @@ export class Composer {
     this.enterAt = Date.now();
     const v = this.input.value(), s = v.replace(/\r?\n$/, "");
     if (s !== v) this.input.set_value(s);
+    if (this.menu.accept(target(), cx)) return;
     this.send(cx);
   }
 
@@ -329,6 +334,7 @@ export class Composer {
         }
         const r = await sendMessage(t, withImages(t.harness, placed, typed), t.status === "blocked");
         if (r.code !== 0) throw new Error(r.stderr || "Send failed");
+        if (t.harness.skills?.enterTwice && skillToken(typed, [t.harness.skills.invoke[0]])) { await cx.sleep(400); await pressKeys(t, ["enter"]); }
         this.mirror = { session: sessionOf(t), sig: "\u0000", images: [], paths: [], pasted: "", textBox: "", box: "", foreign: false };
         this.keepSent(attached, placed, t, cx);
         this.host.list.follow();
@@ -341,17 +347,20 @@ export class Composer {
     // The reply box: attachments, the text, and the send or stop button.
     const ready = (Boolean(this.input.value().trim()) || this.attachments.length > 0) && !this.host.sending && Boolean(active);
     const stopping = active?.status === "working" && !this.input.value().trim() && !this.attachments.length;
-    return v_flex().w_full().max_w(COLUMN).gap(6)
+    const menu = this.menu.render(t, active);
+    return v_flex().w_full().max_w(COLUMN).gap(6).relative()
+      .when(Boolean(menu), el => el.child(menu))
       .child(h_flex().id("composer-box").w_full().pl(16).pr(8).py(8).gap(8).items_end().rounded(18).border_1().border_color(t.input).bg(t.surface)
         .child(v_flex().flex_1().min_w(0)
           .when(this.attachments.length > 0, el => el.child(this.attachmentStrip(t)))
           .child(div().id("composer-input").w_full().min_w(0).py(4).key_context("HerdrChatReply")
-          .on_action("herdr_chat::LineUp", () => this.lineKey(-1))
-          .on_action("herdr_chat::LineDown", () => this.lineKey(1))
-          .on_action("herdr_chat::Stop", (_e, cx) => this.host.stop(cx))
+          .on_action("herdr_chat::LineUp", (_e, cx) => this.lineKey(-1, cx))
+          .on_action("herdr_chat::LineDown", (_e, cx) => this.lineKey(1, cx))
+          .on_action("herdr_chat::Stop", (_e, cx) => { if (!this.menu.dismiss(target(), cx)) this.host.stop(cx); })
           .on_key_down((e, cx) => {
             const paste = e.key === "v" && (e.modifiers.control || e.modifiers.platform) && !e.modifiers.alt;
             if (paste && cx.read_from_clipboard() === undefined) { cx.stop_propagation(); this.imagePasteAt = Date.now(); this.pasteImage(cx); return; }
+            if (e.key === "tab" && !e.modifiers.shift && this.menu.accept(target(), cx)) { cx.stop_propagation(); return; }
             if (e.key !== "enter" || e.modifiers.shift || e.modifiers.alt) return;
             cx.stop_propagation();
             this.enter(cx);

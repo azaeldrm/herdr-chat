@@ -16,6 +16,7 @@ ap.add_argument("--peers", type=int, default=0)
 ap.add_argument("--leaf", default="")
 ap.add_argument("--tail", type=int, default=24)
 ap.add_argument("--entries", type=int, default=400)
+ap.add_argument("--skills", default="")
 A = ap.parse_args()
 
 HOME = os.path.expanduser("~")

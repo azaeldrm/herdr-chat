@@ -90,6 +90,7 @@ runs in. Icons are the mod's own SVGs drawn in the theme's text colour.
   Thumbnails go with their terminal (checked at start and hourly; a machine that isn't connected
   keeps its own). A chip with the file name stands in when the file is gone.
   Images attached inside a harness's own terminal aren't translated: they show as it wrote them.
+- **Skills.** Typing what the agent's own terminal takes (`/`, plus `$` on Codex and `@` on OpenCode) opens a menu of its skills above the reply box: ↑↓ to choose, Enter or Tab to insert, Esc to close. It filters as you type, in memory: the reader lists the skills on the agent's machine in the background when you switch to a session, from the harness's skill folders plus the list in its session log where it writes one (Claude Code's built-in and plugin skills are only there, so they appear after the first message). What it inserts is the harness's own form: `/name`, `$name`, `/skill:name`, `@name`. Each adapter holds those as data. Anything else, like `/compact` or a path, is just text. Codex and OpenCode take a first Enter into their own popup when a skill ends the message, so the chat presses it twice for them.
 - **One draft.** The chat box and the agent's own input box hold the same draft. Switching a
   session to Terminal types the chat's draft, images included, into the agent's box without
   sending it (an empty draft empties the box); switching back reads the box into the chat, turning
@@ -175,7 +176,7 @@ with `set_theme` from `gpui-base`. UI parts: `v_virtual_list` with a `VirtualLis
   machines through `exec(…, { on: machine })`; the Python reader is joined from `readers/` and passed to `python3 -c`
   (`py -3` or `python` on Windows), so nothing is installed on the other machine, but `python3` and
   `hc` must be there;
-- reads files outside its own folder: the agents' session logs under `~/.claude/projects`,
+- reads the agents' skill folders (`SKILL.md` files, in the person's and the project's folders), and files outside its own folder: the agents' session logs under `~/.claude/projects`,
   `~/.claude/sessions`, `~/.codex/sessions` and `~/.pi/agent/sessions`, and reads the terminal's
   screen with `hc read`;
 - types into terminals (`hc send`, `hc keys`, and pastes and Delete/Backspace through `hc attach`);
@@ -248,7 +249,7 @@ Things a fresh build would get wrong:
   marks a header copy is `asHeader`. Naming it `header` made every copy draw the header and the
   chat panel blank.
 - **Adding a harness.** Write `harnesses/<id>.js` (label, image style, mirroring, prompt options,
-  input box shape or `null` without mirroring, reader id) and add it to the list in
+  input box shape or `null` without mirroring, skill triggers, form and folders, reader id) and add it to the list in
   `harnesses/index.js`; write `readers/<id>.py` registering `READERS["<id>"] = (find, parse)` and add it
   to `readers/manifest.json` before `main.py`. Its user messages go through `placed_images()`, so images
   need no code of their own. Nothing else should need to change:
