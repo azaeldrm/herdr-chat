@@ -10,7 +10,7 @@ import { TranscriptMethods, keyRows, stepRows, stepText, withoutRetracted } from
 import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle, clock } from "./ui.js";
 import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
 import { caretOf, lineMove } from "./caret.js";
-import { imageStyle, canMirror, withImages } from "./agents.js";
+import { imageStyle, canMirror, withImages } from "./harnesses/index.js";
 import { isHeader, terminalHeader } from "./header.js";
 import { ReadingMethods } from "./reading.js";
 import { designPx, designHeight, zoomProbe } from "./measure.js";
@@ -161,8 +161,8 @@ export default class HerdrChat extends View {
         const r = await interruptAgent(t);
         if (r.outcome === "failed") throw new Error(r.error || `Couldn't stop ${t.label}.`);
         await cx.sleep(600);
-        if (canMirror(t.app)) {
-          const box = (await inputBox("read", t, t.app)).box;
+        if (canMirror(t.harness)) {
+          const box = (await inputBox("read", t)).box;
           const last = [...this.messages].reverse().find(m => m.kind === "message");
           if (box && last?.role === "user" && box.trim() === last.text.trim()) this.retracted = { key: this.key, text: last.text };
           if (!this.input.value().trim() && !this.attachments.length) this.pullDraft(t, sessionOf(t), cx);
@@ -203,14 +203,14 @@ export default class HerdrChat extends View {
     cx.spawn(async cx => {
       try {
         if (t.status === "blocked" && !(await this.promptStillCurrent(t))) throw new Error("The prompt changed. Review it again before answering.");
-        if (canMirror(t.app) && t.status !== "blocked") {
+        if (canMirror(t.harness) && t.status !== "blocked") {
           await this.mirrorChain;
           if (this.mirror?.session === sessionOf(t) && this.mirror.foreign)
             throw new Error(`${t.label}'s input box has an image pasted in the terminal. Send that draft from the terminal, or clear it there, first.`);
-          if ((await inputBox("set", t, t.app, "[]")).ok) this.mirror = null;
+          if ((await inputBox("set", t, "[]")).ok) this.mirror = null;
         }
         const placed = await this.placeImages(t, attached);
-        if (imageStyle(t.app) === "paste") {
+        if (imageStyle(t.harness) === "paste") {
           for (const path of placed) {
             const p = await inputBox("paste", t, path);
             if (!p.ok) throw new Error(`Couldn't paste the image into ${t.label}: ${p.error}`);
@@ -223,7 +223,7 @@ export default class HerdrChat extends View {
             return;
           }
         }
-        const r = await sendMessage(t, withImages(t.app, placed, typed), t.status === "blocked");
+        const r = await sendMessage(t, withImages(t.harness, placed, typed), t.status === "blocked");
         if (r.code !== 0) throw new Error(r.stderr || "Send failed");
         this.mirror = { session: sessionOf(t), sig: "\u0000", images: [], paths: [], pasted: "", textBox: "", box: "", foreign: false };
         this.forget(attached.map(a => a.file));

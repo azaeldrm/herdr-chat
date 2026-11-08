@@ -134,10 +134,10 @@ Mod (`mods/herdr-chat/`, `mod.json` is `{"place":"none"}`):
 | `session.js` | a session's state, the reader's output applied to it, the batch run for one machine's agents (pure) |
 | `transcript.js` | conversation rows: folding tool calls and thinking, a step's preview, row keys, drawing each kind |
 | `choices.js` | a question card, choosing a choice, the key buttons (mixed into the View) |
-| `prompts.js` | `parseChoices`: a choice prompt read off the screen (pure) |
+| `prompts.js` | `parseChoices`: a choice prompt read off the screen, the harness's `prompt` options deciding how (pure) |
 | `images.js` | attaching images, their preview copies, placing them beside a terminal (mixed in) |
 | `draft.js` | one draft per session, mirrored into the agent's own input box (mixed in) |
-| `agents.js` | one profile per agent: how a message carries images, how its box shows the draft |
+| `harnesses/` | one adapter per harness (`claude-code.js`, `codex.js`, `pi.js`): its label, how it takes images, whether drafts mirror, its prompt options, its input box's shape and its reader. `index.js` is the registry and the image/draft logic driven by those fields. Nothing outside this folder names a harness (`tests/harnesses.mjs` checks) |
 | `terminal.js` | the target agent, reading its screen, sending as the person, keys, `input-box.py` |
 | `platform.js` | Windows and Unix differences: paths, quoting, base64, deleting files |
 | `diagrams.js` | mermaid diagrams: Pele's SVG with the theme's colors and font lists written in, drawn one per tick |
@@ -149,7 +149,7 @@ Mod (`mods/herdr-chat/`, `mod.json` is `{"place":"none"}`):
 | `read_session.py` | the same reader for Linux, macOS and other machines (Python 3.6+) |
 | `send.ps1` | sends text on Windows without hc's terminal identity |
 | `prepare-image.sh` / `prepare-image.ps1` | copy an image (or the clipboard's) into the preview folder, shrunk under 240 KB |
-| `input-box.py` | reads, sets or pastes into an agent's own input box without Enter, through `hc attach` in a pty (the one draft, Codex images) |
+| `input-box.py` | reads, sets or pastes into an agent's own input box without Enter, through `hc attach` in a pty (the one draft, pasted images); the box is found by the adapter's `box` shape |
 | `icons/` | the mod's own SVG icons |
 
 Herdr functions used: `agents()`, `terminals()`, `panes()`, `focused()`, `props()`, `theme()`,

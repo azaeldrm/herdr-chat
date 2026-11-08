@@ -37,7 +37,7 @@ export const ChoiceMethods = {
     if (target()?.address !== t.address) return false;
     const text = await readPrompt(t);
     if (text == null) return false;
-    if (this.choices) return parsePrompt(t.app, text)?.sig === this.choices.sig;
+    if (this.choices) return parsePrompt(t.harness, text)?.sig === this.choices.sig;
     return (target()?.status === "blocked" || this.unread) && Boolean(this.screen) && text === this.screen;
   },
 
@@ -50,11 +50,11 @@ export const ChoiceMethods = {
       try {
         await this.flushRow(t, cx);
         const text = await readPrompt(t);
-        const now = text != null ? parsePrompt(t.app, text) : null;
+        const now = text != null ? parsePrompt(t.harness, text) : null;
         if (!now || now.sig !== shown.sig || target()?.address !== t.address) throw new Error("The question changed. Review it again before answering.");
         const at = now.options.findIndex(o => sameOption(shown.options[index], o));
         if (at < 0) throw new Error("The question changed. Review it again before answering.");
-        const r = await pressKeys(t, keysFor(t.app, now, at));
+        const r = await pressKeys(t, keysFor(t.harness, now, at));
         if (r.code !== 0) throw new Error(r.stderr || "Key send failed");
         if (!now.multi) { this.choices = null; this.screen = ""; this.unread = false; }
       } catch (e) { this.note = String(e?.message ?? e); }
@@ -80,7 +80,7 @@ export const ChoiceMethods = {
 
   async revealRow(t, cx) {
     // The prompt with its text row on screen, scrolling a list cut off below it.
-    const read = async () => { const screen = await readPrompt(t); return screen != null ? parsePrompt(t.app, screen) : null; };
+    const read = async () => { const screen = await readPrompt(t); return screen != null ? parsePrompt(t.harness, screen) : null; };
     let now = await read();
     for (let i = 0; i < SCROLL_TRIES && now?.options.find(o => o.input === "text")?.hidden; i++) {
       await pressKeys(t, ["down"]);
@@ -98,7 +98,7 @@ export const ChoiceMethods = {
       const now = await this.revealRow(t, cx);
       const index = now?.options.findIndex(o => o.input === "text" && !o.hidden) ?? -1;
       if (index < 0) return;
-      const { before } = typedAnswer(t.app, now, index);
+      const { before } = typedAnswer(t.harness, now, index);
       if (before.length) await pressKeys(t, before);
       await cx.sleep(150);
       await inputBox("fill", t, this.rowInputs.text.value().trim());
@@ -123,11 +123,11 @@ export const ChoiceMethods = {
     this.sending = true; cx.notify();
     cx.spawn(async cx => {
       try {
-        const now = kind === "text" ? await this.revealRow(t, cx) : parsePrompt(t.app, (await readPrompt(t)) ?? "");
+        const now = kind === "text" ? await this.revealRow(t, cx) : parsePrompt(t.harness, (await readPrompt(t)) ?? "");
         if (!now || now.sig !== shown.sig || target()?.address !== t.address) throw new Error("The question changed. Review it again before answering.");
         const at = now.options.findIndex(o => o.input === kind && !o.hidden);
         if (at < 0) throw new Error("Couldn't reach that row. Open the terminal to answer.");
-        const { before } = typedAnswer(t.app, now, at);
+        const { before } = typedAnswer(t.harness, now, at);
         const moved = await pressKeys(t, before);
         if (moved.code !== 0) throw new Error(moved.stderr || "Key send failed");
         await cx.sleep(300);

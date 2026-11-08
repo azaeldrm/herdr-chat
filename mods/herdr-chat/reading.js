@@ -4,6 +4,7 @@ import { sessionOf, chatKey } from "./common.js";
 import { onWindows, base64Utf8 } from "./platform.js";
 import { target, agentTargets, readScreen, readPrompt, inputBox } from "./terminal.js";
 import { parsePrompt, looksLikePrompt } from "./prompts.js";
+import { supportedNames } from "./harnesses/index.js";
 import { blankSession, parseReaderInSlices, applyRead, readerArgs, batchProgram, splitBatch } from "./session.js";
 
 const SESSIONS_KEPT = 32;
@@ -98,7 +99,7 @@ export const ReadingMethods = {
       try {
         const text = (await readPrompt(t)) ?? "";
         if (text !== this.screen) {
-          this.screen = text; this.choices = parsePrompt(t.app, text);
+          this.screen = text; this.choices = parsePrompt(t.harness, text);
           this.unread = !this.choices && looksLikePrompt(text);
           this.syncRowBox();
           this.readStep(cx, t);
@@ -153,7 +154,7 @@ export const ReadingMethods = {
     else {
       const known = t ? (shared(PATHS_KEY) ?? {})[sessionOf(t)] : null;
       Object.assign(this, blankSession(known?.path ?? "", known?.hint ?? ""));
-      this.note = !t ? "Select a Claude Code, Codex or Pi terminal to see it as a chat." : `Opening this ${t.label} conversation…`;
+      this.note = !t ? `Select a ${supportedNames()} terminal to see it as a chat.` : `Opening this ${t.label} conversation…`;
     }
     this.needsFirstRead = Boolean(t);
   },
