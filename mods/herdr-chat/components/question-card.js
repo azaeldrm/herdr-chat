@@ -1,15 +1,17 @@
 import { div } from "gpui-kit";
-import { v_flex, h_flex, Textarea } from "gpui-base";
-import { switchTo, sessionOf } from "./common.js";
-import { target, readPrompt, pressKeys, sendMessage, inputBox } from "./terminal.js";
-import { parsePrompt, keysFor, typedAnswer, sameOption } from "./prompts.js";
-import { COLUMN, mono, icon } from "./ui.js";
+import { v_flex, h_flex, Textarea, TextareaState } from "gpui-base";
+import { switchTo, sessionOf, chatKey } from "../common.js";
+import { onWindows } from "../platform.js";
+import { target, readPrompt, pressKeys, sendMessage, inputBox } from "../terminal.js";
+import { parsePrompt, looksLikePrompt, keysFor, typedAnswer, sameOption } from "../prompts.js";
+import { COLUMN, mono, icon } from "../ui.js";
 
 const BODY_HEIGHT = 264;
 const ROW_CHARS = 96;
 const DESC_CHARS = 110;
 const ROW_PAUSE = 500;
 const SCROLL_TRIES = 12;
+const ROW_SETTLE = 3000;
 
 function checkbox(t, checked) {
   // A multi-select row's box.
@@ -31,21 +33,46 @@ function bodyHeight(q) {
   return Math.min(BODY_HEIGHT, rows + answers);
 }
 
-export const ChoiceMethods = {
-  async promptStillCurrent(t) {
+export class QuestionCard {
+  constructor(host) {
+    // A question on the agent's screen: read, shown as a card, answered with the harness's keys. `host` is the view: its `sending` lock, `note`, `key` and `list`.
+    this.host = host;
+    this.choices = null; this.screen = ""; this.unread = false; this.currentStep = "";
+    this.cardFold = ""; this.cardFolded = false;
+    this.rowInputs = {
+      text: TextareaState.new({ placeholder: "Type something…", rows: 1 }),
+      chat: TextareaState.new({ placeholder: "Chat about this…", rows: 1 }),
+    };
+    for (const [kind, box] of Object.entries(this.rowInputs)) {
+      box.on("submit", (e, cx) => { if (!e?.shift) this.answerRow(kind, cx); });
+      box.on("change", (_e, cx) => this.rowChanged(kind, cx));
+    }
+  }
+
+  get showing() {
+    // Whether a question or an unparsed prompt is on screen.
+    return Boolean(this.choices || this.unread);
+  }
+
+  clear() {
+    // Forgets the question: another conversation is shown.
+    this.screen = ""; this.choices = null; this.unread = false;
+  }
+
+  async stillCurrent(t) {
     // Whether the prompt shown is still the one on screen.
     if (target()?.address !== t.address) return false;
     const text = await readPrompt(t);
     if (text == null) return false;
     if (this.choices) return parsePrompt(t.harness, text)?.sig === this.choices.sig;
     return (target()?.status === "blocked" || this.unread) && Boolean(this.screen) && text === this.screen;
-  },
+  }
 
   choose(index, cx) {
     // Acts on a choice of the prompt on screen, with the keys its harness takes.
     const t = target(), shown = this.choices;
-    if (!t || !shown || this.sending) return;
-    this.sending = true; cx.notify();
+    if (!t || !shown || this.host.sending) return;
+    this.host.sending = true; cx.notify();
     cx.spawn(async cx => {
       try {
         await this.flushRow(t, cx);
@@ -57,10 +84,10 @@ export const ChoiceMethods = {
         const r = await pressKeys(t, keysFor(t.harness, now, at));
         if (r.code !== 0) throw new Error(r.stderr || "Key send failed");
         if (!now.multi) { this.choices = null; this.screen = ""; this.unread = false; }
-      } catch (e) { this.note = String(e?.message ?? e); }
-      finally { this.sending = false; cx.notify(); this.lookAgain(cx, t); }
+      } catch (e) { this.host.note = String(e?.message ?? e); }
+      finally { this.host.sending = false; cx.notify(); this.lookAgain(cx, t); }
     });
-  },
+  }
 
   rowChanged(kind, cx) {
     // Keeps a multi-select's text row on the terminal as it's typed, once typing pauses.
@@ -76,7 +103,7 @@ export const ChoiceMethods = {
       await this.flushRow(t, cx);
       this.lookAgain(cx, t);
     });
-  },
+  }
 
   async revealRow(t, cx) {
     // The prompt with its text row on screen, scrolling a list cut off below it.
@@ -88,7 +115,7 @@ export const ChoiceMethods = {
       now = await read();
     }
     return now;
-  },
+  }
 
   flushRow(t, cx) {
     // Puts a multi-select's typed text on the terminal, where text ticks the row and no text unticks it.
@@ -104,9 +131,9 @@ export const ChoiceMethods = {
       await inputBox("fill", t, this.rowInputs.text.value().trim());
       this.rowEditedAt = Date.now();
       await cx.sleep(300);
-    }).catch(e => { this.note = String(e?.message ?? e); });
+    }).catch(e => { this.host.note = String(e?.message ?? e); });
     return this.rowChain;
-  },
+  }
 
   answerRow(kind, cx) {
     // Sends what's typed in a text row of the prompt; an empty row is picked like any choice.
@@ -119,8 +146,8 @@ export const ChoiceMethods = {
       return;
     }
     if (!text) { this.choose(index, cx); return; }
-    if (!t || this.sending) return;
-    this.sending = true; cx.notify();
+    if (!t || this.host.sending) return;
+    this.host.sending = true; cx.notify();
     cx.spawn(async cx => {
       try {
         const now = kind === "text" ? await this.revealRow(t, cx) : parsePrompt(t.harness, (await readPrompt(t)) ?? "");
@@ -135,51 +162,51 @@ export const ChoiceMethods = {
         if (sent.code !== 0) throw new Error(sent.stderr || "Send failed");
         box.set_value("");
         this.choices = null; this.screen = ""; this.unread = false;
-      } catch (e) { this.note = String(e?.message ?? e); }
-      finally { this.sending = false; cx.notify(); this.lookAgain(cx, t); }
+      } catch (e) { this.host.note = String(e?.message ?? e); }
+      finally { this.host.sending = false; cx.notify(); this.lookAgain(cx, t); }
     });
-  },
+  }
 
   press(key, cx) {
     const t = target();
-    if (!t || this.sending) return;
-    this.sending = true; cx.notify();
+    if (!t || this.host.sending) return;
+    this.host.sending = true; cx.notify();
     cx.spawn(async cx => {
       try {
         if (key !== "esc") await this.flushRow(t, cx);
         if (key !== "esc" && !(await this.promptStillCurrent(t))) throw new Error("The prompt changed. Review it again before answering.");
         const r = await pressKeys(t, [key]);
         if (r.code !== 0) throw new Error(r.stderr || "Key send failed");
-      } catch (e) { this.note = String(e); }
-      finally { this.sending = false; cx.notify(); this.lookAgain(cx, t); }
+      } catch (e) { this.host.note = String(e); }
+      finally { this.host.sending = false; cx.notify(); this.lookAgain(cx, t); }
     });
-  },
+  }
 
   lookAgain(cx, t) {
     // Reads the screen soon after keys, since a blocked agent reports no change when a question moves on.
     cx.spawn(async cx => {
       for (const ms of [250, 700]) {
         await cx.sleep(ms);
-        if (target()?.address === t.address) this.readQuestion(cx, target());
+        if (target()?.address === t.address) this.read(cx, target());
       }
     });
-  },
+  }
 
-  toggleCard(cx) {
+  toggle(cx) {
     // Folds the prompt card down to its title row, or opens it again.
     this.cardFolded = !this.cardFolded;
-    if (this.following) this.follow();
+    if (this.host.list.following) this.host.list.follow();
     cx.notify();
-  },
+  }
 
-  promptCard(t, active) {
+  render(t, active) {
     // The card for a prompt on screen: a question with its choices, or a blocked agent's last lines.
     const q = active && (active.status === "blocked" || active.status === "working") ? this.choices : null;
     if (active?.status !== "blocked" && !q && !this.unread) return null;
     const fold = q ? JSON.stringify(q.steps.length ? q.steps.map(s => s.label) : q.question) : `screen:${active?.address}`;
     if (fold !== this.cardFold) { this.cardFold = fold; this.cardFolded = false; }
     const title = active.kind === "permission" ? `${active.label} needs permission` : q ? `${active.label} is asking` : `${active.label} needs your input`;
-    const titleRow = h_flex().id("card-title").gap(8).items_center().cursor_pointer().on_click((_e, cx) => this.toggleCard(cx))
+    const titleRow = h_flex().id("card-title").gap(8).items_center().cursor_pointer().on_click((_e, cx) => this.toggle(cx))
       .child(div().size(7).rounded(4).flex_none().bg(t.blocked))
       .child(div().flex_none().text_size(12.5).font_semibold().text_color(t.foreground).child(title))
       .when(this.cardFolded && Boolean(q?.question.at(-1)), el => el.child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(t.muted).child(`· ${q.question.at(-1)}`)))
@@ -243,5 +270,60 @@ export const ChoiceMethods = {
           .hover(s => s.bg(t.hover)).on_click((_e, cx) => this.choose(q.options.findIndex(o => o.next), cx)).child("Next →")))
         .child(div().flex_1())
         .child(key("k-term", "Open terminal", "terminal")));
-  },
-};
+  }
+
+  read(cx, t) {
+    // Reads the agent's screen for a question while it works or is blocked (Pi asks while working).
+    if (t.status !== "blocked" && t.status !== "working") {
+      if (this.screen) { this.screen = ""; this.choices = null; this.unread = false; cx.notify(); }
+      return;
+    }
+    if (this.readingScreen) { this.screenAgain = true; return; }
+    this.readingScreen = true;
+    cx.spawn(async cx => {
+      try {
+        const text = (await readPrompt(t)) ?? "";
+        if (text !== this.screen) {
+          this.screen = text; this.choices = parsePrompt(t.harness, text);
+          this.unread = !this.choices && looksLikePrompt(text);
+          this.syncRowBox();
+          this.readStep(cx, t);
+          cx.notify();
+        }
+      } finally {
+        this.readingScreen = false;
+        if (this.screenAgain) { this.screenAgain = false; const now = target(); if (now && chatKey(now) === this.host.key) this.read(cx, now); }
+      }
+    });
+  }
+
+  syncRowBox() {
+    // Shows a multi-select's typed text in its box, and clears the box when the question changes.
+    if (this.rowDirty) return;
+    const q = this.choices, page = q?.question.join("\n") ?? "";
+    const box = this.rowInputs.text, kept = this.rowKept ??= new Map();
+    const typed = q?.options.find(o => o.input === "text")?.typed;
+    const moved = page !== this.rowPage;
+    if (moved && this.rowPage) kept.set(this.rowPage, box.value());
+    this.rowPage = page;
+    if (typed === undefined && !moved) return;
+    if (!moved && Date.now() - (this.rowEditedAt ?? 0) < ROW_SETTLE) return;
+    const text = typed ?? kept.get(page) ?? "";
+    if (box.value() === text) return;
+    this.rowSetting = true;
+    box.set_value(text);
+    this.rowSetting = false;
+  }
+
+  readStep(cx, t) {
+    // Finds which step a prompt is on when it changes page: the screen's text doesn't show it, only its colours.
+    const sig = JSON.stringify([this.choices?.question, this.choices?.steps]);
+    if (sig === this.stepSig) return;
+    this.stepSig = sig; this.currentStep = "";
+    if (!(this.choices?.steps.length > 1) || onWindows()) return;
+    cx.spawn(async cx => {
+      const r = await inputBox("step", t);
+      if (this.stepSig === sig && r.box) { this.currentStep = r.box; cx.notify(); }
+    });
+  }
+}

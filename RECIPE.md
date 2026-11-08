@@ -129,14 +129,13 @@ Mod (`mods/herdr-chat/`, `mod.json` is `{"place":"none"}`):
 
 | File | Role |
 |---|---|
-| `main.js` | the chat View: its state and timers, the layout, scrolling, sending |
-| `reading.js` | reading conversations: the one shown, every other agent's in the background, switching, the loading row's rules (mixed in) |
+| `main.js` | the chat View: creates the components, runs the timers, switches sessions, lays out the header, list, card and composer, stops the agent |
+| `components/` | the View's parts, each a class owning its state and given the View as `host`; `tests/structure.mjs` holds each one to its listed host API. `chat-list.js`: rows, heights, measuring, following. `question-card.js`: a question read off the screen, shown and answered. `composer.js`: the reply box, drafts and images, mirroring, sending. `session-reader.js`: the shown conversation (`session`) and the ones kept in memory, read and kept fresh |
 | `session.js` | a session's state, the reader's output applied to it, the batch run for one machine's agents (pure) |
 | `transcript.js` | conversation rows: folding tool calls and thinking, a step's preview, row keys, drawing each kind |
-| `choices.js` | a question card, choosing a choice, the key buttons (mixed into the View) |
 | `prompts.js` | `parseChoices`: a choice prompt read off the screen, the harness's `prompt` options deciding how (pure) |
-| `images.js` | attaching images, their preview copies, placing them beside a terminal (mixed in) |
-| `draft.js` | one draft per session, mirrored into the agent's own input box (mixed in) |
+| `images.js` | where image preview copies go and what they're named |
+| `draft.js` | kept drafts in shared state: `storeDraft` is their one writer |
 | `harnesses/` | one adapter per harness (`claude-code.js`, `codex.js`, `pi.js`): its label, how it takes images, whether drafts mirror, its prompt options, its input box's shape and its reader. `index.js` is the registry and the image/draft logic driven by those fields. Nothing outside this folder names a harness (`tests/harnesses.mjs` checks) |
 | `terminal.js` | the target agent, reading its screen, sending as the person, keys, `input-box.py` |
 | `platform.js` | Windows and Unix differences: paths, quoting, base64, deleting files |
