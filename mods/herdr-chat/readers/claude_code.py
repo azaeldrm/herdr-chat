@@ -153,3 +153,15 @@ def claude_entry(o):
             elif c.get("type") == "tool_use": add_call(claude_call(str(c.get("name", "")), c.get("input")), str(c.get("id", "")))
 
 READERS["claude-code"] = (find_claude, parse_claude)
+
+def claude_listed_skills(path):
+    """The skills Claude Code told its model about, built-in and plugin ones too; a name's newest description wins."""
+    found = {}
+    for line in log_lines(path, b'"skill_listing"'):
+        a = (loads(line) or {}).get("attachment") or {}
+        if a.get("type") != "skill_listing": continue
+        descs = dict(re.findall(r"(?m)^- ([^:\n]+(?::[^:\s]+)?): (.*)$", str(a.get("content", ""))))
+        for name in a.get("names") or []: found[name] = (name, descs.get(name, ""), "")
+    return list(found.values())
+
+SKILL_LOGS["claude-code"] = claude_listed_skills
