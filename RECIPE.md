@@ -187,7 +187,7 @@ Things a fresh build would get wrong:
   neither say where its cursor is nor be asked to move it by action name (`dispatch_action` reaches
   only handlers a script registered). So the chat binds `up`/`down` in context
   `HerdrChatReply > Input` (the textarea's context is `Input`) to its own actions, reads the cursor
-  by typing an invisible marker at it with `replace()` and putting the text back (`caret.js`), and
+  by typing an invisible marker at it with `replace()` and putting the text back (`model/caret.js`), and
   moves it with `set_selected_range`. Bind once per engine: the keymap is the app's.
 - **Scrolling a virtual list to the bottom takes a frame or more.** `scroll_to_bottom()` lines up
   the last row's *top* with the view's (so the list ends with a short spacer row, or a long last
@@ -197,7 +197,7 @@ Things a fresh build would get wrong:
   (`visibleEnd`), scrolling again meanwhile. `render` can't `notify()`, but its `cx.timer` works.
 - **Every agent's chat is kept read in the background.** When herdr reports a change in an agent,
   `warm()` (reading.js) reads its machine's agents' logs from where they last stopped, all in one Python run
-  (`batchProgram` in session.js runs the reader once per session and separates their output), so a
+  (`batchProgram` in model/session.js runs the reader once per session and separates their output), so a
   switch shows the conversation at once. The chat shows once its bottom screenful is measured; older
   rows are measured after. A slow read of a stale conversation shows "Checking for new messages…"
   after 300 ms, and after 5 s (or a failed read) "<machine> isn't answering", with Retry.
@@ -235,6 +235,12 @@ Things a fresh build would get wrong:
 - **`this.header`.** The View already has a `header()` method for the chat's top bar; the flag that
   marks a header copy is `asHeader`. Naming it `header` made every copy draw the header and the
   chat panel blank.
+- **Adding a harness.** Write `harnesses/<id>.js` (label, image style, mirroring, prompt options,
+  input box shape or `null` without mirroring, reader id) and add it to the list in
+  `harnesses/index.js`; write `readers/<id>.py` registering `READERS["<id>"] = (find, parse)` and add it
+  to `readers/manifest.json` before `main.py`. Nothing else should need to change:
+  `tests/harnesses.mjs` fails if a harness is named anywhere else or an adapter is incomplete. OpenCode
+  went in this way.
 - **Rows.** `v_virtual_list` draws each row at the height it is given and clips what doesn't fit.
   Heights are measured by drawing each row once off-screen at the column's width; estimating them
   from text length clipped long replies.
@@ -261,7 +267,7 @@ Limits and gaps:
 - A session file is read from its last 24 MB on first open; older history isn't shown.
 - Questions appear as terminal text with key buttons, not as parsed options.
 - Messages sent while an agent is busy are typed straight in, not queued; there is no stop button.
-- Other agents (OpenCode, Gemini, …) aren't read.
+- OpenCode is read from its `session_v2` tables only (current versions), and its drafts don't mirror into its own box (its box shape isn't described yet). Other agents (Gemini, …) aren't read.
 - Tested on Windows with agents on this computer and on a Linux machine over herdr's machine link,
   when Windows read sessions with PowerShell; the Python reader that replaced it hasn't been run on
   Windows or macOS yet.
