@@ -25,6 +25,7 @@ function agentTarget(a, terms) {
     machine: a.address.includes("/") ? a.address.split("/")[0] : null,
     pid: term?.pid ?? 0, created: term?.created_ms ?? 0, cwd: term?.cwd ?? "",
     activity: term?.report?.msg ?? term?.status?.msg ?? "",
+    kind: term?.report?.kind ?? term?.status?.kind ?? "",
     turn: term?.turn ?? null, statusMs: term?.status_ms ?? null,
   };
 }
@@ -63,7 +64,7 @@ export function pressKeys(t, keys) {
 }
 
 export async function inputBox(command, t, ...args) {
-  // input-box.py: `read`, `set` (a JSON list of pastes) or `paste` on the agent's own input box.
+  // input-box.py: `read`, `set` (a JSON list of pastes) or `paste` on the agent's own input box, or `step` for a prompt's current step.
   const r = await exec("python3", ["-I", modFile("input-box.py"), command, t.address, ...args]).catch(e => ({ code: 1, stderr: String(e) }));
   if (r.code !== 0) return { ok: false, box: null, error: (r.stderr || r.stdout || `input-box.py ${command} failed`).trim() };
   let box = null;

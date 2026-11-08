@@ -42,6 +42,8 @@ check("the batch gives one output per session", batch.length === 2);
 check("each the same as reading it alone", batch[0] === single[0] && batch[1] === single[1]);
 const both = batch.map(o => { const x = blankSession(); applyRead(x, parseReader(o)); return said(x).join(","); });
 check("and each its own conversation", both[0] === "one,two" && both[1] === "three,four");
+const wrongHint = execFileSync("python3", ["-c", reader.toString(), ...readerArgs(terms[1], { offset: 0, hint: "4101" })], { env }).toString();
+check("a remembered process from another terminal is not trusted", wrongHint === execFileSync("python3", ["-c", reader.toString(), ...readerArgs(terms[1], { offset: 0 })], { env }).toString());
 const bad = splitBatch(execFileSync("python3", ["-c", batchProgram(reader.toString("base64")), Buffer.from(JSON.stringify([["--app", "pi", "--pid", "x"], readerArgs(terms[0], { offset: 0 })])).toString("base64")], { env }).toString());
 check("a run that fails doesn't stop the others", bad.length === 2 && bad[1] === single[0]);
 const long = ["PATH|" + enc("/l.jsonl"), "OFFSET|9", ...Array.from({ length: 300 }, (_, i) => `M|assistant|final|${enc("line " + i + "\r")}`)].join("\r\n");

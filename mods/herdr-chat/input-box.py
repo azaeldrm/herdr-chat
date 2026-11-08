@@ -170,7 +170,7 @@ def join(lines):
     return out
 
 
-PROMPT_KEYS = re.compile(r"enter to (select|confirm)|↑/↓|to navigate|esc to cancel", re.I)
+PROMPT_KEYS = re.compile(r"enter to (select|confirm|submit)|↑/↓|↑↓|to navigate|esc to cancel|esc (back|dismiss)", re.I)
 
 
 def box(grid, app):
@@ -223,6 +223,51 @@ def read(terminal, app):
     return box(render(paint, rows, cols), app) if paint else None
 
 
+STEP_ROW = re.compile(r"(?:Submit\s*→|←[^\r\n]*[□☐■☑☒])[^\r\n]*\r?\n")
+
+
+def highlighted(paint):
+    """The step with a background colour in a prompt's step row, or None."""
+    rows = [l for l in paint.split("\n") if re.search(r"Submit\s*→|^\s*←.*[□☐■☑☒]", OSC.sub("", CSI.sub("", l)))]
+    if not rows:
+        return None
+    line, back, at = OSC.sub("", rows[-1]), False, 0
+    for m in [*CSI.finditer(line), None]:
+        text = line[at:m.start() if m else len(line)]
+        if back and re.search(r"\w", text):
+            return re.sub(r"[^\w\s-]", "", text).strip()
+        if m is None:
+            return None
+        at = m.end()
+        if m.group(3) == "m":
+            codes = m.group(1).split(";")
+            if codes[0] in ("", "0", "49", "27"):
+                back = False
+            elif codes[0] in ("48", "7") or "48" in codes:
+                back = True
+
+
+def step(terminal):
+    """Prints the step a prompt is on, stopping as soon as the step row has been painted."""
+    rows, cols = size(terminal)
+    pid, fd = attach(terminal, True, rows, cols)
+    got, start = b"", time.time()
+    while time.time() - start < 3:
+        if select.select([fd], [], [], 0.05)[0]:
+            try:
+                chunk = os.read(fd, 65536)
+            except OSError:
+                break
+            if not chunk:
+                break
+            answer(fd, chunk)
+            got += chunk
+            if STEP_ROW.search(CSI.sub("", got.decode("utf-8", "replace"))):
+                break
+    detach(pid, fd)
+    print(json.dumps({"box": highlighted(got.decode("utf-8", "replace"))}))
+
+
 def type_into(terminal, erase, pastes):
     """One attach: `erase` Deletes and Backspaces (empties the box wherever the cursor is), then each paste."""
     rows, cols = size(terminal)
@@ -250,6 +295,10 @@ def main():
     cmd = sys.argv[1]
     if cmd == "read":
         print(json.dumps({"box": read(sys.argv[2], sys.argv[3])}))
+    elif cmd == "step":
+        step(sys.argv[2])
+    elif cmd == "fill":
+        type_into(sys.argv[2], 200, [sys.argv[3]])
     elif cmd == "paste":
         paste(sys.argv[2], sys.argv[3])
     elif cmd == "set":

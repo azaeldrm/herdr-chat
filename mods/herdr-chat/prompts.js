@@ -1,14 +1,103 @@
-export function parseChoices(screen) {
-  const lines = screen.replace(/ /g, " ").split("\n").map(l => l.replace(/\s+$/, ""));
-  const FOOTER = /enter to (select|confirm)|↑\/↓|to navigate|esc to cancel/i;
+const FOOTER = /enter to (select|confirm|submit)|↑\/↓|↑↓|to navigate|esc to cancel|esc (back|dismiss)/i;
+const REVIEW = /ready to submit your answers\?/i;
+const CHECKBOX = /^\[([ xX✓✔])\]\s*(.*)$/;
+const NEXT_ROW = /^\s*(?:[❯›>▸➤]\s+)?Next$/;
+const TEXT_ROW = /^(type something\.?|type your own answer|none of the above)$/i;
+const CHAT_ROW = /^chat about this$/i;
+const STEP_ROW = /\bsubmit\s*→?\s*$/i;
+const CUT_STEP_ROW = /^\s*←\s.*[□☐■☑☒]/;
+const REVIEW_TITLE = /^\s*review your answers\s*$/i;
+
+const ADAPTERS = {
+  "claude-code": {},
+  pi: {},
+  codex: { columns: true, notes: true },
+  opencode: { byNumber: true },
+};
+
+function screenLines(screen) {
+  // The screen's lines without hc's notes, trailing space or the frame some harnesses draw around a prompt.
+  return screen.replace(/\u00a0/g, " ").split("\n").filter(l => !l.startsWith("[hc]")).map(l => l.replace(/^\s*[┃│] ?/, "").replace(/\s*[┃│]?\s*$/, ""));
+}
+
+function findFooter(lines, end) {
+  // The line that closes a prompt, or -1. The review step has no footer, so its question closes it.
+  for (let y = end; y >= Math.max(0, end - 6); y--) if (FOOTER.test(lines[y])) return y;
+  for (let y = end; y >= Math.max(0, end - 6); y--) if (REVIEW.test(lines[y])) return lines.length;
+  return -1;
+}
+
+export function looksLikePrompt(screen) {
+  // Whether the screen ends like a prompt, even one whose choices can't be read.
+  const lines = screenLines(screen);
+  let end = lines.length - 1;
+  while (end >= 0 && !lines[end].trim()) end--;
+  return findFooter(lines, end) >= 0;
+}
+
+export function parsePrompt(app, screen) {
+  // The prompt on an agent's screen, read the way that agent draws it.
+  return parseChoices(screen, ADAPTERS[app] ?? {});
+}
+
+export function keysFor(app, prompt, index) {
+  // The keys that act on one option: its number where the harness takes one, else arrows from the selected one and Enter.
+  const option = prompt.options[index];
+  if (ADAPTERS[app]?.byNumber) return option.next ? ["tab"] : [String(option.n)];
+  if (option.next && option.hidden) return ["right"];
+  return [...moves(prompt, index), "enter"];
+}
+
+function moves(prompt, index) {
+  // The arrows from the selected option to one option.
+  const from = prompt.options.findIndex(o => o.selected);
+  return Array(Math.abs(index - from)).fill(index > from ? "down" : "up");
+}
+
+export function sameOption(a, b) {
+  // Whether two readings of a prompt mean the same option, wherever a scrolled list puts it.
+  return a.next ? Boolean(b.next) : a.input ? a.input === b.input : a.label === b.label;
+}
+
+export function typedAnswer(app, prompt, index) {
+  // The keys that put the cursor in a text row, ready for a typed answer.
+  const { byNumber, notes } = ADAPTERS[app] ?? {};
+  const to = byNumber ? [String(prompt.options[index].n)] : moves(prompt, index);
+  if (prompt.options[index].input === "chat") return { before: [...to, "enter"] };
+  return { before: notes ? [...to, "tab"] : to };
+}
+
+function reviewOf(lines, top, bottom) {
+  // What a review page lists between two lines: its answers and any warning, or null on other pages.
+  const from = lines.slice(top, bottom).findIndex(l => REVIEW_TITLE.test(l));
+  if (from < 0 && !lines.slice(top, bottom + 1).some(l => REVIEW.test(l))) return null;
+  const answers = [];
+  let warning = "";
+  for (const line of lines.slice(top, bottom)) {
+    const asked = /^\s*●\s+(.+)$/.exec(line), given = /^\s*→\s+(.+)$/.exec(line), warned = /^\s*⚠\s*(.+)$/.exec(line);
+    if (asked) answers.push({ question: asked[1].trim(), answer: "" });
+    else if (given && answers.length) answers.at(-1).answer = given[1].trim();
+    else if (warned) warning = warned[1].trim();
+  }
+  return { answers, warning };
+}
+
+function stepsOf(tabs) {
+  // The steps in a prompt's tab row, each with whether it's answered.
+  if (!tabs) return [];
+  const bare = tabs.replace(/^←\s*/, "").replace(/\s*→$/, "").trim();
+  return bare.split(/\s+(?=[□☐■☑☒✓✔])/).map(s => ({ label: s.replace(/^[□☐■☑☒✓✔]\s*/, ""), done: /^[■☑☒]/.test(s) }));
+}
+
+export function parseChoices(screen, { byNumber = false, columns = false } = {}) {
+  const lines = screenLines(screen);
   const RULE = /^\s*[─━═]{8,}\s*$/;
   const SOFT_RULE = /^\s*[╌┄┈-]{8,}\s*$/;
   const CURSOR = /^(\s*)([❯›>▸➤])\s+(\S.*)$/;
   const NUMBERED = /^(\s*)(?:[❯›>▸➤]\s+)?(\d+)[.)]\s+(.+)$/;
   let end = lines.length - 1;
   while (end >= 0 && !lines[end].trim()) end--;
-  let footer = -1;
-  for (let y = end; y >= Math.max(0, end - 6); y--) if (FOOTER.test(lines[y])) { footer = y; break; }
+  const footer = findFooter(lines, end);
   if (footer < 0) return null;
   let y = footer - 1;
   let more = false;
@@ -18,7 +107,9 @@ export function parseChoices(screen) {
   for (; y >= 0 && footer - y < 40; y--) {
     const line = lines[y];
     const n = NUMBERED.exec(line), c = CURSOR.exec(line);
+    if (numbered !== false && NEXT_ROW.test(line)) { numbered = true; block.unshift({ y, line, next: true }); continue; }
     if (numbered !== false && n) { numbered = true; block.unshift({ y, line }); continue; }
+    if (numbered === true && RULE.test(line)) continue;
     if (numbered === null && c) { numbered = false; block.unshift({ y, line }); continue; }
     if (numbered === false && block.length) {
       const col = CURSOR.exec(block.find(b => CURSOR.test(b.line))?.line ?? "")?.[1].length;
@@ -26,29 +117,56 @@ export function parseChoices(screen) {
       if (c || (text && col != null && text[1].length === col + 2)) { block.unshift({ y, line }); continue; }
       break;
     }
-    if (block.length && (!line.trim() || /^\s{4,}\S/.test(line))) { block.unshift({ y, line, desc: true }); continue; }
+    if (!line.trim() || /^\s{2,}\S/.test(line)) { block.unshift({ y, line, desc: true }); continue; }
     break;
   }
+  while (block[0]?.desc) block.shift();
   const options = [];
   for (const b of block) {
     if (b.desc) { if (options.length && b.line.trim()) options.at(-1).desc.push(b.line.trim()); continue; }
     const n = NUMBERED.exec(b.line), c = CURSOR.exec(b.line);
-    const label = (n ? n[3] : c ? c[3] : b.line.trim()).trim();
-    options.push({ n: n ? Number(n[2]) : options.length + 1, label, desc: [], selected: Boolean(c) || /^\s*[❯›>▸➤]/.test(b.line) });
+    const selected = Boolean(c) || /^\s*[❯›>▸➤]/.test(b.line);
+    if (b.next) { options.push({ n: null, label: "Next", desc: [], selected, next: true }); continue; }
+    const text = (n ? n[3] : c ? c[3] : b.line.trim()).trim();
+    const box = CHECKBOX.exec(text);
+    const [written, ...desc] = columns ? text.split(/\s{2,}/) : [box ? box[2] : text];
+    const answered = /\s[✔✓]$/.test(written), label = written.replace(/\s[✔✓]$/, "");
+    const input = TEXT_ROW.test(label) ? "text" : CHAT_ROW.test(label) ? "chat" : undefined;
+    options.push({ n: n ? Number(n[2]) : options.length + 1, label, desc, selected, answered, ...(box ? { checked: box[1] !== " " } : {}), ...(input ? { input } : {}) });
   }
-  if (options.length < 2 || options.filter(o => o.selected).length !== 1) return null;
+  const multi = options.some(o => o.checked !== undefined);
+  if (more && !options.some(o => o.next || TEXT_ROW.test(o.label))) {
+    options.push({ n: null, label: "Type something", desc: [], selected: false, input: "text", hidden: true, ...(multi ? { checked: false } : {}) });
+    if (multi) options.push({ n: null, label: "Next", desc: [], selected: false, next: true, hidden: true });
+  }
+  const beforeNext = options[options.findIndex(o => o.next) - 1];
+  if (beforeNext?.checked !== undefined && !beforeNext.hidden) {
+    beforeNext.input = "text";
+    beforeNext.typed = TEXT_ROW.test(beforeNext.label) ? "" : beforeNext.label;
+  }
+  if (byNumber && multi && !options.some(o => o.next)) options.push({ n: null, label: "Next", desc: [], selected: false, next: true });
+  if (options.length < 2 || (!byNumber && options.filter(o => o.selected).length !== 1)) return null;
   const question = [];
+  const asked = [];
   let tabs = null;
-  for (let q = (block[0]?.y ?? footer) - 1, blanks = 0; q >= 0 && question.length < 10; q--) {
+  for (let q = (block[0]?.y ?? footer) - 1, blanks = 0, whole = false; q >= 0 && question.length + asked.length < 16; q--) {
     const line = lines[q];
     if (RULE.test(line)) break;
-    if (SOFT_RULE.test(line)) continue;
+    if (SOFT_RULE.test(line)) { whole = asked.length > 0; continue; }
     if (/^\s*[•●⎿⏺]/.test(line) || /^\s*[❯›]\s/.test(line)) break;
-    if (!line.trim()) { if (++blanks >= 2 && question.length) break; continue; }
+    if (!line.trim()) { whole = asked.length > 0; if (++blanks >= 2 && asked.length) break; continue; }
     blanks = 0;
-    if (/[□☐■☑☒✓✔]/.test(line) && /submit/i.test(line)) { tabs = line.trim(); continue; }
-    question.unshift(line.trim());
+    if (/^\s*Tip:/.test(line) || /^\s*[↑↓]\s*$/.test(line)) continue;
+    (whole ? question : asked).unshift(line.trim());
   }
-  const sig = JSON.stringify([question, options.map(o => o.label)]);
-  return { question, tabs, options, more, sig };
+  if (/^Question \d+\/\d+/.test(asked[0] ?? "")) tabs = asked.shift();
+  question.push(asked.join(" "));
+  let top = block[0].y;
+  for (let q = block[0].y - 1; q >= 0 && block[0].y - q < 26; q--) {
+    if ((STEP_ROW.test(lines[q]) && lines[q].trim().split(/\s{2,}/).length > 2) || CUT_STEP_ROW.test(lines[q])) { tabs = lines[q].trim(); top = q + 1; question.splice(0, question.indexOf(tabs) + 1); break; }
+  }
+  const review = reviewOf(lines, top, block[0].y);
+  if (review) question.splice(0, question.length, "Review your answers");
+  const sig = JSON.stringify([question, multi ? "multi" : options.map(o => o.input ? "" : o.label)]);
+  return { question, tabs, steps: stepsOf(tabs), review, options, multi, more, sig };
 }
