@@ -13,8 +13,6 @@ Ask your Herdr agent to add this layout, or copy `mods/herdr-chat/` and `layouts
 into `~/.config/herdr-app/` and switch to `herdr-chat` with `ctrl-shift-l`. Your own layout stays
 as it was, one `ctrl-shift-l` away.
 
-Copy the mod folder itself into `mods/` (a symlink or junction there leaves its icons blank).
-
 Each machine with agents needs Python 3: `python3`, or `py -3` / `python` on Windows.
 
 **To add the chat to your own layout**, wrap its `{ "tab": "active" }` block in this stack and give
