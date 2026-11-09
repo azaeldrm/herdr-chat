@@ -1,10 +1,10 @@
 import { appHome, shared, setShared, watchFolder } from "herdr";
 import { readFile } from "fs/promises";
 import { sessionOf, chatKey } from "../common.js";
-import { base64Utf8, python } from "../platform.js";
+import { base64Utf8, onWindows, python } from "../platform.js";
 import { target, agentTargets, readScreen } from "../terminal.js";
 import { supportedNames } from "../harnesses/index.js";
-import { blankSession, parseReaderInSlices, applyRead, readerArgs, batchProgram, splitBatch } from "../model/session.js";
+import { blankSession, parseReaderInSlices, applyRead, readerArgs, embeddedReader, readerFromFolder, compressProgram, compressedReader, readerProgram, batchProgram, splitBatch } from "../model/session.js";
 
 const SESSIONS_KEPT = 32;
 const READ_AFTER = [1000, 4000];
@@ -25,17 +25,36 @@ async function readerSource() {
   return readerBase64;
 }
 
+let readerCompressed = null;
+async function compressedSource(folder) {
+  // The reader's source compressed by this computer's Python, once; null when that can't run.
+  if (!readerCompressed) {
+    const r = await python(["-c", compressProgram(folder)]).catch(() => null);
+    if (r?.code === 0 && r.stdout.trim()) readerCompressed = r.stdout.trim();
+  }
+  return readerCompressed;
+}
+
+async function readerCode(machine) {
+  // The reader for a Python run on `machine`. Windows' command line can't carry it whole: this computer reads the mod's folder, and other machines get it compressed.
+  if (!onWindows()) return embeddedReader(await readerSource());
+  const folder = base64Utf8(`${appHome()}/mods/herdr-chat/readers`);
+  if (!machine) return readerFromFolder(folder);
+  const compressed = await compressedSource(folder);
+  return compressed ? compressedReader(compressed) : embeddedReader(await readerSource());
+}
+
 const NO_PYTHON = { code: 0, stdout: `NOTE|${encodeURIComponent("Reading conversations on Windows needs Python 3 (python.org, or the py launcher).")}\n`, stderr: "" };
 
 async function runReader(t, at) {
-  const boot = `import base64,sys;sys.argv[0]='read_session';exec(compile(base64.b64decode('${await readerSource()}'),'read_session.py','exec'))`;
+  const boot = readerProgram(await readerCode(t.machine));
   return (await python(["-c", boot, ...readerArgs(t, at)], t.machine ? { on: t.machine } : undefined)) ?? NO_PYTHON;
 }
 
 export async function readSkills(t, path) {
   // The reader's list of an agent's skills, run on the agent's machine.
   const { user, project, skip } = t.harness.skills;
-  const boot = `import base64,sys;sys.argv[0]='read_session';exec(compile(base64.b64decode('${await readerSource()}'),'read_session.py','exec'))`;
+  const boot = readerProgram(await readerCode(t.machine));
   const args = ["--app", t.harness.reader, "--pid", String(t.pid), "--skills", JSON.stringify({ user, project, skip })];
   if (t.cwd) args.push("--cwd", t.cwd);
   if (path) args.push("--known", path);
@@ -44,7 +63,7 @@ export async function readSkills(t, path) {
 
 async function runReaders(machine, list) {
   // Reads several sessions on one machine (null: this one) in one Python run; each one's output, or null.
-  const program = batchProgram(await readerSource());
+  const program = batchProgram(await readerCode(machine));
   const r = await python(["-c", program, base64Utf8(JSON.stringify(list.map(([t, at]) => readerArgs(t, at))))], machine ? { on: machine } : undefined);
   return r?.code === 0 ? splitBatch(r.stdout) : null;
 }

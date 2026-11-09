@@ -118,9 +118,39 @@ def loads(line):
     try: return json.loads(line)
     except ValueError: return None
 
-def parent_map():
-    """pid -> parent pid: /proc on Linux, ps elsewhere."""
+def windows_parents():
+    """pid -> parent pid from Windows' process list, which has no /proc or ps."""
+    import ctypes
+    from ctypes import wintypes
+    class Entry(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", wintypes.LONG), ("dwFlags", wintypes.DWORD),
+                    ("szExeFile", wintypes.WCHAR * 260)]
+    kernel32 = ctypes.WinDLL("kernel32")
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(Entry)]
+    kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(Entry)]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     parents = {}
+    snapshot = kernel32.CreateToolhelp32Snapshot(2, 0)
+    if snapshot in (None, wintypes.HANDLE(-1).value): return parents
+    entry = Entry()
+    entry.dwSize = ctypes.sizeof(Entry)
+    more = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+    while more:
+        parents[entry.th32ProcessID] = entry.th32ParentProcessID
+        more = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+    kernel32.CloseHandle(snapshot)
+    return parents
+
+def parent_map():
+    """pid -> parent pid: /proc on Linux, kernel32 on Windows, ps elsewhere."""
+    parents = {}
+    if os.name == "nt":
+        try: return windows_parents()
+        except Exception: return parents
     if os.path.isdir("/proc"):
         for d in os.listdir("/proc"):
             if not d.isdigit(): continue
