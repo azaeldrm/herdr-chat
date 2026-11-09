@@ -22,7 +22,7 @@ export function sessionKey(address) {
 }
 
 export function preferredView(key) {
-  return (shared(VIEWS_KEY) ?? {})[key] === "chat" ? "chat" : "terminal";
+  return (shared(VIEWS_KEY) ?? {})[key] === "terminal" ? "terminal" : "chat";
 }
 
 function remember(key, mode) {
