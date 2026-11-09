@@ -15,11 +15,13 @@ function markdown(id, source, t) {
   for (let i = 0; i < parts.length; i += 3) {
     if (parts[i]?.trim()) blocks.push(TextView.markdown(`${id}-t${i}`, parts[i].trim()).selectable(true));
     if (i + 2 < parts.length) {
-      const lang = parts[i + 1]?.trim();
+      // The lines are drawn as written: TextView would add its own box and title inside this one.
+      const lang = parts[i + 1]?.trim(), lines = parts[i + 2].replace(/\n$/, "").split("\n");
       blocks.push(v_flex().id(`${id}-c${i}`).w_full().rounded(10).border_1().border_color(t.border).bg(t.surface).overflow_hidden()
         .child(h_flex().h(30).px(12).items_center().border_b(1).border_color(t.border)
           .child(div().text_size(11.5).text_color(t.muted).child(lang || "text")))
-        .child(div().px(2).text_size(13).child(TextView.markdown(`${id}-ct${i}`, `\`\`\`${parts[i + 1] || ""}\n${parts[i + 2]}\n\`\`\``).selectable(true))));
+        .child(v_flex().px(12).py(8).font_family(mono()).text_size(12.5).text_color(t.foreground)
+          .children(lines.map((l, k) => div().id(`${id}-c${i}-l${k}`).w_full().min_h(18).child(l.replace(/\t/g, "    ") || " ")))));
     }
   }
   return v_flex().w_full().gap(12).children(blocks);
