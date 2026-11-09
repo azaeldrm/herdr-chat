@@ -27,9 +27,9 @@ import-memory, morning, pdf, plan-tasks, pptx, review-changes, skill-creator, sp
   /implement, /implement-and-review, /scout-and-plan
 
 [Extensions]
-  @juicesharp/rpiv-ask-user-question, @juicesharp/rpiv-todo, azaeldrm/pi-tools:context-meter.ts, azaeldrm/pi-tools:inline-bash.ts, azaeldrm/pi-tools:permission-gate.ts,
-azaeldrm/pi-tools:procession-banner, azaeldrm/pi-tools:protected-paths.ts, azaeldrm/pi-tools:subagent, azaeldrm/pi-tools:vendor/pi-github-pr/dist, azaeldrm/pi-tools:vendor/powerline-footer,
-azaeldrm/pi-tools:working-indicator.ts, harness-context.ts, herdr-agent-state.ts, homelab-docker, pi-background-tasks:dist/extensions/anthropic-attribution.js,
+  @juicesharp/rpiv-ask-user-question, @juicesharp/rpiv-todo, my-tools:context-meter.ts, my-tools:inline-bash.ts, my-tools:permission-gate.ts,
+my-tools:procession-banner, my-tools:protected-paths.ts, my-tools:subagent, my-tools:vendor/pi-github-pr/dist, my-tools:vendor/powerline-footer,
+my-tools:working-indicator.ts, harness-context.ts, herdr-agent-state.ts, docker-tools, pi-background-tasks:dist/extensions/anthropic-attribution.js,
 pi-background-tasks:dist/extensions/background-tasks.js, pi-compact-tools:compact-tools.ts, pi-web-access:dist
 
 
@@ -48,7 +48,7 @@ pi-background-tasks:dist/extensions/background-tasks.js, pi-compact-tools:compac
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 
- <hc from="azael-zenbook/ppid:421161">This is a test of your question UI, not real work. Use your built-in tool for asking the user structured questions (not plain text). In ONE call, ask three
+ <hc from="laptop/ppid:421161">This is a test of your question UI, not real work. Use your built-in tool for asking the user structured questions (not plain text). In ONE call, ask three
  questions: (1) single choice "Pick a color" with options Red, Green, Blue, each with a one-line description; (2) multi-select "Pick toppings" with options Cheese, Olives, Basil; (3) single choice
  "Pick a size" with options Small, Medium, Large. If you have no such tool, reply exactly: NO QUESTION TOOL and name the tools you do have for asking. Do nothing else.</hc>
 
@@ -63,7 +63,7 @@ pi-background-tasks:dist/extensions/background-tasks.js, pi-compact-tools:compac
  Questions presented in a single call; you declined to answer, so nothing was selected.
 
 
- <hc from="azael-zenbook/ppid:433034">This is a test of your question UI, not real work. Use your built-in tool for asking the user structured questions (not plain text). In ONE call, ask three
+ <hc from="laptop/ppid:433034">This is a test of your question UI, not real work. Use your built-in tool for asking the user structured questions (not plain text). In ONE call, ask three
  questions: (1) single choice "Pick a color" with options Red, Green, Blue, each with a one-line description; (2) multi-select "Pick toppings" with options Cheese, Olives, Basil; (3) single choice
  "Pick a size" with options Small, Medium, Large. If you have no such tool, reply exactly: NO QUESTION TOOL and name the tools you do have for asking. Do nothing else.</hc>
 
@@ -78,7 +78,7 @@ pi-background-tasks:dist/extensions/background-tasks.js, pi-compact-tools:compac
  Questions presented in one call; you declined to answer again, so no selections were recorded.
 
 
- <hc from="azael-zenbook/ppid:433034">This is a test of your question UI, not real work. Use your built-in tool for asking the user structured questions (not plain text). In ONE call, ask three
+ <hc from="laptop/ppid:433034">This is a test of your question UI, not real work. Use your built-in tool for asking the user structured questions (not plain text). In ONE call, ask three
  questions: (1) single choice "Pick a color" with options Red, Green, Blue, each with a one-line description; (2) multi-select "Pick toppings" with options Cheese, Olives, Basil; (3) single choice
  "Pick a size" with options Small, Medium, Large. If you have no such tool, reply exactly: NO QUESTION TOOL and name the tools you do have for asking. Do nothing else.</hc>
 
@@ -95,7 +95,7 @@ pi-background-tasks:dist/extensions/background-tasks.js, pi-compact-tools:compac
 
  ⠙ Using ask user question…
 
- ↱ <hc from="azael-zenbook/ppid:433034">This is a test of your question UI, not real work. Use your built-in tool for asking the user structured questions (not plain text). In ONE call, ask three que…
+ ↱ <hc from="laptop/ppid:433034">This is a test of your question UI, not real work. Use your built-in tool for asking the user structured questions (not plain text). In ONE call, ask three que…
  π Maya-XS (local) •  high •  q-pi •   67k                                                                                                                      17.5k/1M (1.7%) ╸─────────────────
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  ←  □ Color   □ Toppings   □ Size   ✓ Submit  →
