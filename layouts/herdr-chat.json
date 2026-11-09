@@ -106,7 +106,7 @@
             {
               "id": "chat-view",
               "type": "stack",
-              "active": "terminal-panel",
+              "active": "chat-panel",
               "children": [
                 {
                   "id": "chat-panel",
