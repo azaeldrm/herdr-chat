@@ -114,14 +114,16 @@ the terminal itself belongs to the layout. The same mod runs twice: as the chat
 **What it accesses** (herdr asks every shared mod to say so):
 
 - runs programs, on this computer and on other machines (`exec(…, { on })`): `python3` (`py -3`
-  or `python` on Windows), `hc` (`send`, `keys`, `put`, `attach`, `read`), `sh`,
-  `powershell.exe`, the clipboard tools (`wl-paste`, `xclip`, `pngpaste`) and ImageMagick or
-  `sips`. The reader travels with each run, so other machines need only Python 3 and `hc`;
-- reads the agents' session logs (`~/.claude`, `~/.codex/sessions`, `~/.pi/agent/sessions`,
-  OpenCode's database), their skill folders, and terminal screens;
-- types into terminals;
-- writes image copies under `~/.config/herdr-app/cache/herdr-chat/` (delete that folder along with
-  the mod to remove everything);
+  or `python` on Windows), `hc` (`send`, `keys`, `interrupt`, `put`, `get`, `ls`, `exec`, `read`,
+  `attach`, including `attach --observe`), `sh`, `env`, `rm`, `find`, `powershell.exe`, the
+  clipboard tools (`wl-paste`, `xclip`, `pngpaste`) and ImageMagick or `sips`. The reader travels
+  with each run, so other machines need only Python 3 and `hc`;
+- reads the agents' session logs (`~/.claude`, including `~/.claude/sessions`, `~/.codex/sessions`,
+  `~/.pi/agent/sessions`, OpenCode's database), their skill folders, terminal screens, and the
+  process list, to find which session runs in each terminal;
+- types into terminals and stops a working agent with its own stop key;
+- writes image copies and drawn diagrams under `cache/herdr-chat/` in the Herdr home, and deletes
+  its own files there after a day (delete that folder along with the mod to remove everything);
 - sets the app's `accent` and `selection` colours to a dimmed accent while it runs, so selected
   text stays visible in herdr's text boxes. Theme files stay as they are;
 - works entirely offline.
@@ -161,7 +163,8 @@ the terminal itself belongs to the layout. The same mod runs twice: as the chat
 
 - The chat shows the last 24 MB of each session log.
 - On Windows, the draft lives in the reply box, a question card shows long previews in part with a
-  count of the remaining lines, and Codex receives a pasted image as its path.
+  count of the remaining lines, a multi-select's own-answer row is typed in the terminal, and Codex
+  receives a pasted image as its path.
 - OpenCode is read from its `session_v2` tables.
 
 ## Done when
