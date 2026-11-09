@@ -111,7 +111,7 @@ the terminal itself belongs to the layout. The same mod runs twice: as the chat
 
 ## Watch out
 
-**What it accesses** (herdr asks every shared mod to say so):
+**What it accesses:**
 
 - runs programs, on this computer and on other machines (`exec(…, { on })`): `python3` (`py -3`
   or `python` on Windows), `hc` (`send`, `keys`, `interrupt`, `put`, `get`, `ls`, `exec`, `read`,
