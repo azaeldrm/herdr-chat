@@ -1,6 +1,6 @@
 # Herdr Chat
 
-Any Claude Code, Codex, Pi or OpenCode terminal, shown as a chat. A Chat / Terminal toggle in the
+A coding agent's terminal, shown as a chat. A Chat / Terminal toggle in the
 pane header swaps one for the other in place, and the agent keeps running in its terminal either
 way. The chat reads the agent's own session log, so it works for agents on every machine herdr
 reaches.
@@ -53,8 +53,8 @@ Colours come from the active theme; icons are the mod's own SVGs in the theme's 
 
 ## How it behaves
 
-- **Agents:** terminals whose program reports itself as `claude-code`, `codex`, `pi` or
-  `opencode` get the toggle. Every other tab shows its terminal.
+- **Agents:** a terminal gets the toggle when its program has an adapter in `harnesses/` (see
+  Adding an agent below). Every other tab shows its terminal.
 - **View:** a new agent session opens on Chat. Each session keeps the view it was left in, across
   restarts (the latest 200, shared key `herdr-chat.views`).
 - **Sending:** Enter sends, Shift+Enter starts a new line, ↑ and ↓ move between lines. The text
@@ -172,7 +172,7 @@ the terminal itself belongs to the layout. The same mod runs twice: as the chat
 - `herdr-app check ~/.config/herdr-app/mods/herdr-chat` passes and `herdr-app status` shows no
   errors on the `herdr-chat` layout.
 - `npm test` passes on Linux or macOS.
-- A new Claude Code, Codex, Pi or OpenCode tab opens on its chat, with the toggle in the header;
+- A new tab for each supported agent opens on its chat, with the toggle in the header;
   Terminal brings the terminal back, and each session keeps its view after a restart.
 - A message sent from the chat reaches the terminal as plain text, and the reply appears as it's
   written.
