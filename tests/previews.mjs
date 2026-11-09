@@ -15,7 +15,7 @@ const placed = (t, name) => `/home/a/.local/state/herdr-core/default/files/${t}/
 
 check("a preview name says where the image was placed", previewName(placed("t4k", "same.png")), "local~t4k~same.png");
 check("the same name in two terminals stays apart", previewName(placed("t4k", "same.png")) === previewName(placed("t4s", "same.png")), false);
-check("the same terminal on two machines stays apart", previewName(placed("t7", "same.png"), "homelab") === previewName(placed("t7", "same.png")), false);
+check("the same terminal on two machines stays apart", previewName(placed("t7", "same.png"), "server") === previewName(placed("t7", "same.png")), false);
 check("a Windows path and an odd machine name give a plain file name", previewName(String.raw`C:\Users\a\herdr-core\default\files\t7\x.png`, "my box/1"), "my-box-1~t7~x.png");
 
 const cache = join(s.home, "cache", "herdr-chat"), sent = join(cache, "sent");
