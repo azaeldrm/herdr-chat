@@ -63,7 +63,7 @@ Colours come from the active theme; icons are the mod's own SVGs in the theme's 
 - **Stop:** while the agent works, the send button stops it (also Esc). A message the agent hands
   back on Stop returns to the reply box.
 - **Images:** drop png, jpg, gif or webp files on the chat, or paste one with Ctrl+V. Images over
-  240 KB are shrunk, placed beside the agent's terminal with `hc put`, and attached the way each
+  250 KB are shrunk, placed beside the agent's terminal with `hc put`, and attached the way each
   agent attaches images: Claude Code as an `@path` mention, Codex as a pasted path, Pi and OpenCode
   as the plain path. Images in the conversation show as thumbnails, fetched from the agent's
   machine.
@@ -151,6 +151,9 @@ the terminal itself belongs to the layout. The same mod runs twice: as the chat
 - **Sending:** send from the agent's machine without `HC_TERMINAL_ID` and `HC_SCOPE`, so the text
   arrives as plain typing.
 - **Debug files:** write them outside the mod's folder, since any write inside reloads the mod.
+- **Its name:** `mods/herdr-chat/` is written into its paths (`platform.js`, `common.js`,
+  `terminal.js`, `components/session-reader.js`) and its shared keys start with `herdr-chat.`,
+  so a renamed copy needs those changed too.
 - **Agent logs:** Codex continues a resumed session in its older logs and splits long ones into
   parts, and writes its reviewer's logs beside them (read only the session's own). Claude Code logs
   messages sent mid-turn as `queued_command` attachments. A resumed Pi keeps writing to its first
