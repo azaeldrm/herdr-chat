@@ -110,11 +110,41 @@ export function readerArgs(t, at) {
 
 const SPLIT = "--herdr-chat-session--";
 
-export function batchProgram(readerBase64) {
+export function embeddedReader(readerBase64) {
+  // A Python expression for the reader's code, carried whole in the command: for machines that don't have the mod's files.
+  return `compile(__import__('base64').b64decode('${readerBase64}'),'read_session.py','exec')`;
+}
+
+function folderSource(folderBase64) {
+  // A Python expression for the reader's source, joined from readers/ in manifest order.
+  return `(lambda d:'\\n'.join(open(d+'/'+f,encoding='utf-8').read() for f in __import__('json').load(open(d+'/manifest.json'))))(__import__('base64').b64decode('${folderBase64}').decode('utf-8'))`;
+}
+
+export function readerFromFolder(folderBase64) {
+  // A Python expression for the reader's code, loaded from readers/: short enough for Windows' 32767-character command line, which the whole reader isn't.
+  return `compile(${folderSource(folderBase64)},'read_session.py','exec')`;
+}
+
+export function compressProgram(folderBase64) {
+  // A `python3 -c` program that prints the reader's source, compressed, for compressedReader.
+  return `import base64,zlib;print(base64.b64encode(zlib.compress(${folderSource(folderBase64)}.encode('utf-8'),9)).decode())`;
+}
+
+export function compressedReader(zlibBase64) {
+  // A Python expression for the reader's code, compressed in the command: how Windows, with its short command line, sends it to other machines.
+  return `compile(__import__('zlib').decompress(__import__('base64').b64decode('${zlibBase64}')),'read_session.py','exec')`;
+}
+
+export function readerProgram(code) {
+  // A `python3 -c` program that runs the reader once, with the arguments that follow it.
+  return `import sys;sys.argv[0]='read_session';exec(${code})`;
+}
+
+export function batchProgram(code) {
   // A `python3 -c` program that runs the reader once per argument list, in one process for all of a machine's agents.
   return [
     "import base64,io,json,sys",
-    `code=compile(base64.b64decode('${readerBase64}'),'read_session.py','exec')`,
+    `code=${code}`,
     "for argv in json.loads(base64.b64decode(sys.argv[1]).decode('utf-8')):",
     "  buf=io.StringIO(); real=sys.stdout; sys.stdout=buf",
     "  try:",
@@ -128,5 +158,5 @@ export function batchProgram(readerBase64) {
 
 export function splitBatch(stdout) {
   // A batch run's output, split into each session's own (in the order they were asked for).
-  return stdout.split(SPLIT + "\n").slice(1);
+  return stdout.split(new RegExp(SPLIT + "\\r?\\n")).slice(1);
 }

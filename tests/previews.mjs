@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, statSync, copyFileSync } from "fs";
+import { mkdirSync, rmdirSync, writeFileSync, readFileSync, readdirSync, existsSync, statSync, copyFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { join } from "path";
 import { stage } from "./stage.mjs";
@@ -28,6 +28,12 @@ check("their bytes are kept, whole", [...readFileSync(join(sent, kept[0]))], [1,
 check("the originals are gone", [existsSync(a), existsSync(b)], [false, false]);
 
 check("sent/ lists them", [...await sentNames()].sort(), ["local~t4k~same.png", "local~t4s~same.png"]);
+
+const blocked = join(cache, "blocked.png");
+writeFileSync(blocked, new Uint8Array([7]));
+mkdirSync(join(sent, "local~t4b~same.png"));
+check("a preview that isn't written whole isn't claimed, so it gets fetched instead", await keepSent([blocked], [placed("t4b", "same.png")], null), []);
+rmdirSync(join(sent, "local~t4b~same.png"));
 
 const on = new Set(["local~t4k~same.png", "local~t4s~big.png.jpg"]);
 check("a preview is found under its name", previewFile(on, placed("t4k", "same.png")), "local~t4k~same.png");

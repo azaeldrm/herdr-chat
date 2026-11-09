@@ -23,8 +23,15 @@ export async function keepSent(previews, placed, machine) {
   const kept = [];
   for (const [i, f] of previews.entries()) {
     const name = previewName(placed[i], machine);
-    const moved = await readFile(f).then(b => writeFile(`${sentDir()}/${name}`, b)).then(() => true, () => false);
-    if (moved) { kept.push(name); await unlink(f).catch(() => null); }
+    const bytes = await readFile(f).catch(() => null);
+    if (!bytes) continue;
+    // Herdr's writeFile can report success having written no bytes, so a preview only counts once it reads back whole; fetchSent makes one otherwise.
+    const dest = `${sentDir()}/${name}`;
+    await writeFile(dest, bytes).catch(() => null);
+    const whole = await readFile(dest).then(back => back.length === bytes.length, () => false);
+    if (whole) kept.push(name);
+    else await unlink(dest).catch(() => null);
+    await unlink(f).catch(() => null);
   }
   return kept;
 }
