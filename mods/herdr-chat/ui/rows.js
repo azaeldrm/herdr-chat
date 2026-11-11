@@ -37,7 +37,7 @@ function copyRow(m, { t, copied }) {
   // just used); its row keeps its height either way, so nothing moves when it appears.
   const done = copied === m.key;
   return h_flex().id(`copy-row-${m.key}`).w_full().h(32).items_center().when(m.prompt, el => el.justify_end()).when(!m.prompt, el => el.justify_start())
-    .opacity(done ? 1 : 0).hover(s => s.opacity(1))
+    .opacity(done ? 1 : 0).hover(s => s.opacity(1)).transition("opacity", { duration: 160, easing: "ease-out" })
     .child(toolButton(t, `copy-${m.key}`, "copy", done, false, m.prompt ? "Copy your message" : "Copy the response"));
 }
 
