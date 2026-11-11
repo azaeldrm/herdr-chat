@@ -25,10 +25,10 @@ function codeRow(m, { t, copied }) {
   return codeBox(`code-${m.key}`, m.lang, m.text, t, copied === m.key);
 }
 
-function toolButton(t, id, glyph, done, busy, tip) {
-  // A small icon button under the conversation (a response's copy, a diagram's): bordered, the icon a check once it's done.
+function toolButton(t, id, glyph, done, busy, tip, bordered = true) {
+  // A small icon button under the conversation (a diagram's, bordered; a message's copy, bare): the icon a check once it's done.
   return div().id(id).w(TOOL_BUTTON).h(28).flex_none().flex().items_center().justify_center().rounded(8)
-    .border_1().border_color(t.border).hover(s => s.bg(t.raised)).tooltip(busy ? "Copying…" : done ? "Copied" : tip)
+    .when(bordered, el => el.border_1().border_color(t.border)).hover(s => s.bg(t.raised)).tooltip(busy ? "Copying…" : done ? "Copied" : tip)
     .child(icon(done ? "check" : glyph, 14, done || busy ? t.foreground : t.muted));
 }
 
@@ -42,7 +42,7 @@ function copyRow(m, { t, copied }) {
     .child(icon(glyph, 13, t.dim)).child(div().text_size(12).text_color(t.dim).child(text));
   return h_flex().id(`copy-row-${m.key}`).w_full().h(32).gap(14).items_center().when(m.prompt, el => el.justify_end()).when(!m.prompt, el => el.justify_start())
     .opacity(done ? 1 : 0).hover(st => st.opacity(1))
-    .child(toolButton(t, `copy-${m.key}`, "copy", done, false, m.prompt ? "Copy your message" : "Copy the response"))
+    .child(toolButton(t, `copy-${m.key}`, "copy", done, false, m.prompt ? "Copy your message" : "Copy the response", false))
     .when(Boolean(s && !m.prompt), el => el
       .when(s?.secs != null, e => e.child(stat("clock", duration(s.secs), "How long the turn took")))
       .when(Boolean(s?.out), e => e.child(stat("coins", `${tokens(s?.out ?? 0)} tokens`, "Tokens the agent wrote this turn (thinking included)")))
