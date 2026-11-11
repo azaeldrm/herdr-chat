@@ -9,33 +9,24 @@ def pi_call(name, inp):
     return {"k": "other", "d": name}
 
 def find_pi():
-    since = A.created / 1000 - 10
-    files = []
+    # Pi keeps a folder of sessions per working folder: the terminal's folders first, then (a session resumed from another
+    # folder's) any folder, which the screen must confirm.
+    sessions = os.path.join(HOME, ".pi", "agent", "sessions")
+    own = []
     for cwd in candidate_cwds():
-        folder = os.path.join(HOME, ".pi", "agent", "sessions", "--" + re.sub(r"[\\/:]", "-", cwd.lstrip("\\/")) + "--")
-        files += [(os.path.getmtime(fp), fp) for fp in glob.glob(os.path.join(folder, "*.jsonl"))]
-    files = [f for f in files if f[0] >= since]
+        own += glob.glob(os.path.join(sessions, "--" + re.sub(r"[\\/:]", "-", cwd.lstrip("\\/")) + "--", "*.jsonl"))
+    files = written_since_start(own)
+    confirm = not files
+    if confirm: files = written_since_start(glob.glob(os.path.join(sessions, "*", "*.jsonl")))
     if not files: return None
-    newest = max(files)
-    if A.known and newest[1] == A.known: return A.known
-    if A.screen:
-        screen = words_of(A.screen)
-        hits = [f for f in files if shown_on(f[1], screen)]
-        return max(hits)[1] if hits else None
-    if len(files) > 1 or A.peers:
-        state["need"] = "screen"
-        return None
-    return newest[1]
+    if A.known and files[0] == A.known: return A.known
+    return pick_session(files, log_texts(pi_message), confirm)
 
 def pi_message(line):
     """A Pi log line's message text from the person or Pi, or None."""
     if '"type":"message"' not in line: return None
     m = (loads(line) or {}).get("message") or {}
     return content_text(m.get("content")) if m.get("role") in ("user", "assistant") else None
-
-def shown_on(path, screen):
-    """Whether one of the file's last few messages shows on the screen."""
-    return any_shown(last_texts(path, pi_message), screen)
 
 def parse_pi(path):
     since = A.created - 10000 if A.created else 0

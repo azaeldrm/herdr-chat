@@ -71,10 +71,8 @@ def find_codex():
         if logs: return max(logs, key=os.path.getmtime)
     if A.known and os.path.isfile(A.known) and codex_own(codex_meta(A.known)) and codex_talked(A.known): return A.known
     if not os.path.isdir(sessions): return None
-    since = A.created / 1000 - 10
     cwds = candidate_cwds()
-    candidates = [p for p in glob.glob(os.path.join(sessions, "**", "rollout-*.jsonl"), recursive=True) if os.path.getmtime(p) >= since]
-    candidates.sort(key=os.path.getmtime, reverse=True)
+    candidates = written_since_start(glob.glob(os.path.join(sessions, "**", "rollout-*.jsonl"), recursive=True))
     found = later = newest = None
     for fp in candidates:
         p = codex_meta(fp)
@@ -98,14 +96,9 @@ def codex_message(line):
 def codex_picked(candidates, launch):
     """A conversation resumed from inside Codex (its /resume picker): Codex starts an empty log at launch, then writes on in the
     picked conversation's own log, whose session_meta has that conversation's folder. So: a log of the person's written
-    since the agent started, in any folder, that the terminal's screen shows (any Codex may have written one meanwhile)."""
+    since the agent started, in any folder, that the screen confirms; the launch log meanwhile, or when none is shown."""
     others = [fp for fp in candidates if fp != launch and codex_own(codex_meta(fp)) and codex_talked(fp)]
-    if not others: return launch
-    if not A.screen:
-        state["need"] = "screen"
-        return launch
-    screen = words_of(A.screen)
-    return next((fp for fp in others if any_shown(last_texts(fp, codex_message), screen)), launch)
+    return pick_session(others, log_texts(codex_message), confirm=True) or launch
 
 def parse_codex(path):
     for line in read_tail(path):

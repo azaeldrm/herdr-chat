@@ -49,6 +49,7 @@ check("messages, a tool call with its output, and reasoning come through in orde
       [("M", "list the files"), ("C", json.dumps({"k": "shell", "d": "ls"}, separators=(",", ":"))), ("O", "a.txt"), ("R", "one file"), ("M", "There's a.txt.")])
 check("every read is whole, since replies update in place", [t for t, f in out if t == "RESET"], ["RESET"])
 check("a session the chat already knows is kept", [f for t, f in read(home, "/work", 1, known=db + "#old") if t == "PATH"], [[db + "#old"]])
-check("no session yet: waiting", [f for t, f in read(home, "/nowhere", 55000) if t == "NOTE"], [["Waiting for this OpenCode conversation to start."]])
+check("no session yet: waiting", [f for t, f in read(home, "/nowhere", 90000) if t == "NOTE"], [["Waiting for this OpenCode conversation to start."]])
+check("none in its folder, others updated since: asks for the screen first", [t for t, f in read(home, "/nowhere", 55000) if t == "NEED"], ["NEED"])
 check("no OpenCode database: waiting too", [f for t, f in read(tempfile.mkdtemp(), "/work", 55000) if t == "NOTE"], [["Waiting for this OpenCode conversation to start."]])
 sys.exit(1 if failed else 0)
