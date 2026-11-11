@@ -1,6 +1,6 @@
 import { View, div, image } from "gpui-kit";
 import { set_theme, v_flex, h_flex } from "gpui-base";
-import { panes, focused, props, hc, theme, shared } from "herdr";
+import { panes, focused, props, hc, theme, shared, window as appWindow } from "herdr";
 import { switchTo, showView, preferredView, sessionOf, chatKey } from "./common.js";
 import { target, inputBox, interruptAgent } from "./terminal.js";
 import { keyRows, splitCode, withCopyRows, stepRows, stepText, withoutRetracted } from "./model/transcript.js";
@@ -58,12 +58,24 @@ export default class HerdrChat extends View {
       const cue = this.reader.readCue();
       if (cue !== this.shownCue) { this.shownCue = cue; cx.notify(); }
       if (shared("herdr-chat.mode") !== "chat") return;
+      this.markSeen(t);
       if (hasQueuedDiagrams() && !this.drawingDiagram) {
         this.drawingDiagram = true;
         cx.spawn(async cx => { try { if (await renderQueuedDiagrams()) cx.notify(); } finally { this.drawingDiagram = false; } });
       }
       this.list.tick(cx);
     });
+  }
+
+  markSeen(t) {
+    // Looking at a finished agent in Chat counts as seeing it, as showing its terminal does: herdr calls an agent done
+    // while its terminal's herdr.seen label is below its turn, and only the terminal's pane being shown raises it.
+    if (!t || t.status !== "done" || !Number.isFinite(t.turn) || appWindow()?.active === false) return;
+    const mark = `${t.address}:${t.turn}`;
+    if (this.seenMark === mark) return;
+    this.seenMark = mark;
+    const retry = () => { if (this.seenMark === mark) this.seenMark = null; };
+    hc(["label", t.address, `herdr.seen=${t.turn}`]).then(r => { if (r?.code !== 0) retry(); }, retry);
   }
 
   get key() { return this.reader?.key ?? ""; }
