@@ -45,8 +45,8 @@ function copyRow(m, { t, copied }) {
     .child(toolButton(t, `copy-${m.key}`, "copy", done, false, m.prompt ? "Copy your message" : "Copy the response"))
     .when(Boolean(s && !m.prompt), el => el
       .when(s?.secs != null, e => e.child(stat("clock", duration(s.secs), "How long the turn took")))
-      .when(Boolean(s?.out), e => e.child(stat("hash", `${tokens(s?.out ?? 0)} tokens`, "Tokens the agent wrote this turn (thinking included)")))
-      .when(s?.tps != null, e => e.child(stat("activity", `${Math.round(s.tps)}/s`, "Tokens per second while the agent was writing (tool time left out)"))));
+      .when(Boolean(s?.out), e => e.child(stat("coins", `${tokens(s?.out ?? 0)} tokens`, "Tokens the agent wrote this turn (thinking included)")))
+      .when(s?.tps != null, e => e.child(stat("fast-forward", `${Math.round(s.tps)}/s`, "Tokens per second while the agent was writing (tool time left out)"))));
 }
 
 export function duration(secs) {
