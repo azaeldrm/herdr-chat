@@ -14,6 +14,7 @@ import { ChatList } from "./components/chat-list.js";
 import { QuestionCard } from "./components/question-card.js";
 import { Composer } from "./components/composer.js";
 import { SessionReader } from "./components/session-reader.js";
+import { isDiagramViewer, openDiagram, DiagramViewer } from "./components/diagram-viewer.js";
 
 function inputHighlight(cx) {
   const t = theme(), th = cx.theme();
@@ -35,6 +36,7 @@ export default class HerdrChat extends View {
 
   initInner(cx) {
     if (isHeader(props())) { this.asHeader = true; this.hovered = false; return; }
+    if (isDiagramViewer(props())) { this.diagram = new DiagramViewer(cx); return; }
     this.list = new ChatList();
     this.reader = new SessionReader(this);
     this.card = new QuestionCard(this);
@@ -201,6 +203,7 @@ export default class HerdrChat extends View {
 
   renderInner(cx) {
     if (this.asHeader) return terminalHeader(this);
+    if (this.diagram) return this.diagram.render();
     const t = theme();
     const active = target();
     if (chatKey(active) !== this.key) this.switchSession(active, chatKey(active));
@@ -230,6 +233,11 @@ export default class HerdrChat extends View {
           cx.write_to_clipboard(row.text);
           this.copied = key; cx.notify();
           cx.timer.after(1500, cx => { if (this.copied === key) { this.copied = null; cx.notify(); } });
+          return;
+        }
+        if (row?.kind === "diagram") {
+          const d = diagramFor(row.text, t);
+          if (d.state === "ready") openDiagram(d);
           return;
         }
         const opens = row?.kind === "tools" || (row?.kind === "step" && (this.reader.session.open[key] || stepText(row.call, false).more));
