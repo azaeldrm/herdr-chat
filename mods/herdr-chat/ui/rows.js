@@ -95,7 +95,7 @@ function messageRow(m, { t, width, sent, machine }) {
 }
 
 function diagramRow(m, { t, width }) {
-  // A ```mermaid block from a reply, as its own row: the picture alone, in the reply's column.
+  // A ```mermaid block from a reply, as its own row: the picture alone, in the reply's column; a click opens it larger (openDiagram).
   const d = diagramFor(m.text, t);
   if (d.state === "queued") return div().w_full().h(24).flex().items_center().text_size(12.5).text_color(t.dim).child("Drawing diagram…");
   if (d.state === "failed") return v_flex().w_full().gap(6)
@@ -103,7 +103,7 @@ function diagramRow(m, { t, width }) {
     .child(div().text_size(12).text_color(t.dim).child(`Couldn't draw this diagram: ${d.error}`));
   const room = Math.min(COLUMN, Math.max(280, Math.floor(width) - 50));
   const w = Math.min(d.width, room), h = Math.round(d.height * w / d.width);
-  return div().w_full().child(image(d.rel).w(w).h(h));
+  return div().id(`diagram-${m.key}`).w_full().cursor_pointer().tooltip("Click to open it larger").child(image(d.rel).w(w).h(h));
 }
 
 export function row(m, ctx) {
