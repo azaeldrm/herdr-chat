@@ -3,7 +3,7 @@ import { set_theme, v_flex, h_flex } from "gpui-base";
 import { panes, focused, props, hc, theme, shared } from "herdr";
 import { switchTo, showView, preferredView, sessionOf, chatKey } from "./common.js";
 import { target, inputBox, interruptAgent } from "./terminal.js";
-import { keyRows, stepRows, stepText, withoutRetracted } from "./model/transcript.js";
+import { keyRows, splitCode, withCopyRows, stepRows, stepText, withoutRetracted } from "./model/transcript.js";
 import { row } from "./ui/rows.js";
 import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle, clock } from "./ui/primitives.js";
 import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
@@ -206,9 +206,13 @@ export default class HerdrChat extends View {
     if (chatKey(active) !== this.key) this.switchSession(active, chatKey(active));
     const shown = withoutRetracted(this.reader.session.messages, this.retracted?.key === this.key ? this.retracted.text : null);
     if (!shown.retracted && this.retracted?.key === this.key) this.retracted = null;
-    const rows = shown.rows.flatMap(m => {
+    const rows = withCopyRows(shown.rows, active?.status === "working").flatMap(m => {
       const parts = m.kind === "message" && m.role !== "user" && m.text?.includes("```mermaid") ? splitDiagrams(m.text) : null;
-      return parts ? parts.map(p => p.kind === "diagram" ? { kind: "diagram", text: p.text } : { ...m, text: p.text }) : [m];
+      const pieces = parts ? parts.map(p => p.kind === "diagram" ? { kind: "diagram", text: p.text } : { ...m, text: p.text }) : [m];
+      return pieces.flatMap(r => {
+        const code = r.kind === "message" && r.role !== "user" && r.text?.includes("```") ? splitCode(r.text) : null;
+        return code ? code.map(c => c.kind === "code" ? c : { ...r, text: c.text }) : [r];
+      });
     });
     if (this.note) rows.push({ kind: "note", text: this.note });
     const empty = rows.length === 0 || (rows.length === 1 && rows[0].kind === "note" && !this.reader.session.messages.length);
@@ -219,9 +223,15 @@ export default class HerdrChat extends View {
       rows, empty, t, inner, zoom: this.zoom, beforeScroll: () => this.noticeVisit(),
       heightKey: m => `${m.key}${this.reader.session.open[m.key] ? ":open" : ""}${m.kind === "diagram" ? `:${diagramFor(m.text, t).state}` : ""}`,
       waitsFor: m => m.kind === "diagram" && diagramFor(m.text, t).state === "queued",
-      row: m => row(m, { t, open: this.reader.session.open, width: this.width, sent: this.composer.sent, machine: target()?.machine }),
+      row: m => row(m, { t, open: this.reader.session.open, width: this.width, sent: this.composer.sent, machine: target()?.machine, copied: this.copied }),
       onItemClick: (key, cx) => {
         const row = rows.find(r => r.key === key);
+        if (row?.kind === "code" || row?.kind === "copy") {
+          cx.write_to_clipboard(row.text);
+          this.copied = key; cx.notify();
+          cx.timer.after(1500, cx => { if (this.copied === key) { this.copied = null; cx.notify(); } });
+          return;
+        }
         const opens = row?.kind === "tools" || (row?.kind === "step" && (this.reader.session.open[key] || stepText(row.call, false).more));
         if (opens) { this.reader.session.open[key] = !this.reader.session.open[key]; cx.notify(); }
       },

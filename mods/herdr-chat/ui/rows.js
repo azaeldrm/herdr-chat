@@ -7,6 +7,32 @@ import { diagramFor } from "../diagrams.js";
 
 const TURN_GAP = 28;
 
+function codeBox(id, lang, source, t, copied) {
+  // A code block in a box titled with its language; with `copied` set (true once copied), a copy icon sits at the top right.
+  const lines = source.replace(/\n$/, "").split("\n");
+  return v_flex().id(id).w_full().rounded(10).border_1().border_color(t.border).bg(t.surface).overflow_hidden()
+    .child(h_flex().h(30).px(12).gap(6).items_center().border_b(1).border_color(t.border)
+      .child(div().flex_1().text_size(11.5).text_color(t.muted).child(lang || "text"))
+      .when(copied === true, el => el.child(div().text_size(11.5).text_color(t.muted).child("Copied")))
+      .when(copied !== undefined, el => el.child(icon(copied ? "check" : "copy", 14, t.muted))))
+    .child(v_flex().px(12).py(8).font_family(mono()).text_size(12.5).text_color(t.foreground)
+      .children(lines.map((l, k) => div().id(`${id}-l${k}`).w_full().min_h(18).child(l.replace(/\t/g, "    ") || " "))));
+}
+
+function codeRow(m, { t, copied }) {
+  // A fenced code block of a reply as a row of its own: clicking it copies the code (see onItemClick in main.js).
+  return codeBox(`code-${m.key}`, m.lang, m.text, t, copied === m.key);
+}
+
+function copyRow(m, { t, copied }) {
+  // The copy button under an agent's response, at the right, drawn as a button only while hovered: clicking the row copies the response (see onItemClick in main.js).
+  const done = copied === m.key;
+  return h_flex().w_full().h(32).items_center().justify_end()
+    .child(div().id(`copy-${m.key}`).size(30).flex_none().flex().items_center().justify_center().rounded(8).border_1().border_color(t.background)
+      .hover(s => s.bg(t.raised).border_color(t.border))
+      .child(icon(done ? "check" : "copy", 15, done ? t.foreground : t.muted)));
+}
+
 function markdown(id, source, t) {
   // Markdown with each fenced code block in a titled box of its own.
   const parts = source.split(/```([^\n`]*)\n([\s\S]*?)```/g);
@@ -15,13 +41,7 @@ function markdown(id, source, t) {
   for (let i = 0; i < parts.length; i += 3) {
     if (parts[i]?.trim()) blocks.push(TextView.markdown(`${id}-t${i}`, parts[i].trim()).selectable(true));
     if (i + 2 < parts.length) {
-      // The lines are drawn as written: TextView would add its own box and title inside this one.
-      const lang = parts[i + 1]?.trim(), lines = parts[i + 2].replace(/\n$/, "").split("\n");
-      blocks.push(v_flex().id(`${id}-c${i}`).w_full().rounded(10).border_1().border_color(t.border).bg(t.surface).overflow_hidden()
-        .child(h_flex().h(30).px(12).items_center().border_b(1).border_color(t.border)
-          .child(div().text_size(11.5).text_color(t.muted).child(lang || "text")))
-        .child(v_flex().px(12).py(8).font_family(mono()).text_size(12.5).text_color(t.foreground)
-          .children(lines.map((l, k) => div().id(`${id}-c${i}-l${k}`).w_full().min_h(18).child(l.replace(/\t/g, "    ") || " ")))));
+      blocks.push(codeBox(`${id}-c${i}`, parts[i + 1]?.trim(), parts[i + 2], t));
     }
   }
   return v_flex().w_full().gap(12).children(blocks);
@@ -92,6 +112,8 @@ export function row(m, ctx) {
     : m.kind === "step" ? stepRow(m, ctx)
     : m.kind === "note" ? div().w_full().text_size(12.5).text_color(ctx.t.dim).child(m.text)
     : m.kind === "diagram" ? diagramRow(m, ctx)
+    : m.kind === "code" ? codeRow(m, ctx)
+    : m.kind === "copy" ? copyRow(m, ctx)
     : messageRow(m, ctx);
   return m.turnGap ? v_flex().w_full().pt(TURN_GAP).child(body) : body;
 }
