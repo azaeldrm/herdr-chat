@@ -220,6 +220,34 @@ def belongs(pid):
             pid = parents.get(pid, 0)
     return False
 
+def words_of(text):
+    """Lower-case words only, so markdown, wrapping and terminal drawing don't matter."""
+    return " ".join(re.sub(r"[^0-9A-Za-z]+", " ", text).lower().split())
+
+def last_texts(path, text_of, count=3):
+    """The last `count` message texts in a log's final 256 KB; `text_of(line)` gives a line's text, or None."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - 262144))
+            lines = f.read().decode("utf-8", "replace").split("\n")
+    except OSError: return []
+    texts = []
+    for line in reversed(lines):
+        text = text_of(line)
+        if text and text.strip(): texts.append(text)
+        if len(texts) >= count: break
+    return texts
+
+def any_shown(texts, screen):
+    """Whether one of these messages shows on the screen (words_of it): its first or last six words."""
+    for text in texts:
+        w = words_of(text).split()
+        if len(w) < 3: continue
+        for part in (w[:6], w[-6:]):
+            if " ".join(part) in screen: return True
+    return False
+
 def iso_ms(s):
     try:
         return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp() * 1000
