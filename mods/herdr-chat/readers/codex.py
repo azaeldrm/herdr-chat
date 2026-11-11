@@ -118,6 +118,15 @@ def codex_runs_with(lines):
                 meta["context"] = int(last.get("input_tokens") or 0)
                 if info.get("model_context_window"): meta["window"] = int(info["model_context_window"])
         if "model" in meta and "context" in meta: break
+    if state["fresh"]:
+        # The models it offers, with their efforts, from its own list (read once, when the log is read from the start).
+        root = os.environ.get("CODEX_HOME") or os.path.join(HOME, ".codex")
+        try:
+            with open(os.path.join(root, "models_cache.json"), encoding="utf-8") as f: cache = json.load(f)
+            meta["models"] = [{"id": m.get("slug"), "name": m.get("display_name") or m.get("slug"),
+                               "efforts": [l.get("effort") for l in m.get("supported_reasoning_levels") or [] if l.get("effort")]}
+                              for m in cache.get("models") or [] if m.get("visibility") == "list" and m.get("slug")]
+        except (OSError, ValueError, AttributeError): pass
 
 def parse_codex(path):
     lines = read_tail(path)

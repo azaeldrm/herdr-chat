@@ -20,6 +20,11 @@ const SHAPE = {
   reader: v => typeof v === "string" && v.length > 0,
   // Optional: its permission modes' names, by the word its log records.
   modes: v => v === undefined || Boolean(v && typeof v === "object" && Object.values(v).every(n => typeof n === "string" && n)),
+  // Optional: the models and efforts the chat offers, and how it switches them ({model} and {effort} filled in; nextMode: keys).
+  models: v => v === undefined || (Array.isArray(v) && v.every(m => m && typeof m.id === "string" && typeof m.name === "string")),
+  efforts: v => v === undefined || (Array.isArray(v) && v.every(e => typeof e === "string" && e)),
+  switching: v => v === undefined || Boolean(v && typeof v === "object" && ["model", "effort"].every(k => v[k] === undefined || typeof v[k] === "string")
+    && (v.nextMode === undefined || (Array.isArray(v.nextMode) && v.nextMode.length > 0))),
 };
 for (const [app, h] of Object.entries(HARNESSES)) {
   check(`${app}: registered under its own id`, h.id, app);
