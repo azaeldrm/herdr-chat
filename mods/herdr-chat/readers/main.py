@@ -5,7 +5,8 @@ label = A.label or A.app
 if A.app not in READERS: done("Chat view doesn't read %s sessions yet." % label)
 find, parse = READERS[A.app]
 path = find()
-if not path and state["need"]: emit("NEED|" + state["need"]); done("Finding this %s conversation…" % label)
+if state["need"]: emit("NEED|" + state["need"])
+if not path and state["need"]: done("Finding this %s conversation…" % label)
 if not path: done(state["waiting"] or "Waiting for this %s conversation to start." % label)
 parse(path)
 emit("PATH|" + esc(path))

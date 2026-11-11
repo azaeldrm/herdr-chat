@@ -53,6 +53,15 @@ def codex_resumed():
             return True, uid.group(1) if uid else None
     return False, None
 
+def codex_talked(fp):
+    """Whether a log has any of the conversation in it, rather than only its session_meta and settings."""
+    try:
+        with open(fp, "rb") as f:
+            for line in f:
+                if b'"type":"response_item"' in line: return True
+    except OSError: pass
+    return False
+
 def find_codex():
     root = os.environ.get("CODEX_HOME") or os.path.join(HOME, ".codex")
     sessions = os.path.join(root, "sessions")
@@ -60,13 +69,13 @@ def find_codex():
     if uid:
         logs = glob.glob(os.path.join(sessions, "**", "rollout-*%s*.jsonl" % uid), recursive=True)
         if logs: return max(logs, key=os.path.getmtime)
-    if A.known and os.path.isfile(A.known) and codex_own(codex_meta(A.known)): return A.known
+    if A.known and os.path.isfile(A.known) and codex_own(codex_meta(A.known)) and codex_talked(A.known): return A.known
     if not os.path.isdir(sessions): return None
     since = A.created / 1000 - 10
     cwds = candidate_cwds()
     candidates = [p for p in glob.glob(os.path.join(sessions, "**", "rollout-*.jsonl"), recursive=True) if os.path.getmtime(p) >= since]
     candidates.sort(key=os.path.getmtime, reverse=True)
-    later = newest = None
+    found = later = newest = None
     for fp in candidates:
         p = codex_meta(fp)
         if not codex_own(p) or str(p.get("cwd", "")) not in cwds: continue
@@ -74,9 +83,29 @@ def find_codex():
         t = iso_ms(str(p.get("timestamp", "")))
         if t is None: continue
         delta = (t - A.created) / 1000
-        if abs(delta) <= 8: return fp
+        if abs(delta) <= 8: found = fp; break
         if delta > 0 and not later: later = fp
-    return later or (newest if resumed else None)
+    found = found or later or (newest if resumed else None)
+    if found and codex_talked(found): return found
+    return codex_picked(candidates, found)
+
+def codex_message(line):
+    """A Codex log line's message text from the person or Codex, or None."""
+    if '"type":"response_item"' not in line or '"type":"message"' not in line: return None
+    p = (loads(line) or {}).get("payload") or {}
+    return content_text(p.get("content")) if p.get("type") == "message" and p.get("role") in ("user", "assistant") else None
+
+def codex_picked(candidates, launch):
+    """A conversation resumed from inside Codex (its /resume picker): Codex starts an empty log at launch, then writes on in the
+    picked conversation's own log, whose session_meta has that conversation's folder. So: a log of the person's written
+    since the agent started, in any folder, that the terminal's screen shows (any Codex may have written one meanwhile)."""
+    others = [fp for fp in candidates if fp != launch and codex_own(codex_meta(fp)) and codex_talked(fp)]
+    if not others: return launch
+    if not A.screen:
+        state["need"] = "screen"
+        return launch
+    screen = words_of(A.screen)
+    return next((fp for fp in others if any_shown(last_texts(fp, codex_message), screen)), launch)
 
 def parse_codex(path):
     for line in read_tail(path):

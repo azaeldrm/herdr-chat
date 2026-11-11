@@ -27,33 +27,15 @@ def find_pi():
         return None
     return newest[1]
 
-def words_of(text):
-    """Lower-case words only, so markdown, wrapping and terminal drawing don't matter."""
-    return " ".join(re.sub(r"[^0-9A-Za-z]+", " ", text).lower().split())
+def pi_message(line):
+    """A Pi log line's message text from the person or Pi, or None."""
+    if '"type":"message"' not in line: return None
+    m = (loads(line) or {}).get("message") or {}
+    return content_text(m.get("content")) if m.get("role") in ("user", "assistant") else None
 
 def shown_on(path, screen):
-    """Whether one of the file's last few messages shows on the screen: its first or last words."""
-    try:
-        with open(path, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            f.seek(max(0, f.tell() - 262144))
-            lines = f.read().decode("utf-8", "replace").split("\n")
-    except OSError: return False
-    texts = []
-    for line in reversed(lines):
-        if '"type":"message"' not in line: continue
-        o = loads(line)
-        m = (o or {}).get("message") or {}
-        if m.get("role") not in ("user", "assistant"): continue
-        text = content_text(m.get("content"))
-        if text.strip(): texts.append(text)
-        if len(texts) >= 3: break
-    for text in texts:
-        w = words_of(text).split()
-        if len(w) < 3: continue
-        for part in (w[:6], w[-6:]):
-            if " ".join(part) in screen: return True
-    return False
+    """Whether one of the file's last few messages shows on the screen."""
+    return any_shown(last_texts(path, pi_message), screen)
 
 def parse_pi(path):
     since = A.created - 10000 if A.created else 0
