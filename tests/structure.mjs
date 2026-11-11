@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync, statSync } from "fs";
-import { join, relative } from "path";
+import { join, relative, sep } from "path";
 import { MOD } from "./stage.mjs";
 let failed = 0;
 const check = (name, got, want) => {
@@ -8,7 +8,7 @@ const check = (name, got, want) => {
   if (!ok) failed++;
 };
 const read = f => readFileSync(join(MOD, f), "utf8");
-const walk = dir => readdirSync(dir).flatMap(f => f === "vendor" ? [] : statSync(join(dir, f)).isDirectory() ? walk(join(dir, f)) : f.endsWith(".js") ? [relative(MOD, join(dir, f))] : []);
+const walk = dir => readdirSync(dir).flatMap(f => f === "vendor" ? [] : statSync(join(dir, f)).isDirectory() ? walk(join(dir, f)) : f.endsWith(".js") ? [relative(MOD, join(dir, f)).split(sep).join("/")] : []);
 
 const HOST = {
   "components/chat-list.js": [],
@@ -16,6 +16,7 @@ const HOST = {
   "components/composer.js": ["sending", "note", "key", "list.following", "list.follow", "card.choices", "card.stillCurrent", "stop", "stopping"],
   "components/session-reader.js": ["card.read", "list.following", "list.follow"],
   "components/skill-menu.js": ["input", "keepDraft"],
+  "components/diagram-viewer.js": [],
 };
 for (const [file, allowed] of Object.entries(HOST)) {
   const used = [...new Set([...read(file).matchAll(/this\.host\.(\w+)(?:\.(\w+))?/g)].map(m => {
