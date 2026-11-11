@@ -24,7 +24,7 @@ check(unsavedMessage(claude, screen(["● Two options:", "", "  - keep yours", "
 check(unsavedMessage(claude, screen(["● Both probes are running, and each user owns", "  their voice. · summary"]), []),
   "Both probes are running, and each user owns their voice.", "a summary label at its end is left off");
 check(unsavedMessage(claude, screen(["  owns their voice, so a mismatch needs a rule."]), []),
-  "owns their voice, so a mismatch needs a rule.", "a message whose start is above the screen: what's left of it");
+  null, "a message whose start is above the screen: nothing, rather than a message that starts midway");
 check(unsavedMessage(claude, screen(["● 2 background agents launched (↓ to manage)", "   ├ Probe P2", "   └ Probe P1"]), []), null, "a tool's block isn't a message");
 check(unsavedMessage(claude, screen(["● Bash(docker ps --format '{{.Names}}')"]), []), null, "a tool call isn't a message");
 check(unsavedMessage(claude, ["● Just a message, with no question below it."].join("\n"), []), null, "no question on screen: nothing");

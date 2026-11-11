@@ -12,8 +12,10 @@ function words(text) {
 }
 
 export function unsavedMessage(harness, screen, saved) {
-  // The text of the message above the question on `screen` (from what's left of it when its start is above the screen),
-  // or null: no question, nothing there, a tool call, or `saved` (the log's last agent texts) already has it.
+  // The text of the message above the question on `screen`, or null: no question, nothing there, a tool call, `saved`
+  // (the log's last agent texts) already has it, or its start is above the screen. While a question is open the terminal
+  // can't be scrolled back, so the rest of a long message can't be read, and a message that starts midway would mislead;
+  // the log has it whole once the question is answered.
   const look = harness?.screenMessage;
   if (!look || !screen) return null;
   const lines = screen.split("\n");
@@ -21,11 +23,11 @@ export function unsavedMessage(harness, screen, saved) {
   if (rule <= 0) return null;
   let start = rule - 1;
   while (start >= 0 && !lines[start].startsWith(look.bullet)) start--;
-  const cut = start < 0;
-  const block = lines.slice(Math.max(0, start), rule);
+  if (start < 0) return null;
+  const block = lines.slice(start, rule);
   while (block.length && !block[block.length - 1].trim()) block.pop();
   if (!block.length || block.some(l => TOOL.test(l))) return null;
-  const head = cut ? block[0].replace(/^\s+/, "") : block[0].slice(look.bullet.length).replace(/^\s+/, "");
+  const head = block[0].slice(look.bullet.length).replace(/^\s+/, "");
   if (look.tool.test(head)) return null;
   const body = [head, ...block.slice(1).map(l => l.startsWith(" ".repeat(look.indent)) ? l.slice(look.indent) : l.trimStart())];
   // The terminal wraps long lines: a line joins the one before it, unless it's blank, a list item, or follows a blank.
