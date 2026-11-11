@@ -124,3 +124,32 @@ export function keyRows(rows) {
   });
   return rows;
 }
+
+export function splitCode(text) {
+  // An assistant message split around its fenced code blocks: text, a code row, text, … (null when it has none).
+  const parts = text.split(/```([^\n`]*)\n([\s\S]*?)```/g);
+  if (parts.length === 1) return null;
+  const out = [];
+  for (let i = 0; i < parts.length; i += 3) {
+    if (parts[i]?.trim()) out.push({ kind: "text", text: parts[i].trim() });
+    if (i + 2 < parts.length) out.push({ kind: "code", lang: parts[i + 1]?.trim() || "", text: parts[i + 2].replace(/\n$/, "") });
+  }
+  return out;
+}
+
+export function withCopyRows(rows, working) {
+  // The rows with a copy row after each agent response (the run of rows up to the next message from the person); the one still being written gets none.
+  const out = [];
+  let texts = [];
+  const close = last => {
+    if (texts.length && !(last && working)) out.push({ kind: "copy", text: texts.join("\n\n") });
+    texts = [];
+  };
+  for (const m of rows) {
+    if (m.kind === "message" && m.role === "user") { close(false); out.push(m); continue; }
+    if (m.kind === "message" && m.text?.trim()) texts.push(m.text.trim());
+    out.push(m);
+  }
+  close(true);
+  return out;
+}
