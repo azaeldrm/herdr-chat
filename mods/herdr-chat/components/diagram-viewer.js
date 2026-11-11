@@ -25,8 +25,8 @@ export class DiagramViewer {
   }
 
   fit() {
-    // The scale that shows it whole in the box, up to FIT_MAX; 1 before the box is measured.
-    if (!this.box) return 1;
+    // The scale that shows it whole in the box, up to FIT_MAX; until the box is measured, small enough not to spill.
+    if (!this.box) return MIN;
     return Math.min(FIT_MAX, (this.box.width - 32) / this.w, (this.box.height - 32) / this.h);
   }
 
@@ -34,12 +34,12 @@ export class DiagramViewer {
 
   render() {
     const t = theme();
-    // Until zoomed by hand: its own size when that doesn't fit (scroll to read it), else grown to fill the box.
-    const scale = this.scale ?? Math.max(1, this.fit());
+    // Until zoomed by hand: whole in the box (zoom in and scroll to read the details).
+    const scale = this.scale ?? this.fit();
     const button = (id, child, onClick, tip) => div().id(id).h(26).min_w(26).px(6).flex().items_center().justify_center()
       .rounded(6).cursor_pointer().text_size(12).text_color(t.muted).hover(s => s.bg(t.hover).text_color(t.foreground))
       .tooltip(tip).on_click((_e, cx) => onClick(cx)).child(child);
-    return v_flex().id("herdr-chat-diagram").size_full().min_h(0).bg(t.background).text_color(t.foreground)
+    return v_flex().id("herdr-chat-diagram").size_full().min_w(0).min_h(0).overflow_hidden().bg(t.background).text_color(t.foreground)
       .track_focus(this.handle)
       .on_key_down((e, cx) => {
         if (e.modifiers.control || e.modifiers.platform || e.modifiers.alt) return;
@@ -55,7 +55,7 @@ export class DiagramViewer {
         .child(button("zoom-in", "+", cx => this.setScale(scale * STEP, cx), "Zoom in (+)"))
         .child(div().w(8))
         .child(button("close", icon("close", 14, t.muted), () => closeOverlay(props().overlay), "Close (Esc)")))
-      .child(div().id("herdr-chat-diagram-body").flex_1().min_h(0).overflow_scrollbar()
+      .child(div().id("herdr-chat-diagram-body").flex_1().w_full().min_w(0).min_h(0).overflow_scrollbar()
         .on_size_change((size, cx) => {
           const box = { width: designPx(size.width, this.zoom), height: designPx(size.height, this.zoom) };
           if (!this.box || Math.abs(box.width - this.box.width) > 4 || Math.abs(box.height - this.box.height) > 4) { this.box = box; cx.notify(); }
