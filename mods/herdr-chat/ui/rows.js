@@ -32,9 +32,10 @@ function toolButton(t, id, glyph, done, busy, tip) {
 }
 
 function copyRow(m, { t, copied }) {
-  // The copy button under an agent's response, at the left: clicking the row copies the response (see onItemClick in main.js).
-  return h_flex().w_full().h(32).items_center().justify_start()
-    .child(toolButton(t, `copy-${m.key}`, "copy", copied === m.key, false, "Copy the response"));
+  // The copy button under an agent's response, at the left, or under one of the person's messages, at the right (`prompt`):
+  // clicking the row copies it (see onItemClick in main.js).
+  return h_flex().w_full().h(32).items_center().when(m.prompt, el => el.justify_end()).when(!m.prompt, el => el.justify_start())
+    .child(toolButton(t, `copy-${m.key}`, "copy", copied === m.key, false, m.prompt ? "Copy your message" : "Copy the response"));
 }
 
 function markdown(id, source, t) {

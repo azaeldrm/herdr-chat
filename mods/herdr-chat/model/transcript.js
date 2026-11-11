@@ -138,7 +138,8 @@ export function splitCode(text) {
 }
 
 export function withCopyRows(rows, working) {
-  // The rows with a copy row after each agent response (the run of rows up to the next message from the person); the one still being written gets none.
+  // The rows with a copy row after each agent response (the run of rows up to the next message from the person; the one still
+  // being written gets none), and one after each of the person's messages (`prompt`, drawn at the right, under its bubble).
   const out = [];
   let texts = [];
   const close = last => {
@@ -146,7 +147,11 @@ export function withCopyRows(rows, working) {
     texts = [];
   };
   for (const m of rows) {
-    if (m.kind === "message" && m.role === "user") { close(false); out.push(m); continue; }
+    if (m.kind === "message" && m.role === "user") {
+      close(false); out.push(m);
+      if (m.text?.trim()) out.push({ kind: "copy", text: m.text.trim(), prompt: true });
+      continue;
+    }
     if (m.kind === "message" && m.text?.trim()) texts.push(m.text.trim());
     out.push(m);
   }
