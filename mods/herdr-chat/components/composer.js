@@ -343,7 +343,7 @@ export class Composer {
     });
   }
 
-  render(t, active) {
+  render(t, active, footer = null) {
     // The reply box: attachments, the text, and the send or stop button.
     const ready = (Boolean(this.input.value().trim()) || this.attachments.length > 0) && !this.host.sending && Boolean(active);
     const stopping = active?.status === "working" && !this.input.value().trim() && !this.attachments.length;
@@ -375,7 +375,8 @@ export class Composer {
             .bg(ready ? t.accent : t.raised).text_color(ready ? t.accent_foreground : t.dim)
             .when(ready, el => el.cursor_pointer().hover(s => s.opacity(0.88)).on_click((_e, cx) => this.send(cx)))
             .child(svg(`${ICONS}/arrow-up.svg`).size(16))))
-      .child(div().w_full().text_center().text_size(11.5).text_color(t.dim)
+      // Under the box: what the session runs with (main.js), else how sending works.
+      .child(footer ?? div().w_full().text_center().text_size(11.5).text_color(t.dim)
         .child(active ? `Sends to the live ${active.label} terminal · drop or paste an image to attach it` : ""));
   }
 }

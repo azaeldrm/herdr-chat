@@ -100,8 +100,29 @@ def codex_picked(candidates, launch):
     others = [fp for fp in candidates if fp != launch and codex_own(codex_meta(fp)) and codex_talked(fp)]
     return pick_session(others, log_texts(codex_message), confirm=True) or launch
 
+def codex_runs_with(lines):
+    """What the session runs with, from its newest turn_context (model, effort, sandbox; the approval reviewer's turns left
+    out) and token_count (context used of the model's window)."""
+    meta = state["meta"]
+    for line in reversed(lines):
+        if "model" not in meta and '"turn_context"' in line:
+            p = (loads(line) or {}).get("payload") or {}
+            if str(p.get("model", "")).startswith("codex-auto-review"): continue
+            meta["model"] = p.get("model")
+            meta["effort"] = p.get("effort") or ((p.get("collaboration_mode") or {}).get("settings") or {}).get("reasoning_effort")
+            meta["mode"] = (p.get("sandbox_policy") or {}).get("type")
+        if "context" not in meta and '"token_count"' in line:
+            info = ((loads(line) or {}).get("payload") or {}).get("info") or {}
+            last = info.get("last_token_usage") or {}
+            if last.get("input_tokens") is not None:
+                meta["context"] = int(last.get("input_tokens") or 0)
+                if info.get("model_context_window"): meta["window"] = int(info["model_context_window"])
+        if "model" in meta and "context" in meta: break
+
 def parse_codex(path):
-    for line in read_tail(path):
+    lines = read_tail(path)
+    codex_runs_with(lines)
+    for line in lines:
         if '"type":"response_item"' not in line: continue
         item = loads(line)
         if not isinstance(item, dict): continue

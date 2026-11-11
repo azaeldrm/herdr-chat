@@ -4,6 +4,7 @@ import { panes, focused, props, hc, theme, shared, window as appWindow } from "h
 import { switchTo, showView, preferredView, sessionOf, chatKey } from "./common.js";
 import { target, inputBox, interruptAgent } from "./terminal.js";
 import { keyRows, splitCode, withCopyRows, stepRows, stepText, withoutRetracted } from "./model/transcript.js";
+import { runsWith } from "./model/runs-with.js";
 import { row } from "./ui/rows.js";
 import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle, clock } from "./ui/primitives.js";
 import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
@@ -230,6 +231,17 @@ export default class HerdrChat extends View {
     return rows;
   }
 
+  runsWithLine(t, active) {
+    // Under the message box: the model, effort, permission mode and context the session runs with, as its log says.
+    const parts = active ? runsWith(this.reader.session.meta, active.harness?.modes) : [];
+    if (!parts.length) return null;
+    return h_flex().w_full().justify_center().gap(6).text_size(11.5).text_color(t.dim)
+      .children(parts.flatMap((p, i) => [
+        ...(i ? [div().child("·")] : []),
+        div().id(`runs-with-${p.key}`).text_color(p.key === "model" ? t.muted : t.dim).when(Boolean(p.title), el => el.tooltip(p.title)).child(p.text),
+      ]));
+  }
+
   renderInner(cx) {
     if (this.asHeader) return terminalHeader(this);
     if (this.diagram) return this.diagram.render(cx);
@@ -284,7 +296,7 @@ export default class HerdrChat extends View {
       .when(Boolean(measure), el => el.child(measure))
       .child(v_flex().w_full().flex_none().items_center().px(24).pt(12).pb(14).gap(12)
         .when(Boolean(status), el => el.child(status))
-        .child(this.composer.render(t, active)));
+        .child(this.composer.render(t, active, this.runsWithLine(t, active))));
   }
 }
 

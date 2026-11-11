@@ -2,7 +2,7 @@ import { foldActivity, CALL_SOURCE } from "./transcript.js";
 
 export function blankSession(path = "", hint = "") {
   // A session's state before anything is read.
-  return { raw: [], calls: new Map(), offset: 0, leaf: "", path, hint, messages: [], clipped: false, note: "", open: {}, readAt: 0 };
+  return { raw: [], calls: new Map(), offset: 0, leaf: "", path, hint, messages: [], clipped: false, note: "", open: {}, readAt: 0, meta: {} };
 }
 
 export function parseReader(stdout) {
@@ -24,7 +24,7 @@ export async function parseReaderInSlices(stdout, pause, sliceMs = 15) {
 }
 
 function blankUpdate() {
-  return { path: null, hint: null, note: "", offset: null, leaf: null, reset: false, need: false, added: [] };
+  return { path: null, hint: null, note: "", offset: null, leaf: null, reset: false, need: false, meta: null, added: [] };
 }
 
 function parseLine(r, stdout, at) {
@@ -44,6 +44,7 @@ function parseTagged(r, line) {
   else if (tag === "NOTE") r.note = decodeURIComponent(rest);
   else if (tag === "OFFSET") r.offset = Number(rest) || 0;
   else if (tag === "LEAF") r.leaf = decodeURIComponent(rest);
+  else if (tag === "META") { try { r.meta = JSON.parse(decodeURIComponent(rest)); } catch {} }
   else if (tag === "RESET") r.reset = true;
   else if (tag === "NEED") r.need = true;
   else if (tag === "R") r.added.push({ kind: "reasoning", text: decodeURIComponent(rest) });
@@ -72,7 +73,10 @@ export function applyRead(s, r) {
   if (r.leaf != null) s.leaf = r.leaf;
   const path = r.path ?? s.path;
   const changed = Boolean(r.reset) || path !== s.path || r.added.length > 0;
-  if (r.reset || path !== s.path) { s.raw = []; s.calls = new Map(); }
+  // What the session runs with: the newest values the log gave (a read from where the last stopped may give only some).
+  const meta = JSON.stringify(s.meta ?? {});
+  if (r.reset || path !== s.path) { s.raw = []; s.calls = new Map(); s.meta = {}; }
+  if (r.meta) s.meta = { ...(s.meta ?? {}), ...r.meta };
   s.path = path;
   for (const e of r.added) {
     if (e.kind === "call") { s.raw.push(e); if (e.id) s.calls.set(e.id, e.call); }
@@ -85,7 +89,7 @@ export function applyRead(s, r) {
     s.clipped = r.note.startsWith("Showing the recent part");
     s.note = s.clipped ? "" : r.note;
   } else if (s.note && s.messages.length) s.note = "";
-  return changed || s.note !== note;
+  return changed || s.note !== note || JSON.stringify(s.meta ?? {}) !== meta;
 }
 
 function shapeRows(raw) {
