@@ -37,16 +37,29 @@ def find_opencode():
     if A.known.startswith(db + "#"):
         sid = A.known.split("#", 1)[1]
         if con.execute("select 1 from session_v2 where id = ?", (sid,)).fetchone(): return A.known
+    # Sessions updated since the agent started (a resumed one is updated, not created, then): in the terminal's folders,
+    # else (a session resumed from another folder) in any folder, which the screen must confirm.
     since = A.created - 10000 if A.created else 0
-    cwds = candidate_cwds() or ([A.cwd] if A.cwd else [])
+    query = "select time_updated, id from session_v2 where parent_id is null and time_updated >= ?"
     rows = []
-    for cwd in cwds:
-        rows += con.execute("select time_updated, id from session_v2 where directory = ? and parent_id is null and time_created >= ?", (cwd, since)).fetchall()
-    if not rows: return None
-    if len(rows) > 1 and A.peers:
-        state["need"] = "screen"
-        if not A.screen: return None
-    return db + "#" + max(rows)[1]
+    for cwd in candidate_cwds() or ([A.cwd] if A.cwd else []):
+        rows += con.execute(query + " and directory = ?", (since, cwd)).fetchall()
+    confirm = not rows
+    if confirm: rows = con.execute(query, (since,)).fetchall()
+    ids = [sid for _, sid in sorted(rows, reverse=True)]
+    sid = pick_session(ids, lambda s: opencode_texts(con, s), confirm)
+    return db + "#" + sid if sid else None
+
+def opencode_texts(con, sid, count=3):
+    """A session's last few message texts from the person or OpenCode, newest first."""
+    texts = []
+    for kind, data in con.execute("select type, data from session_message where session_id = ? and type in ('user', 'assistant') order by seq desc limit 20", (sid,)):
+        d = loads(data)
+        if not isinstance(d, dict): continue
+        text = d.get("text", "") if kind == "user" else "\n".join(str(c.get("text", "")) for c in d.get("content") or [] if isinstance(c, dict) and c.get("type") == "text")
+        if str(text).strip(): texts.append(str(text))
+        if len(texts) >= count: break
+    return texts
 
 def parse_opencode(path):
     db, sid = path.split("#", 1)

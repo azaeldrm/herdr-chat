@@ -248,6 +248,34 @@ def any_shown(texts, screen):
             if " ".join(part) in screen: return True
     return False
 
+def written_since_start(paths):
+    """The files written to since the agent started (10 s of slack), newest first. A conversation resumed inside the
+    agent is written on in its own old log, so what was written since, not what started since, is this terminal's."""
+    since = A.created / 1000 - 10
+    found = []
+    for p in paths:
+        try: t = os.path.getmtime(p)
+        except OSError: continue
+        if t >= since: found.append((t, p))
+    return [p for _, p in sorted(found, reverse=True)]
+
+def pick_session(candidates, texts_of, confirm=False):
+    """This terminal's session among `candidates` (newest first), or None while that can't be told.
+    The only candidate is it, unless other agents of the same program run on this machine (A.peers) or `confirm` (the
+    candidates come from outside the terminal's folders, where any program's session could be). Otherwise it's the one whose
+    last messages (`texts_of(candidate)`) the terminal's screen shows: the reader asks for the screen first (NEED|screen)."""
+    if not candidates: return None
+    if len(candidates) == 1 and not A.peers and not confirm: return candidates[0]
+    if not A.screen:
+        state["need"] = "screen"
+        return None
+    screen = words_of(A.screen)
+    return next((c for c in candidates if any_shown(texts_of(c), screen)), None)
+
+def log_texts(text_of):
+    """texts_of for pick_session over log files: their last messages, `text_of(line)` giving a line's text."""
+    return lambda path: last_texts(path, text_of)
+
 def iso_ms(s):
     try:
         return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp() * 1000
