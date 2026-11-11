@@ -132,6 +132,14 @@ def parse_codex(path):
     lines = read_tail(path)
     codex_runs_with(lines)
     for line in lines:
+        if '"token_count"' in line:
+            # One model request done: its output tokens, keyed by the running total (Codex repeats a count at times).
+            o = loads(line) or {}
+            info = (o.get("payload") or {}).get("info") or {}
+            total = (info.get("total_token_usage") or {}).get("total_tokens")
+            if total is not None:
+                add_tick(iso_time(o.get("timestamp")), mid=f"t{total}", out=(info.get("last_token_usage") or {}).get("output_tokens"))
+            continue
         if '"type":"response_item"' not in line: continue
         item = loads(line)
         if not isinstance(item, dict): continue
@@ -153,7 +161,7 @@ def parse_codex(path):
                 add_call(c, str(p.get("call_id", "")) if i == len(calls) - 1 else "")
             continue
         if ptype in ("custom_tool_call_output", "function_call_output"):
-            set_output(str(p.get("call_id", "")), codex_output(p)); continue
+            set_output(str(p.get("call_id", "")), codex_output(p)); add_tick(iso_time(item.get("timestamp"))); continue
         if ptype == "reasoning":
             add_reasoning("\n\n".join(str(s.get("text", "")) for s in p.get("summary") or [] if isinstance(s, dict))); continue
         if ptype != "message": continue
@@ -165,7 +173,8 @@ def parse_codex(path):
         if role == "user":
             if re.match(r"^<(environment_context|user_instructions|permissions|skill>)", body) or body.startswith("# AGENTS.md"): continue
             text, images = placed_images(body)
-            add_message(role, phase, re.sub(r'<image\s+name=\[Image #\d+\]\s+path="[^"]*">\s*(?:</image>)?\s*', "", text), images); continue
+            add_message(role, phase, re.sub(r'<image\s+name=\[Image #\d+\]\s+path="[^"]*">\s*(?:</image>)?\s*', "", text), images)
+            add_tick(iso_time(item.get("timestamp")), prompt=True); continue
         add_message(role, phase, body)
 
 def codex_listed_skills(path):

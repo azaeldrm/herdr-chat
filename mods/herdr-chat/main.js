@@ -5,9 +5,9 @@ import { switchTo, showView, preferredView, sessionOf, chatKey } from "./common.
 import { target, inputBox, interruptAgent, sendMessage, pressKeys } from "./terminal.js";
 import { keyRows, splitCode, withCopyRows, stepRows, stepText, withoutRetracted } from "./model/transcript.js";
 import { runsWith, switchCommand, tokens } from "./model/runs-with.js";
-import { row } from "./ui/rows.js";
+import { row, TOOL_BUTTON, TOOL_GAP } from "./ui/rows.js";
 import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle, clock, icon } from "./ui/primitives.js";
-import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
+import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams, copyDiagramImage } from "./diagrams.js";
 import { canMirror } from "./harnesses/index.js";
 import { isHeader, terminalHeader } from "./header.js";
 import { designPx, zoomProbe } from "./measure.js";
@@ -221,7 +221,7 @@ export default class HerdrChat extends View {
     if (c && c.messages === messages && c.working === working) return c.rows;
     const rows = withCopyRows(messages, working).flatMap(m => {
       const parts = m.kind === "message" && m.role !== "user" && m.text?.includes("```mermaid") ? splitDiagrams(m.text) : null;
-      const pieces = parts ? parts.map(p => p.kind === "diagram" ? { kind: "diagram", text: p.text } : { ...m, text: p.text }) : [m];
+      const pieces = parts ? parts.flatMap(p => p.kind === "diagram" ? [{ kind: "diagram", text: p.text }, { kind: "diagram-tools", text: p.text }] : [{ ...m, text: p.text }]) : [m];
       return pieces.flatMap(r => {
         const code = r.kind === "message" && r.role !== "user" && r.text?.includes("```") ? splitCode(r.text) : null;
         return code ? code.map(c => c.kind === "code" ? c : { ...r, text: c.text }) : [r];
@@ -229,6 +229,30 @@ export default class HerdrChat extends View {
     });
     this.rowCache = { messages, working, rows };
     return rows;
+  }
+
+  diagramButtonAt(x) {
+    // Which of a diagram's two buttons is at `x` (design px across the list): they sit at the left of the reply's column.
+    if (!Number.isFinite(x)) return null;
+    const column = Math.min(COLUMN, Math.max(280, Math.floor(this.width) - 48)), left = (this.width - column) / 2;
+    if (x >= left && x <= left + TOOL_BUTTON) return "image";
+    if (x >= left + TOOL_BUTTON + TOOL_GAP && x <= left + 2 * TOOL_BUTTON + TOOL_GAP) return "code";
+    return null;
+  }
+
+  diagramTool(key, row, which, cx) {
+    // Copy code: the diagram's mermaid source. Copy image: the drawn diagram as a PNG, on the theme's background.
+    if (!which) return;
+    const done = mark => { this.copied = mark; cx.notify(); cx.timer.after(1500, cx => { if (this.copied === mark) { this.copied = null; cx.notify(); } }); };
+    if (which === "code") { cx.write_to_clipboard(row.text); done(`${key}:code`); return; }
+    const d = diagramFor(row.text, theme());
+    if (d.state !== "ready") return;
+    this.copied = `${key}:image:busy`; cx.notify();
+    cx.spawn(async cx => {
+      const error = await copyDiagramImage(d, String(theme().background ?? "#000000").slice(0, 7));
+      if (error) { this.copied = null; this.note = error; cx.notify(); }
+      else done(`${key}:image`);
+    });
   }
 
   menuButton(t, id, open, trigger, items, onPick, width = 200) {
@@ -336,6 +360,7 @@ export default class HerdrChat extends View {
           if (d.state === "ready") openDiagram(d);
           return;
         }
+        if (row?.kind === "diagram-tools") { this.diagramTool(key, row, this.diagramButtonAt(this.list.pointerX), cx); return; }
         const opens = row?.kind === "tools" || (row?.kind === "step" && (this.reader.session.open[key] || stepText(row.call, false).more));
         if (opens) { this.reader.session.open[key] = !this.reader.session.open[key]; cx.notify(); }
       },

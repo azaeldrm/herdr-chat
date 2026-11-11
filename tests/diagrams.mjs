@@ -3,11 +3,17 @@ import { join } from "path";
 import { stage } from "./stage.mjs";
 
 const staged = stage();
-const { splitDiagrams, diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, bake } = await staged.load("diagrams.js");
+const { splitDiagrams, diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, bake, framedSvg } = await staged.load("diagrams.js");
 let failed = 0;
 const check = (ok, what, detail = "") => { console.log(`${ok ? "PASS" : "FAIL"} ${what}${ok ? "" : "  " + detail}`); if (!ok) failed++; };
 const theme = { background: "#101215", foreground: "#dededb", muted: "#9a9fa2", surface: "#16191d", raised: "#1c2025", border: "#2a2f35", accent: "#e0a030" };
 
+{
+  const framed = framedSvg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100" width="200" height="100" style="max-width:100%;height:auto;color:#fff"><g/></svg>', 200, 100, "#080a0b", 24);
+  check(framed.includes('viewBox="-24 -24 248 148"') && framed.includes('width="248"') && framed.includes('height="148"') && !framed.includes("max-width"),
+    "a copied diagram is framed: padded on every side, at its own size", framed.slice(0, 160));
+  check(/<svg[^>]*><rect x="-24" y="-24" width="248" height="148" fill="#080a0b"\/><g\/>/.test(framed), "on the theme's background, drawn first", framed);
+}
 const parts = splitDiagrams("Here it is:\n```mermaid\nflowchart LR\n  A --> B\n```\nAnd that's all.");
 check(JSON.stringify(parts?.map(p => p.kind)) === '["text","diagram","text"]' && parts[1].text === "flowchart LR\n  A --> B", "reply splits around its mermaid block", JSON.stringify(parts));
 check(splitDiagrams("no diagram here") === null, "a reply without one isn't split");

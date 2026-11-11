@@ -47,6 +47,7 @@ function parseTagged(r, line) {
   else if (tag === "META") { try { r.meta = JSON.parse(decodeURIComponent(rest)); } catch {} }
   else if (tag === "RESET") r.reset = true;
   else if (tag === "NEED") r.need = true;
+  else if (tag === "S") r.added.push({ kind: "tick", ...JSON.parse(decodeURIComponent(rest)) });
   else if (tag === "R") r.added.push({ kind: "reasoning", text: decodeURIComponent(rest) });
   else if (tag === "C") {
     const [id, json] = rest.split("|");
@@ -83,7 +84,7 @@ export function applyRead(s, r) {
     else if (e.kind === "out") { const c = s.calls.get(e.id); if (c) c.o = e.text; }
     else s.raw.push(e);
   }
-  if (s.raw.length > 600) s.raw = s.raw.slice(-500);
+  if (s.raw.length > 1200) s.raw = s.raw.slice(-1000);
   if (changed) s.messages = shapeRows(s.raw);
   if (r.note || r.reset) {
     s.clipped = r.note.startsWith("Showing the recent part");
@@ -94,15 +95,46 @@ export function applyRead(s, r) {
 
 function shapeRows(raw) {
   // The session's entries as rows: each run of tool calls one "tools" row, then activity folded.
-  const shaped = [];
+  const shaped = [], turn = new TurnClock();
   for (const e of raw) {
+    if (e.kind === "tick") { turn.tick(e); continue; }
+    if (e.kind === "message" && e.role === "user") turn.end(shaped);
     if (e.kind !== "call") { shaped.push(e); continue; }
     const last = shaped[shaped.length - 1];
     const copy = { ...e.call };
     CALL_SOURCE.set(copy, e.call);
     if (last?.kind === "tools") last.calls.push(copy); else shaped.push({ kind: "tools", calls: [copy] });
   }
+  turn.end(shaped);
   return foldActivity(shaped);
+}
+
+export class TurnClock {
+  // A turn's numbers from the reader's ticks (each log line's time): how long it took, from the prompt to the reply's last
+  // line; its output tokens (each reply counted once, by id); and tokens per second over the model's own time (each reply's
+  // lines since the log line before it, so tool time is left out). end() adds them as a "stats" row at the turn's end.
+  constructor() { this.prev = null; this.reset(); }
+  reset() { this.start = null; this.last = null; this.replies = new Map(); }
+  tick(e) {
+    if (e.p) this.start = e.at;
+    if (e.id) {
+      const r = this.replies.get(e.id);
+      if (r) { r.to = e.at; r.out = Math.max(r.out, e.out ?? 0); }
+      else this.replies.set(e.id, { from: this.prev ?? e.at, to: e.at, out: e.out ?? 0 });
+      this.last = e.at;
+    }
+    this.prev = e.at;
+  }
+  end(rows) {
+    const replies = [...this.replies.values()], out = replies.reduce((n, r) => n + r.out, 0);
+    const spent = replies.reduce((n, r) => n + Math.max(0, r.to - r.from), 0);
+    if (replies.length) rows.push({
+      kind: "stats", text: "",
+      secs: this.start != null && this.last != null ? Math.max(0, this.last - this.start) : null,
+      out, tps: out && spent > 0.5 ? out / spent : null,
+    });
+    this.reset();
+  }
 }
 
 const REMOTE_TAIL_MB = 6;

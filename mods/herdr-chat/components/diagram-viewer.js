@@ -5,6 +5,7 @@ import { theme, props, appHome, openOverlay, closeOverlay } from "herdr";
 import { icon } from "../ui/primitives.js";
 import { designPx, zoomProbe } from "../measure.js";
 import { onWindows } from "../platform.js";
+import { copyDiagramImage } from "../diagrams.js";
 
 const STEP = 1.25, MIN = 0.25, MAX = 4, FIT_MAX = 2;
 // Herdr rasterizes an SVG drawn by image() once, at its own width/height × 2, and keeps that bitmap for the path, so a
@@ -27,7 +28,7 @@ export function isDiagramViewer(p) { return Boolean(p?.diagram); }
 export function openDiagram(d) {
   // A drawn diagram (diagramFor, ready) in a dialog of its own, at a readable size, scrolled in both directions.
   openOverlay({ mod: "herdr-chat", kind: "dialog", width: 0.92, height: 0.9,
-    props: { diagram: d.rel, width: d.width, height: d.height } });
+    props: { diagram: d.rel, width: d.width, height: d.height, key: d.key, source: d.source } });
 }
 
 export class DiagramViewer {
@@ -45,6 +46,29 @@ export class DiagramViewer {
     // The scale that shows it whole in the box, up to FIT_MAX; until the box is measured, small enough not to spill.
     if (!this.box) return MIN;
     return Math.min(FIT_MAX, (this.box.width - 32) / this.w, (this.box.height - 32) / this.h);
+  }
+
+  flash(mark, cx) {
+    this.copied = mark; cx.notify();
+    cx.timer.after(1500, cx => { if (this.copied === mark) { this.copied = null; cx.notify(); } });
+  }
+
+  copyCode(cx) {
+    const source = props()?.source;
+    if (!source) return;
+    cx.write_to_clipboard(source);
+    this.flash("code", cx);
+  }
+
+  copyImage(cx) {
+    const p = props() ?? {};
+    if (!p.key || this.copied === "image-busy") return;
+    this.copied = "image-busy"; this.copyNote = null; cx.notify();
+    cx.spawn(async cx => {
+      const error = await copyDiagramImage({ key: p.key, width: this.w, height: this.h }, String(theme().background ?? "#000000").slice(0, 7));
+      if (error) { this.copied = null; this.copyNote = error; cx.notify(); }
+      else this.flash("image", cx);
+    });
   }
 
   setScale(s, cx) { this.scale = Math.min(MAX, Math.max(MIN, s)); cx.notify(); }
@@ -92,7 +116,12 @@ export class DiagramViewer {
       })
       .child(zoomProbe((zoom, cx) => { if (Math.abs(zoom - this.zoom) > 0.001) { this.zoom = zoom; cx.notify(); } }))
       .child(h_flex().h(42).flex_none().px(12).gap(4).items_center().border_b_1().border_color(t.border)
-        .child(div().flex_1().text_size(13).text_color(t.muted).child("Diagram"))
+        .child(div().flex_1().text_size(13).text_color(t.muted).child(this.copyNote ?? "Diagram"))
+        // Copy image (the drawn diagram as a PNG, on the theme's background) and Copy code (its mermaid source).
+        .child(button("copy-image", icon(this.copied === "image" ? "check" : "image", 14, this.copied === "image-busy" ? t.foreground : t.muted),
+          cx => this.copyImage(cx), this.copied === "image-busy" ? "Copying…" : "Copy the diagram as a picture"))
+        .child(button("copy-code", icon(this.copied === "code" ? "check" : "copy", 14, t.muted), cx => this.copyCode(cx), "Copy the diagram's mermaid code"))
+        .child(div().w(8))
         .child(button("zoom-out", "−", cx => this.setScale(scale / STEP, cx), "Zoom out (-)"))
         .child(button("zoom-fit", `${Math.round(scale * 100)}%`, cx => this.setScale(this.fit(), cx), "Fit (0)"))
         .child(button("zoom-in", "+", cx => this.setScale(scale * STEP, cx), "Zoom in (+)"))

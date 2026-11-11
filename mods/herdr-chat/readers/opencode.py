@@ -66,13 +66,20 @@ def parse_opencode(path):
     con = opencode_open(db)
     if con is None: return
     state["next"] = 0
-    rows = con.execute("select type, data from (select type, data, seq from session_message where session_id = ? order by seq desc limit ?) order by seq", (sid, MAX_ENTRIES)).fetchall()
-    for kind, data in rows:
+    cols = {r[1] for r in con.execute("pragma table_info(session_message)")}
+    times = "time_created, time_updated" if {"time_created", "time_updated"} <= cols else "null, null"
+    rows = con.execute(f"select type, data, id, {times} from session_message where session_id = ? order by seq desc limit ?", (sid, MAX_ENTRIES)).fetchall()[::-1]
+    secs = lambda v: None if not isinstance(v, (int, float)) else v / 1000 if v > 1e11 else float(v)
+    for kind, data, rid, made, changed in rows:
         d = loads(data)
         if not isinstance(d, dict): continue
         if kind == "user":
             add_message("user", "", *placed_images(d.get("text", "")))
+            add_tick(secs(made), prompt=True)
         elif kind == "assistant":
+            # The reply ran from its row's creation to its last update; its output tokens if the row records them.
+            add_tick(secs(made))
+            add_tick(secs(changed), mid=str(rid), out=(d.get("tokens") or {}).get("output") if isinstance(d.get("tokens"), dict) else None)
             for c in d.get("content") or []:
                 if not isinstance(c, dict): continue
                 if c.get("type") == "text": add_message("assistant", "final", c.get("text"))

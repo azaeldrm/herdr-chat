@@ -103,7 +103,7 @@ function digest(m) {
   // A row's content digest, computed once per row object.
   let d = DIGESTS.get(m);
   if (d === undefined) {
-    d = m.text != null ? hash(sample(m.text) + (m.images ?? []).join("|")) : hash((m.calls ?? []).map(callDigest).join("|"));
+    d = m.text != null ? hash(sample(m.text) + (m.images ?? []).join("|") + (m.stats ? JSON.stringify(m.stats) : "")) : hash((m.calls ?? []).map(callDigest).join("|"));
     DIGESTS.set(m, d);
   }
   return d;
@@ -117,8 +117,10 @@ export function keyRows(rows) {
     m.key = `${base}-${seen[base]}`;
   }
   rows.forEach((m, i) => {
-    const prev = rows[i - 1], user = m.kind === "message" && m.role === "user";
-    const prevUser = prev?.kind === "message" && prev.role === "user";
+    // A copy row under the person's message (`prompt`) belongs to their side, so the gap comes after it, not before it.
+    const mine = r => (r?.kind === "message" && r.role === "user") || Boolean(r?.prompt);
+    const prev = rows[i - 1], user = mine(m);
+    const prevUser = mine(prev);
     m.turnGap = Boolean(prev) && m.kind !== "note" && (user ? !prevUser : prevUser);
     if (m.turnGap) m.key += "-g";
   });
@@ -138,15 +140,22 @@ export function splitCode(text) {
 }
 
 export function withCopyRows(rows, working) {
-  // The rows with a copy row after each agent response (the run of rows up to the next message from the person); the one still being written gets none.
+  // The rows with a copy row after each agent response (the run of rows up to the next message from the person; the one still
+  // being written gets none), and one after each of the person's messages (`prompt`, drawn at the right, under its bubble).
+  // A turn's "stats" row (see TurnClock) goes onto its response's copy row, which shows it.
   const out = [];
-  let texts = [];
+  let texts = [], stats = null;
   const close = last => {
-    if (texts.length && !(last && working)) out.push({ kind: "copy", text: texts.join("\n\n") });
-    texts = [];
+    if (texts.length && !(last && working)) out.push({ kind: "copy", text: texts.join("\n\n"), ...(stats ? { stats } : {}) });
+    texts = []; stats = null;
   };
   for (const m of rows) {
-    if (m.kind === "message" && m.role === "user") { close(false); out.push(m); continue; }
+    if (m.kind === "stats") { stats = { secs: m.secs, out: m.out, tps: m.tps }; continue; }
+    if (m.kind === "message" && m.role === "user") {
+      close(false); out.push(m);
+      if (m.text?.trim()) out.push({ kind: "copy", text: m.text.trim(), prompt: true });
+      continue;
+    }
     if (m.kind === "message" && m.text?.trim()) texts.push(m.text.trim());
     out.push(m);
   }
