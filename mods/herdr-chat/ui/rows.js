@@ -46,7 +46,7 @@ function copyRow(m, { t, copied }) {
     .when(Boolean(s && !m.prompt), el => el
       .when(s?.secs != null, e => e.child(stat("clock", duration(s.secs), "How long the turn took")))
       .when(Boolean(s?.out), e => e.child(stat("coins", `${tokens(s?.out ?? 0)} tokens`, "Tokens the agent wrote this turn (thinking included)")))
-      .when(s?.tps != null, e => e.child(stat("circle-gauge", `${Math.round(s.tps)}/s`, "Tokens per second while the agent was writing (tool time left out)"))));
+      .when(s?.tps != null, e => e.child(stat("circle-gauge", `${Math.round(s.tps)}tk/s`, "Tokens per second while the agent was writing (tool time left out)"))));
 }
 
 export function duration(secs) {
