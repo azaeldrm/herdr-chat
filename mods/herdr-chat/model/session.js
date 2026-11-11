@@ -128,10 +128,10 @@ export class TurnClock {
   end(rows) {
     const replies = [...this.replies.values()], out = replies.reduce((n, r) => n + r.out, 0);
     const spent = replies.reduce((n, r) => n + Math.max(0, r.to - r.from), 0);
-    if (replies.length && out) rows.push({
+    if (replies.length) rows.push({
       kind: "stats", text: "",
       secs: this.start != null && this.last != null ? Math.max(0, this.last - this.start) : null,
-      out, tps: spent > 0.5 ? out / spent : null,
+      out, tps: out && spent > 0.5 ? out / spent : null,
     });
     this.reset();
   }

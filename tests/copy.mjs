@@ -39,4 +39,8 @@ const withStats = withCopyRows([u("hi"), a("one"), rowsOut[0], u("again")], fals
 assert.deepEqual(withStats.find(r => r.kind === "copy" && !r.prompt).stats, { secs: 13, out: 60, tps: 60 / 7 });
 assert.equal(withStats.some(r => r.kind === "stats"), false, "the stats row itself isn't drawn");
 const none = []; new TurnClock().end(none); assert.deepEqual(none, [], "no replies, no numbers");
+const timed = new TurnClock(), timedOut = [];
+for (const e of [{ at: 5, p: 1 }, { at: 6 }, { at: 9, id: "r", out: 0 }]) timed.tick(e);
+timed.end(timedOut);
+assert.deepEqual(timedOut, [{ kind: "stats", text: "", secs: 4, out: 0, tps: null }], "a harness without token counts still gets its time");
 console.log("turn numbers: ok");

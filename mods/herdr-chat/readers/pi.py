@@ -42,13 +42,18 @@ def parse_pi(path):
         if role == "user":
             said = re.sub(r'(?s)<skill name="([^"]+)"[^>]*>.*?</skill>\s*', r"/skill:\1 ", content_text(content))
             add_message("user", "", *placed_images(said))
+            add_tick(iso_time(o.get("timestamp")), prompt=True)
         elif role == "assistant":
+            # The reply's request started at its message's timestamp (ms) and ended at its entry's.
+            if isinstance(m.get("timestamp"), (int, float)): add_tick(m["timestamp"] / 1000)
+            add_tick(iso_time(o.get("timestamp")), mid=str(o.get("id") or m.get("responseId") or stamp), out=(m.get("usage") or {}).get("output"))
             for c in content if isinstance(content, list) else []:
                 if not isinstance(c, dict): continue
                 if c.get("type") == "text": add_message("assistant", "final", c.get("text"))
                 elif c.get("type") == "thinking": add_reasoning(c.get("thinking"))
                 elif c.get("type") == "toolCall": add_call(pi_call(str(c.get("name", "")), c.get("arguments")), str(c.get("id", "")))
         elif role == "toolResult":
+            add_tick(iso_time(o.get("timestamp")))
             set_output(str(m.get("toolCallId", "")), "\n".join(str(c.get("text", "")) for c in content if isinstance(c, dict) and c.get("type") == "text"))
 
 READERS["pi"] = (find_pi, parse_pi)
