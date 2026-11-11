@@ -1,4 +1,4 @@
-import { appHome } from "herdr";
+import { appHome, exec } from "herdr";
 import * as fs from "fs/promises";
 import { register, render } from "./vendor/pele/core.js";
 import flowchart from "./vendor/pele/diagrams/flowchart.js";
@@ -12,7 +12,7 @@ import mindmap from "./vendor/pele/diagrams/mindmap.js";
 import timeline from "./vendor/pele/diagrams/timeline.js";
 import gitGraph from "./vendor/pele/diagrams/gitGraph.js";
 import { hash } from "./model/hash.js";
-import { onWindows } from "./platform.js";
+import { onWindows, modFile } from "./platform.js";
 
 register(flowchart, sequence, state, klass, er, gantt, pie, mindmap, timeline, gitGraph);
 
@@ -89,4 +89,38 @@ export function splitDiagrams(text) {
     else if (p.trim()) out.push({ kind: "text", text: p.trim() });
   });
   return out;
+}
+
+export const COPY_PAD = 24;
+
+export function framedSvg(svg, width, height, background, pad = COPY_PAD) {
+  // A drawn diagram's SVG on its own background with `pad` px around it, at its own size: what's copied as a picture, so its
+  // light text stays readable wherever it's pasted.
+  const w = width + 2 * pad, h = height + 2 * pad;
+  return svg.replace(/<svg\s[^>]*>/, tag => tag
+    .replace(/viewBox="[^"]*"/, `viewBox="${-pad} ${-pad} ${w} ${h}"`)
+    .replace(/\swidth="[^"]*"/, ` width="${w}"`)
+    .replace(/\sheight="[^"]*"/, ` height="${h}"`)
+    .replace(/max-width:100%;height:auto;/, "")
+    + `<rect x="${-pad}" y="${-pad}" width="${w}" height="${h}" fill="${background}"/>`);
+}
+
+const COPY_ERRORS = {
+  3: onWindows() ? "Copying a picture needs Microsoft Edge or Google Chrome." : "Copying a picture needs rsvg-convert (librsvg), ImageMagick or Inkscape.",
+  4: "The diagram couldn't be drawn as a picture.",
+  5: "Copying a picture needs wl-copy or xclip.",
+};
+
+export async function copyDiagramImage(d, background) {
+  // Puts a drawn diagram (diagramFor, ready) on the clipboard as a PNG; null when done, else why not.
+  const dir = onWindows() ? `${appHome()}\\cache\\herdr-chat\\diagrams` : `${appHome()}/${DIR}`;
+  const at = name => onWindows() ? `${dir}\\${name}` : `${dir}/${name}`;
+  const svg = at(`${d.key}.copy.svg`), png = at(`${d.key}.copy.png`);
+  const w = Math.ceil(d.width) + 2 * COPY_PAD, h = Math.ceil(d.height) + 2 * COPY_PAD;
+  try { await fs.writeFile(svg, framedSvg(await fs.readFile(at(`${d.key}.svg`), "utf8"), Math.ceil(d.width), Math.ceil(d.height), background)); }
+  catch (e) { return String(e?.message ?? e); }
+  const r = await (onWindows()
+    ? exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass", "-File", modFile("copy-image.ps1"), "-Svg", svg, "-Png", png, "-Width", String(w), "-Height", String(h)])
+    : exec("sh", [modFile("copy-image.sh"), svg, png, String(w), String(h)])).catch(e => ({ code: -1, stderr: String(e) }));
+  return r.code === 0 ? null : COPY_ERRORS[r.code] ?? ((r.stderr || "").trim().split("\n").pop() || "The picture couldn't be copied.");
 }

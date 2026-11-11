@@ -106,12 +106,29 @@ function diagramRow(m, { t, width }) {
   return div().id(`diagram-${m.key}`).w_full().cursor_pointer().tooltip("Click to open it larger").child(image(d.rel).w(w).h(h));
 }
 
+// The two buttons under a diagram, at the right: Copy image, then Copy code (main.js tells them apart by the pointer's place).
+export const DIAGRAM_BUTTON = 98, DIAGRAM_GAP = 6;
+
+function diagramToolsRow(m, { t, copied }) {
+  const button = (which, glyph, label) => {
+    const state = copied === `${m.key}:${which}` ? "done" : copied === `${m.key}:${which}:busy` ? "busy" : "";
+    return h_flex().id(`dt-${which}-${m.key}`).w(DIAGRAM_BUTTON).h(28).flex_none().gap(6).items_center().justify_center().rounded(8)
+      .border_1().border_color(t.border).text_size(12).text_color(state ? t.foreground : t.muted).hover(s => s.bg(t.raised).text_color(t.foreground))
+      .child(icon(state === "done" ? "check" : glyph, 13, state ? t.foreground : t.muted))
+      .child(state === "done" ? "Copied" : state === "busy" ? "Copying…" : label);
+  };
+  return h_flex().w_full().h(32).gap(DIAGRAM_GAP).items_center().justify_end()
+    .child(button("image", "image", "Copy image"))
+    .child(button("code", "copy", "Copy code"));
+}
+
 export function row(m, ctx) {
   // One conversation row, drawn from the row alone and `ctx` ({ t, open, width, sent, machine }), with the gap that starts a turn.
   const body = m.kind === "tools" ? toolsRow(m, ctx)
     : m.kind === "step" ? stepRow(m, ctx)
     : m.kind === "note" ? div().w_full().text_size(12.5).text_color(ctx.t.dim).child(m.text)
     : m.kind === "diagram" ? diagramRow(m, ctx)
+    : m.kind === "diagram-tools" ? diagramToolsRow(m, ctx)
     : m.kind === "code" ? codeRow(m, ctx)
     : m.kind === "copy" ? copyRow(m, ctx)
     : messageRow(m, ctx);

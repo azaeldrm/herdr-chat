@@ -89,6 +89,9 @@ export class ChatList {
     this.rowCount = rows.length + 1;
     const body = v_flex().relative().flex_1().min_h(0).when(this.settling, el => el.opacity(0))
       .on_size_change(size => { this.listH = designPx(size.height, zoom); })
+      // Where the pointer is across the list (design px): a row with two buttons tells them apart by it, since a list row
+      // reports only that it was clicked (see the diagram tools in main.js).
+      .on_mouse_move(e => { this.pointerX = designPx(e.local_position.x, zoom); })
       .child(v_virtual_list("herdr-chat-messages", rows.length + 1, [...sizes, TAIL], i => i < rows.length ? rows[i].key : "end-of-chat", range => {
         this.visibleEnd = range.end;
         this.laidOut = Date.now();
