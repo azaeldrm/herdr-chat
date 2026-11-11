@@ -1,12 +1,12 @@
 import { View, div, image } from "gpui-kit";
-import { set_theme, v_flex, h_flex } from "gpui-base";
+import { set_theme, v_flex, h_flex, Popup } from "gpui-base";
 import { panes, focused, props, hc, theme, shared, window as appWindow } from "herdr";
 import { switchTo, showView, preferredView, sessionOf, chatKey } from "./common.js";
-import { target, inputBox, interruptAgent } from "./terminal.js";
+import { target, inputBox, interruptAgent, sendMessage, pressKeys } from "./terminal.js";
 import { keyRows, splitCode, withCopyRows, stepRows, stepText, withoutRetracted } from "./model/transcript.js";
-import { runsWith } from "./model/runs-with.js";
+import { runsWith, switchCommand, tokens } from "./model/runs-with.js";
 import { row } from "./ui/rows.js";
-import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle, clock } from "./ui/primitives.js";
+import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle, clock, icon } from "./ui/primitives.js";
 import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
 import { canMirror } from "./harnesses/index.js";
 import { isHeader, terminalHeader } from "./header.js";
@@ -231,15 +231,77 @@ export default class HerdrChat extends View {
     return rows;
   }
 
-  runsWithLine(t, active) {
-    // Under the message box: the model, effort, permission mode and context the session runs with, as its log says.
-    const parts = active ? runsWith(this.reader.session.meta, active.harness?.modes) : [];
-    if (!parts.length) return null;
-    return h_flex().w_full().justify_center().gap(6).text_size(11.5).text_color(t.dim)
-      .children(parts.flatMap((p, i) => [
-        ...(i ? [div().child("·")] : []),
-        div().id(`runs-with-${p.key}`).text_color(p.key === "model" ? t.muted : t.dim).when(Boolean(p.title), el => el.tooltip(p.title)).child(p.text),
-      ]));
+  menuButton(t, id, open, trigger, items, onPick, width = 200) {
+    // A trigger with its menu above it (open while this.menu === id): rows of { key, text, note?, on }, picked with a click,
+    // closed by a press anywhere else.
+    return Popup.new(`menu-${id}`, trigger).anchor("bottom_left")
+      .when(open, pop => pop.content(v_flex().id(`menu-list-${id}`).w(width).mb(6).p(4).gap(1).rounded(10).border_1().border_color(t.border)
+        .bg(t.popover ?? t.raised).shadow_md().text_size(12.5)
+        .on_mouse_down_out((_e, cx) => { if (this.menu === id) { this.menu = null; cx.notify(); } })
+        .children(items.map(item => h_flex().id(`menu-${id}-${item.key}`).h(28).px(8).gap(8).items_center().rounded(6).cursor_pointer()
+          .text_color(item.on ? t.foreground : t.muted).hover(s => s.bg(t.hover).text_color(t.foreground))
+          .on_click((_e, cx) => { this.menu = null; onPick(item, cx); cx.notify(); })
+          .child(div().w(12).flex_none().child(item.on ? icon("check", 12, t.accent) : div()))
+          .child(div().flex_1().min_w(0).truncate().child(item.text))
+          .when(Boolean(item.note), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(item.note)))))));
+  }
+
+  switchTo(active, line, cx) {
+    // Types a switch (/model, /effort) into the agent, as the person would.
+    if (!line) return;
+    sendMessage(active, line).catch(e => { this.note = String(e?.message ?? e); cx.notify(); });
+  }
+
+  modelChip(t, active) {
+    // Left of the message box: the agent's icon and model; a click lists the models to switch to.
+    const look = active ? runsWith(this.reader.session.meta, active.harness) : null;
+    if (!look?.model) return null;
+    const canSwitch = look.models.length > 0 && Boolean(active.harness?.switching?.model);
+    const chip = h_flex().id("model-chip").h(32).px(10).gap(6).flex_none().items_center().rounded(16).bg(t.raised).text_size(12.5).text_color(t.foreground)
+      .tooltip(look.model.id)
+      .when(canSwitch, el => el.cursor_pointer().hover(s => s.bg(t.hover))
+        .on_click((_e, cx) => { this.menu = this.menu === "model" ? null : "model"; cx.notify(); }))
+      .when(Boolean(programIcon(active.program, 14, t.muted)), el => el.child(programIcon(active.program, 14, t.muted)))
+      .child(look.model.name)
+      .when(canSwitch, el => el.child(icon("chevron-down", 12, t.dim)));
+    if (!canSwitch) return chip;
+    return this.menuButton(t, "model", this.menu === "model", chip,
+      look.models.map(m => ({ key: m.id, text: m.name, on: look.model.id === m.id || String(look.model.id).startsWith(m.id), switchTo: m.switchTo })),
+      (item, cx) => this.switchTo(active, switchCommand(active.harness, "model", { model: item.switchTo }), cx));
+  }
+
+  sessionLine(t, active) {
+    // Under the message box: the effort (a menu) and the permission mode (a click moves to the next) at the left, each with
+    // its icon; the context used as a gauge and a bar at the right.
+    const look = active ? runsWith(this.reader.session.meta, active.harness) : null;
+    if (!look || (!look.effort && !look.mode && !look.context)) return null;
+    const item = (id, glyph, text, tip) => h_flex().id(id).h(22).px(6).gap(5).items_center().rounded(6).text_size(11.5).text_color(t.muted)
+      .tooltip(tip).child(icon(glyph, 12, t.dim)).child(text);
+    const switchEffort = look.efforts.length > 0 && Boolean(active.harness?.switching?.effort);
+    const effort = look.effort ? item("session-effort", "zap", look.effort, switchEffort ? "Effort · click to change" : "Effort")
+      .when(switchEffort, el => el.cursor_pointer().hover(s => s.bg(t.hover).text_color(t.foreground))
+        .on_click((_e, cx) => { this.menu = this.menu === "effort" ? null : "effort"; cx.notify(); })) : null;
+    const nextMode = active.harness?.switching?.nextMode;
+    const mode = look.mode ? item("session-mode", "shield", look.mode.text, nextMode ? "Permission mode · click for the next one" : "Permission mode")
+      .when(Boolean(nextMode), el => el.cursor_pointer().hover(s => s.bg(t.hover).text_color(t.foreground))
+        .on_click(() => pressKeys(active, nextMode))) : null;
+    const c = look.context;
+    const level = c?.share == null ? t.muted : c.share >= 95 ? "#d88179" : c.share >= 80 ? "#e8823a" : t.accent;
+    const gauge = c ? h_flex().id("session-context").gap(6).items_center().text_size(11.5).text_color(t.muted)
+      .tooltip(c.window ? `${c.used.toLocaleString()} of ${c.window.toLocaleString()} tokens of context in use` : `${c.used.toLocaleString()} tokens of context in use`)
+      .child(icon("gauge", 12, t.dim))
+      .child(c.window ? `${tokens(c.used)} / ${tokens(c.window)}` : tokens(c.used))
+      .when(c.share != null, el => el.child(div().w(96).h(4).flex_none().rounded_full().bg(t.border)
+        .child(div().h_full().rounded_full().w(Math.max(2, Math.round(96 * c.share / 100))).bg(level)))) : null;
+    return h_flex().w_full().h(24).px(4).items_center()
+      .child(h_flex().flex_1().min_w(0).gap(2).items_center()
+        .when(Boolean(effort), el => el.child(switchEffort
+          ? this.menuButton(t, "effort", this.menu === "effort", effort,
+            look.efforts.map(e => ({ key: e, text: e, on: e === look.effort })),
+            (picked, cx) => this.switchTo(active, switchCommand(active.harness, "effort", { effort: picked.key, model: look.model?.id }), cx), 140)
+          : effort))
+        .when(Boolean(mode), el => el.child(mode)))
+      .when(Boolean(gauge), el => el.child(gauge));
   }
 
   renderInner(cx) {
@@ -296,7 +358,7 @@ export default class HerdrChat extends View {
       .when(Boolean(measure), el => el.child(measure))
       .child(v_flex().w_full().flex_none().items_center().px(24).pt(12).pb(14).gap(12)
         .when(Boolean(status), el => el.child(status))
-        .child(this.composer.render(t, active, this.runsWithLine(t, active))));
+        .child(this.composer.render(t, active, this.sessionLine(t, active), this.modelChip(t, active))));
   }
 }
 

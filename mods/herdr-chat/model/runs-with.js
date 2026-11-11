@@ -1,5 +1,6 @@
-// What a session runs with, as the strip under the message box says it: model, effort, permission mode and context used,
-// from the reader's META (newest values its log gave).
+// What a session runs with, for the model chip beside the message box and the line under it: the model and what it can switch
+// to, the effort, the permission mode and the context used, from the reader's META (the newest values its log gave) and the
+// harness (its models, efforts and how it switches).
 
 export function modelName(id) {
   // "claude-opus-5-5" as "Opus 5.5"; other models as they're named.
@@ -8,24 +9,36 @@ export function modelName(id) {
 }
 
 export function tokens(n) {
-  // 80341 as "80k", 1250000 as "1.25M".
+  // 80341 as "80k", 1250000 as "1.25M", 1000000 as "1M".
   if (n >= 1e6) return `${+(n / 1e6).toFixed(2)}M`;
   if (n >= 1e3) return `${Math.round(n / 1e3)}k`;
   return String(n);
 }
 
-export function runsWith(meta, modes = {}) {
-  // The strip's parts, in order: { key, text, title? }; empty when the log hasn't said. `modes`: the harness's names for its
-  // permission modes, by the log's word for them.
-  if (!meta) return [];
-  const parts = [];
-  if (meta.model) parts.push({ key: "model", text: modelName(meta.model), title: meta.model });
-  if (meta.effort) parts.push({ key: "effort", text: `${meta.effort} effort` });
-  if (meta.mode) parts.push({ key: "mode", text: modes[meta.mode] ?? meta.mode });
-  if (Number.isFinite(meta.context) && meta.context > 0) {
-    const share = Number.isFinite(meta.window) && meta.window > 0 ? Math.round(100 * meta.context / meta.window) : null;
-    parts.push({ key: "context", text: share == null ? `${tokens(meta.context)} context` : `${share}% context`,
-      title: share == null ? `${meta.context.toLocaleString()} tokens of context in use` : `${tokens(meta.context)} of ${tokens(meta.window)} tokens of context in use` });
-  }
-  return parts;
+export function runsWith(meta, harness = {}) {
+  // { model, models, effort, efforts, mode, context } (each null or empty when unknown):
+  //   model { id, name }; models [{ id, name, switchTo, efforts? }] (switchTo: what the switch command names it);
+  //   mode { key, text }; context { used, window?, share? }.
+  meta = meta ?? {};
+  const listed = (harness.models ?? meta.models ?? []).map(m => ({ id: m.id, name: m.name ?? modelName(m.id), switchTo: m.alias ?? m.id, efforts: m.efforts, window: m.window }));
+  const current = meta.model ? listed.find(m => m.id === meta.model || String(meta.model).startsWith(m.id)) : null;
+  const model = meta.model ? { id: meta.model, name: current?.name ?? modelName(meta.model) } : null;
+  const efforts = harness.efforts ?? current?.efforts ?? [];
+  const window = Number.isFinite(meta.window) && meta.window > 0 ? meta.window : current?.window ?? null;
+  const used = Number.isFinite(meta.context) && meta.context > 0 ? meta.context : null;
+  return {
+    model,
+    models: listed,
+    effort: meta.effort ?? null,
+    efforts,
+    mode: meta.mode ? { key: meta.mode, text: harness.modes?.[meta.mode] ?? meta.mode } : null,
+    context: used == null ? null : { used, window, share: window ? Math.min(100, Math.round(100 * used / window)) : null },
+  };
+}
+
+export function switchCommand(harness, what, values) {
+  // The line that switches `what` ("model" or "effort"), its {model} and {effort} filled in; null when the harness can't.
+  const pattern = harness?.switching?.[what];
+  if (!pattern) return null;
+  return pattern.replace(/\{(\w+)\}/g, (_all, name) => values[name] ?? "");
 }
