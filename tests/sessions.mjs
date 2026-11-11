@@ -22,6 +22,12 @@ check("its messages and tool call", JSON.stringify(said(s)) === '["hi","done"]' 
 applyRead(s, parseReader(["PATH|" + enc("/log.jsonl"), "OFFSET|180", "O|c1|" + enc("file text"), "M|user||" + enc("more")].join("\n")));
 check("a later read adds to it", JSON.stringify(said(s)) === '["hi","done","more"]' && s.offset === 180);
 check("a tool's output reaches its call", s.calls.get("c1").o === "file text");
+{
+  const before = s.messages;
+  const changed = applyRead(s, parseReader(["PATH|" + enc("/log.jsonl"), "OFFSET|180"].join("\n")));
+  check("a read with nothing new changes nothing shown (same rows, so no redraw)", changed === false && s.messages === before);
+  check("a read that adds something says so", applyRead(s, parseReader(["PATH|" + enc("/log.jsonl"), "OFFSET|190", "O|c1|" + enc("more text")].join("\n"))) === true && s.messages !== before);
+}
 applyRead(s, parseReader(["PATH|" + enc("/log.jsonl"), "OFFSET|50", "RESET", "M|user||" + enc("rewound")].join("\n")));
 check("RESET starts over", JSON.stringify(said(s)) === '["rewound"]');
 applyRead(s, parseReader(["PATH|" + enc("/other.jsonl"), "OFFSET|10", "M|user||" + enc("new log")].join("\n")));
