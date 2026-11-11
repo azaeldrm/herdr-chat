@@ -33,9 +33,12 @@ function toolButton(t, id, glyph, done, busy, tip) {
 
 function copyRow(m, { t, copied }) {
   // The copy button under an agent's response, at the left, or under one of the person's messages, at the right (`prompt`):
-  // clicking the row copies it (see onItemClick in main.js).
-  return h_flex().w_full().h(32).items_center().when(m.prompt, el => el.justify_end()).when(!m.prompt, el => el.justify_start())
-    .child(toolButton(t, `copy-${m.key}`, "copy", copied === m.key, false, m.prompt ? "Copy your message" : "Copy the response"));
+  // clicking the row copies it (see onItemClick in main.js). The button shows while the pointer is over its row (or it was
+  // just used); its row keeps its height either way, so nothing moves when it appears.
+  const done = copied === m.key;
+  return h_flex().id(`copy-row-${m.key}`).w_full().h(32).items_center().when(m.prompt, el => el.justify_end()).when(!m.prompt, el => el.justify_start())
+    .opacity(done ? 1 : 0).hover(s => s.opacity(1))
+    .child(toolButton(t, `copy-${m.key}`, "copy", done, false, m.prompt ? "Copy your message" : "Copy the response"));
 }
 
 function markdown(id, source, t) {
