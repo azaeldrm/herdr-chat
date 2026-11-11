@@ -63,6 +63,18 @@ def add_reasoning(text):
 
 def add_call(call, cid): entries.append({"kind": "call", "id": cid or "", "call": call})
 
+def add_tick(at, prompt=False, mid=None, out=None):
+    """A log line's time (epoch seconds), for the turn's numbers: the person's prompt, a tool's result, or a reply line with its id and output tokens."""
+    if at is None: return
+    e = {"kind": "tick", "at": round(at, 3)}
+    if prompt: e["p"] = 1
+    if mid: e["id"], e["out"] = mid, int(out or 0)
+    entries.append(e)
+
+def iso_time(text):
+    try: return datetime.fromisoformat(str(text).replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError): return None
+
 def set_output(cid, text):
     if cid: entries.append({"kind": "out", "id": cid, "text": clip(text)})
 

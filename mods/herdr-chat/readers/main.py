@@ -17,8 +17,17 @@ if state["chain"] is not None: emit("LEAF|" + esc(state["chain"]))
 if state["fresh"]: emit("RESET")
 if state["clipped"]: emit("NOTE|" + esc("Showing the recent part of this session."))
 if state["fresh"] and not entries: emit("NOTE|" + esc("No messages in this session yet."))
-for e in (entries[-MAX_ENTRIES:] if state["fresh"] else entries):
+def recent(es):
+    # The newest MAX_ENTRIES entries, ticks (times) not counted.
+    n = 0
+    for i in range(len(es) - 1, -1, -1):
+        if es[i]["kind"] != "tick":
+            n += 1
+            if n == MAX_ENTRIES: return es[i:]
+    return es
+for e in (recent(entries) if state["fresh"] else entries):
     k = e["kind"]
+    if k == "tick": emit("S|" + esc(json.dumps({x: v for x, v in e.items() if x != "kind"}, separators=(",", ":")))); continue
     if k == "call": emit("C|" + esc(e["id"]) + "|" + esc(json.dumps(e["call"], separators=(",", ":"), ensure_ascii=False)))
     elif k == "out": emit("O|" + esc(e["id"]) + "|" + esc(e["text"]))
     elif k == "reasoning": emit("R|" + esc(e["text"]))

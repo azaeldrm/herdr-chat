@@ -28,3 +28,15 @@ assert.deepEqual(parts, [
 ]);
 assert.equal(splitCode("plain"), null);
 console.log("copy rows: ok");
+
+// A turn's numbers: ticks become a "stats" row at the turn's end, which lands on the response's copy row.
+const { TurnClock } = await import("../mods/herdr-chat/model/session.js");
+const clock = new TurnClock(), rowsOut = [];
+for (const e of [{ at: 100, p: 1 }, { at: 102, id: "a", out: 10 }, { at: 104, id: "a", out: 40 }, { at: 110 }, { at: 111, id: "b", out: 20 }, { at: 113, id: "b", out: 20 }]) clock.tick(e);
+clock.end(rowsOut);
+assert.deepEqual(rowsOut, [{ kind: "stats", text: "", secs: 13, out: 60, tps: 60 / 7 }], "time from the prompt; tokens per reply once; rate over the model's time (4s + 3s)");
+const withStats = withCopyRows([u("hi"), a("one"), rowsOut[0], u("again")], false);
+assert.deepEqual(withStats.find(r => r.kind === "copy" && !r.prompt).stats, { secs: 13, out: 60, tps: 60 / 7 });
+assert.equal(withStats.some(r => r.kind === "stats"), false, "the stats row itself isn't drawn");
+const none = []; new TurnClock().end(none); assert.deepEqual(none, [], "no replies, no numbers");
+console.log("turn numbers: ok");

@@ -1,6 +1,7 @@
 import { div, image } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { COLUMN, icon, mono, disclosure, bubble } from "./primitives.js";
+import { tokens } from "../model/runs-with.js";
 import { SENT_DIR, previewFile } from "../images.js";
 import { KINDS, STEP, summary, stepText } from "../model/transcript.js";
 import { diagramFor } from "../diagrams.js";
@@ -35,10 +36,25 @@ function copyRow(m, { t, copied }) {
   // The copy button under an agent's response, at the left, or under one of the person's messages, at the right (`prompt`):
   // clicking the row copies it (see onItemClick in main.js). The button shows while the pointer is over its row (or it was
   // just used); its row keeps its height either way, so nothing moves when it appears.
-  const done = copied === m.key;
-  return h_flex().id(`copy-row-${m.key}`).w_full().h(32).items_center().when(m.prompt, el => el.justify_end()).when(!m.prompt, el => el.justify_start())
-    .opacity(done ? 1 : 0).hover(s => s.opacity(1)).transition("opacity", { duration: 160, easing: "ease-out" })
-    .child(toolButton(t, `copy-${m.key}`, "copy", done, false, m.prompt ? "Copy your message" : "Copy the response"));
+  // A response's turn numbers (m.stats) follow its button, each with its icon: time, output tokens, tokens per second.
+  const done = copied === m.key, s = m.stats;
+  const stat = (glyph, text, tip) => h_flex().id(`st-${glyph}-${m.key}`).gap(5).items_center().tooltip(tip)
+    .child(icon(glyph, 13, t.dim)).child(div().text_size(12).text_color(t.dim).child(text));
+  return h_flex().id(`copy-row-${m.key}`).w_full().h(32).gap(14).items_center().when(m.prompt, el => el.justify_end()).when(!m.prompt, el => el.justify_start())
+    .opacity(done ? 1 : 0).hover(st => st.opacity(1))
+    .child(toolButton(t, `copy-${m.key}`, "copy", done, false, m.prompt ? "Copy your message" : "Copy the response"))
+    .when(Boolean(s && !m.prompt), el => el
+      .when(s?.secs != null, e => e.child(stat("clock", duration(s.secs), "How long the turn took")))
+      .child(stat("hash", `${tokens(s?.out ?? 0)} tokens`, "Tokens the agent wrote this turn (thinking included)"))
+      .when(s?.tps != null, e => e.child(stat("activity", `${Math.round(s.tps)}/s`, "Tokens per second while the agent was writing (tool time left out)"))));
+}
+
+export function duration(secs) {
+  // "8s", "42s", "3m 05s", "1h 02m".
+  const n = Math.round(secs);
+  if (n < 60) return `${n}s`;
+  if (n < 3600) return `${Math.floor(n / 60)}m ${String(n % 60).padStart(2, "0")}s`;
+  return `${Math.floor(n / 3600)}h ${String(Math.floor(n % 3600 / 60)).padStart(2, "0")}m`;
 }
 
 function markdown(id, source, t) {

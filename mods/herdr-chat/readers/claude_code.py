@@ -152,9 +152,10 @@ def claude_runs_with(lines):
 def claude_entry(o):
         if o.get("isSidechain") or o.get("isMeta") or o.get("isCompactSummary"): return
         content = (o.get("message") or {}).get("content")
+        at = iso_time(o.get("timestamp"))
         if o["type"] == "user":
             if isinstance(content, str):
-                add_message("user", "", *placed_images(claude_user_text(content))); return
+                add_message("user", "", *placed_images(claude_user_text(content))); add_tick(at, prompt=True); return
             texts = []
             for c in content or []:
                 if not isinstance(c, dict): continue
@@ -163,7 +164,10 @@ def claude_entry(o):
                     t = claude_user_text(str(c.get("text", "")))
                     if t.strip(): texts.append(t)
             add_message("user", "", *placed_images("\n".join(texts)))
+            add_tick(at, prompt=bool(texts))
             return
+        m = o.get("message") or {}
+        add_tick(at, mid=m.get("id"), out=(m.get("usage") or {}).get("output_tokens"))
         for c in content or []:
             if not isinstance(c, dict): continue
             if c.get("type") == "text": add_message("assistant", "final", c.get("text"))
