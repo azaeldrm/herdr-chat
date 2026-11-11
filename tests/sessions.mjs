@@ -28,6 +28,15 @@ check("a tool's output reaches its call", s.calls.get("c1").o === "file text");
   check("a read with nothing new changes nothing shown (same rows, so no redraw)", changed === false && s.messages === before);
   check("a read that adds something says so", applyRead(s, parseReader(["PATH|" + enc("/log.jsonl"), "OFFSET|190", "O|c1|" + enc("more text")].join("\n"))) === true && s.messages !== before);
 }
+{
+  const x = blankSession();
+  applyRead(x, parseReader(["PATH|" + enc("/m.jsonl"), "META|" + enc(JSON.stringify({ model: "claude-opus-5-5", effort: "medium", mode: "auto", context: 100 })), "M|user||" + enc("hi")].join("\n")));
+  check("a read's META says what the session runs with", JSON.stringify(x.meta) === JSON.stringify({ model: "claude-opus-5-5", effort: "medium", mode: "auto", context: 100 }));
+  const changed = applyRead(x, parseReader(["PATH|" + enc("/m.jsonl"), "META|" + enc(JSON.stringify({ context: 200 }))].join("\n")));
+  check("a later read that gives only some keeps the rest, and counts as a change", changed === true && x.meta.mode === "auto" && x.meta.context === 200);
+  applyRead(x, parseReader(["PATH|" + enc("/other.jsonl"), "M|user||" + enc("new")].join("\n")));
+  check("another log starts over", JSON.stringify(x.meta) === "{}");
+}
 applyRead(s, parseReader(["PATH|" + enc("/log.jsonl"), "OFFSET|50", "RESET", "M|user||" + enc("rewound")].join("\n")));
 check("RESET starts over", JSON.stringify(said(s)) === '["rewound"]');
 applyRead(s, parseReader(["PATH|" + enc("/other.jsonl"), "OFFSET|10", "M|user||" + enc("new log")].join("\n")));

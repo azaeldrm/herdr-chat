@@ -343,14 +343,15 @@ export class Composer {
     });
   }
 
-  render(t, active) {
-    // The reply box: attachments, the text, and the send or stop button.
+  render(t, active, footer = null, lead = null) {
+    // The reply box: what sits before the text (`lead`, the model chip), attachments, the text, and the send or stop button.
     const ready = (Boolean(this.input.value().trim()) || this.attachments.length > 0) && !this.host.sending && Boolean(active);
     const stopping = active?.status === "working" && !this.input.value().trim() && !this.attachments.length;
     const menu = this.menu.render(t, active);
     return v_flex().w_full().max_w(COLUMN).gap(6).relative()
       .when(Boolean(menu), el => el.child(menu))
-      .child(h_flex().id("composer-box").w_full().pl(16).pr(8).py(8).gap(8).items_end().rounded(18).border_1().border_color(t.input).bg(t.surface)
+      .child(h_flex().id("composer-box").w_full().pl(lead ? 8 : 16).pr(8).py(8).gap(8).items_end().rounded(18).border_1().border_color(t.input).bg(t.surface)
+        .when(Boolean(lead), el => el.child(lead))
         .child(v_flex().flex_1().min_w(0)
           .when(this.attachments.length > 0, el => el.child(this.attachmentStrip(t)))
           .child(div().id("composer-input").w_full().min_w(0).py(4).key_context("HerdrChatReply")
@@ -375,7 +376,8 @@ export class Composer {
             .bg(ready ? t.accent : t.raised).text_color(ready ? t.accent_foreground : t.dim)
             .when(ready, el => el.cursor_pointer().hover(s => s.opacity(0.88)).on_click((_e, cx) => this.send(cx)))
             .child(svg(`${ICONS}/arrow-up.svg`).size(16))))
-      .child(div().w_full().text_center().text_size(11.5).text_color(t.dim)
+      // Under the box: what the session runs with (main.js), else how sending works.
+      .child(footer ?? div().w_full().text_center().text_size(11.5).text_color(t.dim)
         .child(active ? `Sends to the live ${active.label} terminal · drop or paste an image to attach it` : ""));
   }
 }

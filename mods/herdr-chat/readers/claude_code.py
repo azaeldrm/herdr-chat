@@ -110,6 +110,7 @@ def claude_branch(recs, known):
 
 def parse_claude(path):
     lines = read_tail(path)
+    claude_runs_with(lines)
     known = [k.rsplit(".", 1) for k in A.leaf.split(",") if "." in k]
     recs = claude_records(lines)
     branch, base = claude_branch(recs, known)
@@ -131,6 +132,22 @@ def parse_claude(path):
                 if isinstance(c, dict) and c.get("type") == "tool_result": set_output(str(c.get("tool_use_id", "")), content_text(c.get("content")))
     tail = base + [[r["u"], "v" if r["v"] else "t"] for r in branch]
     state["chain"] = ",".join("%s.%s" % (u, f) for u, f in tail[-CLAUDE_KEPT:])
+
+def claude_runs_with(lines):
+    """What the session runs with, from the newest lines that say it: model, effort and context used (an assistant reply's
+    usage: what its request read), and the permission mode."""
+    meta = state["meta"]
+    for line in reversed(lines):
+        if "model" not in meta and '"type":"assistant"' in line and '"usage"' in line:
+            o = loads(line) or {}
+            m, u = o.get("message") or {}, (o.get("message") or {}).get("usage") or {}
+            if o.get("isSidechain") or str(m.get("model", "")).startswith("<"): continue
+            meta["model"] = m.get("model")
+            if o.get("effort"): meta["effort"] = o.get("effort")
+            meta["context"] = sum(int(u.get(k) or 0) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+        if "mode" not in meta and '"permission-mode"' in line:
+            meta["mode"] = (loads(line) or {}).get("permissionMode")
+        if "model" in meta and "mode" in meta: break
 
 def claude_entry(o):
         if o.get("isSidechain") or o.get("isMeta") or o.get("isCompactSummary"): return

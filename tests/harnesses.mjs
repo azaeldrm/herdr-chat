@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync, statSync } from "fs";
-import { join, relative } from "path";
+import { join, relative, sep } from "path";
 import { stage, MOD } from "./stage.mjs";
 const { HARNESSES, harnessFor, supportedNames, draftPastes, textOfBox, readBack } = await stage().load("harnesses/index.js");
 let failed = 0;
@@ -18,6 +18,13 @@ const SHAPE = {
   box: (v, h) => v === null ? h.mirror === false : Boolean(v && (v.style === "rules" || (v.style === "mark" && typeof v.mark === "string" && v.mark.length > 0))),
   skills: v => Boolean(v && Array.isArray(v.triggers) && v.triggers.length && typeof v.invoke === "string" && v.triggers.includes(v.invoke[0]) && Array.isArray(v.user) && Array.isArray(v.project) && Array.isArray(v.skip) && Object.keys(v).every(k => ["triggers", "invoke", "user", "project", "skip", "enterTwice"].includes(k))),
   reader: v => typeof v === "string" && v.length > 0,
+  // Optional: its permission modes' names, by the word its log records.
+  modes: v => v === undefined || Boolean(v && typeof v === "object" && Object.values(v).every(n => typeof n === "string" && n)),
+  // Optional: the models and efforts the chat offers, and how it switches them ({model} and {effort} filled in; nextMode: keys).
+  models: v => v === undefined || (Array.isArray(v) && v.every(m => m && typeof m.id === "string" && typeof m.name === "string")),
+  efforts: v => v === undefined || (Array.isArray(v) && v.every(e => typeof e === "string" && e)),
+  switching: v => v === undefined || Boolean(v && typeof v === "object" && ["model", "effort"].every(k => v[k] === undefined || typeof v[k] === "string")
+    && (v.nextMode === undefined || (Array.isArray(v.nextMode) && v.nextMode.length > 0))),
 };
 for (const [app, h] of Object.entries(HARNESSES)) {
   check(`${app}: registered under its own id`, h.id, app);
@@ -42,7 +49,7 @@ function files(dir) {
   return readdirSync(dir).flatMap(f => statSync(join(dir, f)).isDirectory() ? files(join(dir, f)) : [join(dir, f)]);
 }
 for (const file of files(MOD).filter(f => /\.(js|py|ps1|sh)$/.test(f))) {
-  const rel = relative(MOD, file);
+  const rel = relative(MOD, file).split(sep).join("/");
   if (ALLOWED.some(r => r.test(rel))) continue;
   const hit = readFileSync(file, "utf8").split("\n").find(l => literal.test(l));
   check(`${rel} names no harness (harness behavior belongs in harnesses/)`, hit ?? null, null);
