@@ -117,8 +117,10 @@ export function keyRows(rows) {
     m.key = `${base}-${seen[base]}`;
   }
   rows.forEach((m, i) => {
-    const prev = rows[i - 1], user = m.kind === "message" && m.role === "user";
-    const prevUser = prev?.kind === "message" && prev.role === "user";
+    // A copy row under the person's message (`prompt`) belongs to their side, so the gap comes after it, not before it.
+    const mine = r => (r?.kind === "message" && r.role === "user") || Boolean(r?.prompt);
+    const prev = rows[i - 1], user = mine(m);
+    const prevUser = mine(prev);
     m.turnGap = Boolean(prev) && m.kind !== "note" && (user ? !prevUser : prevUser);
     if (m.turnGap) m.key += "-g";
   });
