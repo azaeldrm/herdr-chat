@@ -44,6 +44,7 @@ function copyRow(m, { t, copied }) {
     .opacity(done ? 1 : 0).hover(st => st.opacity(1))
     .child(toolButton(t, `copy-${m.key}`, "copy", done, false, m.prompt ? "Copy your message" : "Copy the response", false))
     .when(Boolean(s && !m.prompt), el => el
+      .child(div().text_size(12).text_color(t.dim).child("•"))
       .when(s?.secs != null, e => e.child(stat("clock", duration(s.secs), "How long the turn took")))
       .when(Boolean(s?.out), e => e.child(stat("coins", `${tokens(s?.out ?? 0)} tokens`, "Tokens the agent wrote this turn (thinking included)")))
       .when(s?.tps != null, e => e.child(stat("circle-gauge", `${Math.round(s.tps)}tk/s`, "Tokens per second while the agent was writing (tool time left out)"))));
