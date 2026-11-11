@@ -12,8 +12,8 @@ function words(text) {
 }
 
 export function unsavedMessage(harness, screen, saved) {
-  // The message above the question on `screen` as { text, cut } (cut: its start is above the screen), or null: no
-  // question, nothing there, a tool call, or `saved` (the log's last agent texts) already has it.
+  // The text of the message above the question on `screen` (from what's left of it when its start is above the screen),
+  // or null: no question, nothing there, a tool call, or `saved` (the log's last agent texts) already has it.
   const look = harness?.screenMessage;
   if (!look || !screen) return null;
   const lines = screen.split("\n");
@@ -36,8 +36,8 @@ export function unsavedMessage(harness, screen, saved) {
     else if (LIST.test(l) || text.endsWith("\n")) text += (text.endsWith("\n") ? "" : "\n") + l;
     else text += " " + l;
   });
-  text = text.trim();
+  text = (look.label ? text.replace(look.label, "") : text).trim();
   const said = words(text);
   if (said.split(" ").length < 3 || (saved ?? []).some(s => words(s).includes(said))) return null;
-  return { text, cut };
+  return text;
 }

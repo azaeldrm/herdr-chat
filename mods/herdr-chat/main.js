@@ -224,8 +224,8 @@ export default class HerdrChat extends View {
     const screen = this.card.screen;
     if (this.unsavedCache?.screen === screen && this.unsavedCache.messages === messages) return this.unsavedCache.row;
     const saved = messages.filter(m => m.kind === "message" && m.role !== "user").slice(-3).map(m => m.text ?? "");
-    const found = unsavedMessage(active?.harness, screen, saved);
-    const row = found ? { kind: "message", role: "assistant", phase: "final", text: found.text, unsaved: true, cut: found.cut } : null;
+    const text = unsavedMessage(active?.harness, screen, saved);
+    const row = text ? { kind: "message", role: "assistant", phase: "final", text } : null;
     this.unsavedCache = { screen, messages, row };
     return row;
   }

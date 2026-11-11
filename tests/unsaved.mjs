@@ -15,14 +15,16 @@ const screen = above => [...above, ...QUESTION].join("\n");
 
 const message = ["● Running the probes now, one after the other.", "● Both probes are running. Meanwhile I'm noting that each user now owns", "  their voice, so a mismatch needs a rule.", ""];
 check(unsavedMessage(claude, screen(message), ["Running the probes now, one after the other."]),
-  { text: "Both probes are running. Meanwhile I'm noting that each user now owns their voice, so a mismatch needs a rule.", cut: false },
+  "Both probes are running. Meanwhile I'm noting that each user now owns their voice, so a mismatch needs a rule.",
   "the message above the question, its wrapped lines joined");
 check(unsavedMessage(claude, screen(message), ["Both probes are running. Meanwhile I'm noting that each user now owns their voice, so a mismatch needs a rule."]), null,
   "nothing once the log has it");
 check(unsavedMessage(claude, screen(["● Two options:", "", "  - keep yours", "  - pick one that matches"]), []),
-  { text: "Two options:\n\n- keep yours\n- pick one that matches", cut: false }, "paragraphs and list items keep their lines");
+  "Two options:\n\n- keep yours\n- pick one that matches", "paragraphs and list items keep their lines");
+check(unsavedMessage(claude, screen(["● Both probes are running, and each user owns", "  their voice. · summary"]), []),
+  "Both probes are running, and each user owns their voice.", "a summary label at its end is left off");
 check(unsavedMessage(claude, screen(["  owns their voice, so a mismatch needs a rule."]), []),
-  { text: "owns their voice, so a mismatch needs a rule.", cut: true }, "a message whose start is above the screen says so");
+  "owns their voice, so a mismatch needs a rule.", "a message whose start is above the screen: what's left of it");
 check(unsavedMessage(claude, screen(["● 2 background agents launched (↓ to manage)", "   ├ Probe P2", "   └ Probe P1"]), []), null, "a tool's block isn't a message");
 check(unsavedMessage(claude, screen(["● Bash(docker ps --format '{{.Names}}')"]), []), null, "a tool call isn't a message");
 check(unsavedMessage(claude, ["● Just a message, with no question below it."].join("\n"), []), null, "no question on screen: nothing");
