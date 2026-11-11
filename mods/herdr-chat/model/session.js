@@ -64,11 +64,14 @@ function parseTagged(r, line) {
 }
 
 export function applyRead(s, r) {
-  // Applies the reader's update `r` to session `s`: new entries added, rows rebuilt, note set.
+  // Applies the reader's update `r` to session `s`: new entries added, rows rebuilt, note set. Returns whether anything
+  // shown changed: an update with nothing new keeps `s.messages` (the same array), so the view needn't redraw or rebuild rows.
+  const note = s.note;
   if (r.hint != null) s.hint = r.hint;
   if (r.offset != null) s.offset = r.offset;
   if (r.leaf != null) s.leaf = r.leaf;
   const path = r.path ?? s.path;
+  const changed = Boolean(r.reset) || path !== s.path || r.added.length > 0;
   if (r.reset || path !== s.path) { s.raw = []; s.calls = new Map(); }
   s.path = path;
   for (const e of r.added) {
@@ -77,19 +80,25 @@ export function applyRead(s, r) {
     else s.raw.push(e);
   }
   if (s.raw.length > 600) s.raw = s.raw.slice(-500);
+  if (changed) s.messages = shapeRows(s.raw);
+  if (r.note || r.reset) {
+    s.clipped = r.note.startsWith("Showing the recent part");
+    s.note = s.clipped ? "" : r.note;
+  } else if (s.note && s.messages.length) s.note = "";
+  return changed || s.note !== note;
+}
+
+function shapeRows(raw) {
+  // The session's entries as rows: each run of tool calls one "tools" row, then activity folded.
   const shaped = [];
-  for (const e of s.raw) {
+  for (const e of raw) {
     if (e.kind !== "call") { shaped.push(e); continue; }
     const last = shaped[shaped.length - 1];
     const copy = { ...e.call };
     CALL_SOURCE.set(copy, e.call);
     if (last?.kind === "tools") last.calls.push(copy); else shaped.push({ kind: "tools", calls: [copy] });
   }
-  s.messages = foldActivity(shaped);
-  if (r.note || r.reset) {
-    s.clipped = r.note.startsWith("Showing the recent part");
-    s.note = s.clipped ? "" : r.note;
-  } else if (s.note && s.messages.length) s.note = "";
+  return foldActivity(shaped);
 }
 
 const REMOTE_TAIL_MB = 6;

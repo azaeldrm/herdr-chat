@@ -157,6 +157,7 @@ export class SessionReader {
     this.reading = key; this.dirty = false; this.lastRead = Date.now();
     this.readStartedAt = Date.now(); this.readStaleFor = Date.now() - (this.session.readAt || 0);
     const mine = () => this.key === key && this.readSeq === token;
+    let changed = true;
     cx.spawn(async cx => {
       try {
         const at = { path: this.session.path, hint: this.session.hint, offset: this.session.offset, peers: peersOf(t), leaf: this.session.leaf };
@@ -172,7 +173,7 @@ export class SessionReader {
         if (r.code !== 0) throw new Error(r.stderr || `Reader exited ${r.code}`);
         const update = await parseReaderInSlices(r.stdout, () => cx.sleep(0));
         if (!mine()) return;
-        this.merge(update, t);
+        changed = this.merge(update, t) || Boolean(this.readError);
         this.readError = "";
         if (!t.remote) this.watch(cx, this.session.path);
       } catch (e) {
@@ -192,19 +193,21 @@ export class SessionReader {
             else if (!this.session.path && this.key === key) this.dueReads.push({ key, at: Date.now() + WAIT_EVERY });
           }
         }
-        cx.notify();
+        // A read that found nothing new leaves the view as it was (the timer's readCue check covers a read's slow cue).
+        if (changed) cx.notify();
       }
     });
   }
 
   merge(update, t) {
-    // Applies the reader's update to the session on screen and remembers its log, for the agent it was read from.
-    applyRead(this.session, update);
+    // Applies the reader's update to the session on screen and remembers its log, for the agent it was read from. Whether anything shown changed.
+    const changed = applyRead(this.session, update);
     this.session.readAt = Date.now();
     this.rememberPath(sessionOf(t), this.session.path, this.session.hint);
     const last = this.session.messages[this.session.messages.length - 1];
     const id = last ? `${this.session.messages.length}:${last.kind}:${last.text ?? last.calls.length}:${last.calls?.at(-1)?.o?.length ?? 0}` : "";
     if (id !== this.lastId) { this.lastId = id; if (this.host.list.following) this.host.list.follow(); }
+    return changed;
   }
 
   watch(cx, path) {

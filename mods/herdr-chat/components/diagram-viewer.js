@@ -1,10 +1,26 @@
 import { div, image } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { theme, props, openOverlay, closeOverlay } from "herdr";
+import { readFile, writeFile } from "fs/promises";
+import { theme, props, appHome, openOverlay, closeOverlay } from "herdr";
 import { icon } from "../ui/primitives.js";
 import { designPx, zoomProbe } from "../measure.js";
+import { onWindows } from "../platform.js";
 
 const STEP = 1.25, MIN = 0.25, MAX = 4, FIT_MAX = 2;
+// Herdr rasterizes an SVG drawn by image() once, at its own width/height × 2, and keeps that bitmap for the path, so a
+// bigger draw is a stretched bitmap. Sharp zoom draws a copy of the SVG with width/height × 2, 4 or 8 (viewBox kept):
+// the smallest one at least as big as the zoom, within what a GPU texture holds.
+const BUCKETS = [1, 2, 4, 8];
+const RASTER_SIDE = 8192, RASTER_AREA = 32e6;
+
+function filePath(rel) { return onWindows() ? `${appHome()}\\${rel.replace(/\//g, "\\")}` : `${appHome()}/${rel}`; }
+
+export function scaledSvg(svg, k) {
+  // The SVG with its root width and height × k; its viewBox keeps the drawing the same.
+  return svg.replace(/<svg\s[^>]*>/, tag => tag
+    .replace(/\swidth="([\d.]+)"/, (_a, w) => ` width="${+w * k}"`)
+    .replace(/\sheight="([\d.]+)"/, (_a, h) => ` height="${+h * k}"`));
+}
 
 export function isDiagramViewer(p) { return Boolean(p?.diagram); }
 
@@ -20,6 +36,7 @@ export class DiagramViewer {
     const p = props();
     this.rel = p.diagram; this.w = Math.max(1, p.width || 1); this.h = Math.max(1, p.height || 1);
     this.zoom = 1; this.box = null; this.scale = null;
+    this.ready = new Set([1]); this.making = new Set(); this.shown = 1; this.under = 1;
     this.handle = cx.focus_handle();
     this.handle.focus();
   }
@@ -32,10 +49,36 @@ export class DiagramViewer {
 
   setScale(s, cx) { this.scale = Math.min(MAX, Math.max(MIN, s)); cx.notify(); }
 
-  render() {
+  relFor(k) { return k === 1 ? this.rel : this.rel.replace(/\.svg$/, `@${k}x.svg`); }
+
+  bucketFor(scale) {
+    // The smallest copy whose bitmap is at least as big as it's drawn (scale × the app's zoom), within the texture limits.
+    const fits = BUCKETS.filter(k => this.w * k * 2 <= RASTER_SIDE && this.h * k * 2 <= RASTER_SIDE && this.w * this.h * k * k * 4 <= RASTER_AREA);
+    return fits.find(k => k >= scale * this.zoom) ?? fits[fits.length - 1] ?? 1;
+  }
+
+  make(k, cx) {
+    // Writes the k× copy beside the diagram, once; drawn once it's there.
+    if (this.ready.has(k) || this.making.has(k)) return;
+    this.making.add(k);
+    cx.spawn(async cx => {
+      try {
+        await writeFile(filePath(this.relFor(k)), scaledSvg(await readFile(filePath(this.rel), "utf8"), k));
+        this.ready.add(k);
+      } catch {} finally { this.making.delete(k); cx.notify(); }
+    });
+  }
+
+  render(cx) {
     const t = theme();
     // Until zoomed by hand: whole in the box (zoom in and scroll to read the details).
     const scale = this.scale ?? this.fit();
+    const want = this.bucketFor(scale);
+    if (this.ready.has(want)) { if (want !== this.shown) { this.under = this.shown; this.shown = want; } }
+    else this.make(want, cx);
+    const w = Math.round(this.w * scale), h = Math.round(this.h * scale);
+    // The copy drawn before stays under the new one while it loads, so a switch never shows a blank frame.
+    const layer = k => image(this.relFor(k)).absolute().top(0).left(0).w(w).h(h);
     const button = (id, child, onClick, tip) => div().id(id).h(26).min_w(26).px(6).flex().items_center().justify_center()
       .rounded(6).cursor_pointer().text_size(12).text_color(t.muted).hover(s => s.bg(t.hover).text_color(t.foreground))
       .tooltip(tip).on_click((_e, cx) => onClick(cx)).child(child);
@@ -60,6 +103,8 @@ export class DiagramViewer {
           const box = { width: designPx(size.width, this.zoom), height: designPx(size.height, this.zoom) };
           if (!this.box || Math.abs(box.width - this.box.width) > 4 || Math.abs(box.height - this.box.height) > 4) { this.box = box; cx.notify(); }
         })
-        .child(div().p(16).flex_none().child(image(this.rel).w(Math.round(this.w * scale)).h(Math.round(this.h * scale)))));
+        .child(div().p(16).flex_none().child(div().relative().w(w).h(h)
+          .when(this.under !== this.shown, el => el.child(layer(this.under)))
+          .child(layer(this.shown)))));
   }
 }

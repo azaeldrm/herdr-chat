@@ -201,15 +201,12 @@ export default class HerdrChat extends View {
     catch (e) { return div().p(20).text_color(theme().blocked).child(`herdr-chat render error: ${e?.stack ?? e}`); }
   }
 
-  renderInner(cx) {
-    if (this.asHeader) return terminalHeader(this);
-    if (this.diagram) return this.diagram.render();
-    const t = theme();
-    const active = target();
-    if (chatKey(active) !== this.key) this.switchSession(active, chatKey(active));
-    const shown = withoutRetracted(this.reader.session.messages, this.retracted?.key === this.key ? this.retracted.text : null);
-    if (!shown.retracted && this.retracted?.key === this.key) this.retracted = null;
-    const rows = withCopyRows(shown.rows, active?.status === "working").flatMap(m => {
+  splitRows(messages, working) {
+    // The messages as rows (copy rows added, diagrams and code blocks split out), rebuilt only when the messages change:
+    // a read with nothing new keeps the same array, so most redraws reuse the last rows and their row objects.
+    const c = this.rowCache;
+    if (c && c.messages === messages && c.working === working) return c.rows;
+    const rows = withCopyRows(messages, working).flatMap(m => {
       const parts = m.kind === "message" && m.role !== "user" && m.text?.includes("```mermaid") ? splitDiagrams(m.text) : null;
       const pieces = parts ? parts.map(p => p.kind === "diagram" ? { kind: "diagram", text: p.text } : { ...m, text: p.text }) : [m];
       return pieces.flatMap(r => {
@@ -217,6 +214,19 @@ export default class HerdrChat extends View {
         return code ? code.map(c => c.kind === "code" ? c : { ...r, text: c.text }) : [r];
       });
     });
+    this.rowCache = { messages, working, rows };
+    return rows;
+  }
+
+  renderInner(cx) {
+    if (this.asHeader) return terminalHeader(this);
+    if (this.diagram) return this.diagram.render(cx);
+    const t = theme();
+    const active = target();
+    if (chatKey(active) !== this.key) this.switchSession(active, chatKey(active));
+    const shown = withoutRetracted(this.reader.session.messages, this.retracted?.key === this.key ? this.retracted.text : null);
+    if (!shown.retracted && this.retracted?.key === this.key) this.retracted = null;
+    const rows = [...this.splitRows(shown.rows, active?.status === "working")];
     if (this.note) rows.push({ kind: "note", text: this.note });
     const empty = rows.length === 0 || (rows.length === 1 && rows[0].kind === "note" && !this.reader.session.messages.length);
     keyRows(rows);
