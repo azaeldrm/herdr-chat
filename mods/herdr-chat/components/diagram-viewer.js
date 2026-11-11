@@ -118,10 +118,9 @@ export class DiagramViewer {
       .child(h_flex().h(42).flex_none().px(12).gap(4).items_center().border_b_1().border_color(t.border)
         .child(div().flex_1().text_size(13).text_color(t.muted).child(this.copyNote ?? "Diagram"))
         // Copy image (the drawn diagram as a PNG, on the theme's background) and Copy code (its mermaid source).
-        .child(button("copy-image", h_flex().gap(5).items_center().child(icon(this.copied === "image" ? "check" : "image", 13, t.muted))
-          .child(this.copied === "image" ? "Copied" : this.copied === "image-busy" ? "Copying…" : "Copy image"), cx => this.copyImage(cx), "Copy the diagram as a picture"))
-        .child(button("copy-code", h_flex().gap(5).items_center().child(icon(this.copied === "code" ? "check" : "copy", 13, t.muted))
-          .child(this.copied === "code" ? "Copied" : "Copy code"), cx => this.copyCode(cx), "Copy the diagram's mermaid code"))
+        .child(button("copy-image", icon(this.copied === "image" ? "check" : "image", 14, this.copied === "image-busy" ? t.foreground : t.muted),
+          cx => this.copyImage(cx), this.copied === "image-busy" ? "Copying…" : "Copy the diagram as a picture"))
+        .child(button("copy-code", icon(this.copied === "code" ? "check" : "copy", 14, t.muted), cx => this.copyCode(cx), "Copy the diagram's mermaid code"))
         .child(div().w(8))
         .child(button("zoom-out", "−", cx => this.setScale(scale / STEP, cx), "Zoom out (-)"))
         .child(button("zoom-fit", `${Math.round(scale * 100)}%`, cx => this.setScale(this.fit(), cx), "Fit (0)"))

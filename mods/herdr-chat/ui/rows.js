@@ -24,13 +24,17 @@ function codeRow(m, { t, copied }) {
   return codeBox(`code-${m.key}`, m.lang, m.text, t, copied === m.key);
 }
 
+function toolButton(t, id, glyph, done, busy, tip) {
+  // A small icon button under the conversation (a response's copy, a diagram's): bordered, the icon a check once it's done.
+  return div().id(id).w(TOOL_BUTTON).h(28).flex_none().flex().items_center().justify_center().rounded(8)
+    .border_1().border_color(t.border).hover(s => s.bg(t.raised)).tooltip(busy ? "Copying…" : done ? "Copied" : tip)
+    .child(icon(done ? "check" : glyph, 14, done || busy ? t.foreground : t.muted));
+}
+
 function copyRow(m, { t, copied }) {
-  // The copy button under an agent's response, at the right, drawn as a button only while hovered: clicking the row copies the response (see onItemClick in main.js).
-  const done = copied === m.key;
-  return h_flex().w_full().h(32).items_center().justify_end()
-    .child(div().id(`copy-${m.key}`).size(30).flex_none().flex().items_center().justify_center().rounded(8).border_1().border_color(t.background)
-      .hover(s => s.bg(t.raised).border_color(t.border))
-      .child(icon(done ? "check" : "copy", 15, done ? t.foreground : t.muted)));
+  // The copy button under an agent's response, at the left: clicking the row copies the response (see onItemClick in main.js).
+  return h_flex().w_full().h(32).items_center().justify_start()
+    .child(toolButton(t, `copy-${m.key}`, "copy", copied === m.key, false, "Copy the response"));
 }
 
 function markdown(id, source, t) {
@@ -106,20 +110,15 @@ function diagramRow(m, { t, width }) {
   return div().id(`diagram-${m.key}`).w_full().cursor_pointer().tooltip("Click to open it larger").child(image(d.rel).w(w).h(h));
 }
 
-// The two buttons under a diagram, at the right: Copy image, then Copy code (main.js tells them apart by the pointer's place).
-export const DIAGRAM_BUTTON = 98, DIAGRAM_GAP = 6;
+// The buttons under the conversation, at the left: a response's copy, and a diagram's two (copy the picture, copy the code),
+// which main.js tells apart by the pointer's place.
+export const TOOL_BUTTON = 30, TOOL_GAP = 6;
 
 function diagramToolsRow(m, { t, copied }) {
-  const button = (which, glyph, label) => {
-    const state = copied === `${m.key}:${which}` ? "done" : copied === `${m.key}:${which}:busy` ? "busy" : "";
-    return h_flex().id(`dt-${which}-${m.key}`).w(DIAGRAM_BUTTON).h(28).flex_none().gap(6).items_center().justify_center().rounded(8)
-      .border_1().border_color(t.border).text_size(12).text_color(state ? t.foreground : t.muted).hover(s => s.bg(t.raised).text_color(t.foreground))
-      .child(icon(state === "done" ? "check" : glyph, 13, state ? t.foreground : t.muted))
-      .child(state === "done" ? "Copied" : state === "busy" ? "Copying…" : label);
-  };
-  return h_flex().w_full().h(32).gap(DIAGRAM_GAP).items_center().justify_end()
-    .child(button("image", "image", "Copy image"))
-    .child(button("code", "copy", "Copy code"));
+  const button = (which, glyph, tip) => toolButton(t, `dt-${which}-${m.key}`, glyph, copied === `${m.key}:${which}`, copied === `${m.key}:${which}:busy`, tip);
+  return h_flex().w_full().h(32).gap(TOOL_GAP).items_center().justify_start()
+    .child(button("image", "image", "Copy the diagram as a picture"))
+    .child(button("code", "copy", "Copy the diagram's mermaid code"));
 }
 
 export function row(m, ctx) {

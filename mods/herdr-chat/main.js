@@ -5,7 +5,7 @@ import { switchTo, showView, preferredView, sessionOf, chatKey } from "./common.
 import { target, inputBox, interruptAgent } from "./terminal.js";
 import { keyRows, splitCode, withCopyRows, stepRows, stepText, withoutRetracted } from "./model/transcript.js";
 import { runsWith } from "./model/runs-with.js";
-import { row, DIAGRAM_BUTTON, DIAGRAM_GAP } from "./ui/rows.js";
+import { row, TOOL_BUTTON, TOOL_GAP } from "./ui/rows.js";
 import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle, clock } from "./ui/primitives.js";
 import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams, copyDiagramImage } from "./diagrams.js";
 import { canMirror } from "./harnesses/index.js";
@@ -232,11 +232,11 @@ export default class HerdrChat extends View {
   }
 
   diagramButtonAt(x) {
-    // Which of a diagram's two buttons is at `x` (design px across the list): they sit at the right of the reply's column.
+    // Which of a diagram's two buttons is at `x` (design px across the list): they sit at the left of the reply's column.
     if (!Number.isFinite(x)) return null;
-    const column = Math.min(COLUMN, Math.max(280, Math.floor(this.width) - 48)), right = (this.width + column) / 2;
-    if (x <= right && x >= right - DIAGRAM_BUTTON) return "code";
-    if (x <= right - DIAGRAM_BUTTON - DIAGRAM_GAP && x >= right - 2 * DIAGRAM_BUTTON - DIAGRAM_GAP) return "image";
+    const column = Math.min(COLUMN, Math.max(280, Math.floor(this.width) - 48)), left = (this.width - column) / 2;
+    if (x >= left && x <= left + TOOL_BUTTON) return "image";
+    if (x >= left + TOOL_BUTTON + TOOL_GAP && x <= left + 2 * TOOL_BUTTON + TOOL_GAP) return "code";
     return null;
   }
 
