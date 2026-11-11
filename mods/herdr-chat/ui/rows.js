@@ -91,7 +91,12 @@ function messageRow(m, { t, width, sent, machine }) {
       .child(h_flex().w_full().justify_end().flex_wrap().gap(8).children(m.images.map((p, i) => sentImage(t, `img-${m.key}-${i}`, p, sent, machine))))
       .when(Boolean(text), el => el.child(text));
   }
-  return div().w_full().text_size(15).text_color(t.foreground).child(markdown(`body-${m.key}`, m.text, t));
+  const body = div().w_full().text_size(15).text_color(t.foreground).child(markdown(`body-${m.key}`, m.text, t));
+  if (!m.unsaved) return body;
+  // Read off the screen above an open question (model/unsaved.js): the log has it once the question is answered.
+  return v_flex().w_full().gap(6)
+    .child(div().text_size(12).text_color(t.dim).child(m.cut ? "From the terminal (its start is above the screen), not saved yet" : "From the terminal, not saved yet"))
+    .child(body);
 }
 
 function diagramRow(m, { t, width }) {

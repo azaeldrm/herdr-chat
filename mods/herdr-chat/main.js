@@ -4,6 +4,7 @@ import { panes, focused, props, hc, theme, shared } from "herdr";
 import { switchTo, showView, preferredView, sessionOf, chatKey } from "./common.js";
 import { target, inputBox, interruptAgent } from "./terminal.js";
 import { keyRows, splitCode, withCopyRows, stepRows, stepText, withoutRetracted } from "./model/transcript.js";
+import { unsavedMessage } from "./model/unsaved.js";
 import { row } from "./ui/rows.js";
 import { COLUMN, programIcon, paneButtons, statusBadge, viewToggle, clock } from "./ui/primitives.js";
 import { diagramFor, renderQueuedDiagrams, hasQueuedDiagrams, splitDiagrams } from "./diagrams.js";
@@ -218,6 +219,17 @@ export default class HerdrChat extends View {
     return rows;
   }
 
+  unsavedRow(active, messages) {
+    // The agent's message above its open question, from the screen while its log doesn't have it yet (model/unsaved.js).
+    const screen = this.card.screen;
+    if (this.unsavedCache?.screen === screen && this.unsavedCache.messages === messages) return this.unsavedCache.row;
+    const saved = messages.filter(m => m.kind === "message" && m.role !== "user").slice(-3).map(m => m.text ?? "");
+    const found = unsavedMessage(active?.harness, screen, saved);
+    const row = found ? { kind: "message", role: "assistant", phase: "final", text: found.text, unsaved: true, cut: found.cut } : null;
+    this.unsavedCache = { screen, messages, row };
+    return row;
+  }
+
   renderInner(cx) {
     if (this.asHeader) return terminalHeader(this);
     if (this.diagram) return this.diagram.render(cx);
@@ -227,6 +239,8 @@ export default class HerdrChat extends View {
     const shown = withoutRetracted(this.reader.session.messages, this.retracted?.key === this.key ? this.retracted.text : null);
     if (!shown.retracted && this.retracted?.key === this.key) this.retracted = null;
     const rows = [...this.splitRows(shown.rows, active?.status === "working")];
+    const unsaved = this.card.showing ? this.unsavedRow(active, shown.rows) : null;
+    if (unsaved) rows.push(unsaved);
     if (this.note) rows.push({ kind: "note", text: this.note });
     const empty = rows.length === 0 || (rows.length === 1 && rows[0].kind === "note" && !this.reader.session.messages.length);
     keyRows(rows);
