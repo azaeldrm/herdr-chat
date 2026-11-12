@@ -110,7 +110,7 @@ def codex_runs_with(lines):
             if str(p.get("model", "")).startswith("codex-auto-review"): continue
             meta["model"] = p.get("model")
             meta["effort"] = p.get("effort") or ((p.get("collaboration_mode") or {}).get("settings") or {}).get("reasoning_effort")
-            meta["mode"] = (p.get("sandbox_policy") or {}).get("type")
+            meta["mode"] = (p.get("collaboration_mode") or {}).get("mode") or "default"
         if "context" not in meta and '"token_count"' in line:
             info = ((loads(line) or {}).get("payload") or {}).get("info") or {}
             last = info.get("last_token_usage") or {}

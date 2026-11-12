@@ -214,19 +214,30 @@ export default class HerdrChat extends View {
     catch (e) { return div().p(20).text_color(theme().blocked).child(`herdr-chat render error: ${e?.stack ?? e}`); }
   }
 
-  nextMode(active, logged, cx) {
-    // Moves the agent to its next permission mode, then reads the new one off its footer (harness switching.screenModes).
-    const key = this.key, words = active.harness?.switching?.screenModes ?? {};
+  cycle(what, active, logged, cx) {
+    // Presses the harness's key for the next mode or effort (switching.nextMode / nextEffort), then reads the new one off
+    // the screen (switching.screenMode / screenEffort: a pattern whose first group is the value, `names` for its display
+    // name, `none` for when it isn't shown). The log records these only with a message, so the screen is what's current.
+    const key = this.key, sw = active.harness.switching, read = what === "mode" ? sw.screenMode : sw.screenEffort;
+    this.screenSeen ??= {};
     cx.spawn(async cx => {
-      await pressKeys(active, active.harness.switching.nextMode);
-      for (const wait of [200, 400, 800]) {
+      await pressKeys(active, what === "mode" ? sw.nextMode : sw.nextEffort);
+      if (!read) return;
+      const waits = [200, 400, 800];
+      for (const [i, wait] of waits.entries()) {
         await new Promise(done => cx.timer.after(wait, () => done()));
-        const screen = (await readScreen(active, 0)) ?? "";
-        const lines = screen.split("\n").slice(-8).join("\n").toLowerCase();
-        const found = Object.entries(words).find(([w]) => lines.includes(w));
-        if (found) { this.screenMode = { key, logged, text: found[1] }; cx.notify(); return; }
+        const screen = ((await readScreen(active, 0)) ?? "").split("\n").slice(-12).join("\n");
+        const found = [...screen.matchAll(new RegExp(read.pattern, "gi"))].at(-1)?.[1];
+        const text = found ? (read.names?.[found] ?? read.names?.[found.toLowerCase()] ?? found) : i === waits.length - 1 ? read.none : null;
+        if (text) { this.screenSeen[what] = { key, logged, text }; cx.notify(); return; }
       }
     });
+  }
+
+  seenOnScreen(what, logged) {
+    // The mode or effort read off the screen after a click, while the log still has what it had then.
+    const s = this.screenSeen?.[what];
+    return s && s.key === this.key && s.logged === logged ? s.text : null;
   }
 
   splitRows(messages, working) {
@@ -316,16 +327,17 @@ export default class HerdrChat extends View {
     if (!look || (!look.effort && !look.mode && !look.context)) return null;
     const item = (id, glyph, text, tip) => h_flex().id(id).h(22).px(6).gap(5).items_center().rounded(6).text_size(11.5).text_color(t.muted)
       .tooltip(tip).child(icon(glyph, 12, t.dim)).child(text);
-    const switchEffort = look.efforts.length > 0 && Boolean(active.harness?.switching?.effort);
-    const effort = look.effort ? item("session-effort", "zap", look.effort, switchEffort ? "Effort · click to change" : "Effort")
-      .when(switchEffort, el => el.cursor_pointer().hover(s => s.bg(t.hover).text_color(t.foreground))
-        .on_click((_e, cx) => { this.menu = this.menu === "effort" ? null : "effort"; cx.notify(); })) : null;
-    const nextMode = active.harness?.switching?.nextMode;
-    // After a click, the mode the terminal's footer shows, until the log records a newer one (it does so only with a message).
-    const seen = this.screenMode?.key === this.key && this.screenMode.logged === look.mode?.key ? this.screenMode.text : null;
-    const mode = look.mode ? item("session-mode", "shield", seen ?? look.mode.text, nextMode ? "Permission mode · click for the next one" : "Permission mode")
-      .when(Boolean(nextMode), el => el.cursor_pointer().hover(s => s.bg(t.hover).text_color(t.foreground))
-        .on_click((_e, cx) => this.nextMode(active, look.mode.key, cx))) : null;
+    // Effort: a menu where the harness switches it by command, a click for the next where it cycles by key (Pi's Shift+Tab).
+    const sw = active.harness?.switching ?? {};
+    const switchEffort = look.efforts.length > 0 && Boolean(sw.effort);
+    const clickable = el => el.cursor_pointer().hover(s => s.bg(t.hover).text_color(t.foreground));
+    const effortText = this.seenOnScreen("effort", look.effort) ?? look.effort;
+    const effort = effortText ? item("session-effort", "zap", effortText, sw.nextEffort ? "Effort · click for the next one" : switchEffort ? "Effort · click to change" : "Effort")
+      .when(Boolean(sw.nextEffort), el => clickable(el).on_click((_e, cx) => this.cycle("effort", active, look.effort, cx)))
+      .when(switchEffort && !sw.nextEffort, el => clickable(el).on_click((_e, cx) => { this.menu = this.menu === "effort" ? null : "effort"; cx.notify(); })) : null;
+    const modeText = this.seenOnScreen("mode", look.mode?.key) ?? look.mode?.text;
+    const mode = modeText ? item("session-mode", "shield", modeText, sw.nextMode ? "Mode · click for the next one" : "Mode")
+      .when(Boolean(sw.nextMode), el => clickable(el).on_click((_e, cx) => this.cycle("mode", active, look.mode?.key, cx))) : null;
     const c = look.context;
     const level = c?.share == null ? t.muted : c.share >= 95 ? "#d88179" : c.share >= 80 ? "#e8823a" : t.accent;
     const gauge = c ? h_flex().id("session-context").gap(6).items_center().text_size(11.5).text_color(t.muted)
@@ -336,7 +348,7 @@ export default class HerdrChat extends View {
         .child(div().h_full().rounded_full().w(Math.max(2, Math.round(96 * c.share / 100))).bg(level)))) : null;
     return h_flex().w_full().h(24).px(4).items_center()
       .child(h_flex().flex_1().min_w(0).gap(2).items_center()
-        .when(Boolean(effort), el => el.child(switchEffort
+        .when(Boolean(effort), el => el.child(switchEffort && !sw.nextEffort
           ? this.menuButton(t, "effort", this.menu === "effort", effort,
             look.efforts.map(e => ({ key: e, text: e, on: e === look.effort })),
             (picked, cx) => this.switchTo(active, switchCommand(active.harness, "effort", { effort: picked.key, model: look.model?.id }), cx), 140)

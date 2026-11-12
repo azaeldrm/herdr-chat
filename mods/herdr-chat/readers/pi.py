@@ -28,9 +28,26 @@ def pi_message(line):
     m = (loads(line) or {}).get("message") or {}
     return content_text(m.get("content")) if m.get("role") in ("user", "assistant") else None
 
+def pi_runs_with(lines):
+    """The model, thinking level and context (input + cache) of Pi's newest reply; a later level change wins."""
+    meta = state["meta"]
+    for line in reversed(lines):
+        if "effort" not in meta and '"thinkingLevel"' in line:
+            o = loads(line) or {}
+            level = o.get("thinkingLevel") or (o.get("message") or {}).get("thinkingLevel")
+            if level: meta["effort"] = level
+        if "model" not in meta and '"role":"assistant"' in line and '"usage"' in line:
+            m = (loads(line) or {}).get("message") or {}
+            u = m.get("usage") or {}
+            if m.get("model"): meta["model"] = m.get("model")
+            meta["context"] = sum(int(u.get(k) or 0) for k in ("input", "cacheRead", "cacheWrite"))
+        if "model" in meta and "effort" in meta: break
+
 def parse_pi(path):
     since = A.created - 10000 if A.created else 0
-    for line in read_tail(path):
+    lines = read_tail(path)
+    pi_runs_with(lines)
+    for line in lines:
         if '"type":"message"' not in line: continue
         o = loads(line)
         if not isinstance(o, dict): continue
