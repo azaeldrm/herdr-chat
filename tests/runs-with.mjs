@@ -20,8 +20,8 @@ check(c.models.map(m => m.switchTo), ["opus", "sonnet", "haiku", "fable"], "Clau
 check(runsWith({ model: "claude-haiku-5-5", context: 5000 }, claude).context, { used: 5000, window: null, share: null }, "a model whose window isn't known: tokens only");
 
 const models = [{ id: "gpt-6-luna", name: "GPT-6 Luna", efforts: ["low", "high"] }, { id: "gpt-6-mini", name: "GPT-6 mini", efforts: ["low"] }];
-const x = runsWith({ model: "gpt-6-luna", effort: "high", mode: "workspace-write", context: 164132, window: 258400, models }, codex);
-check([x.model.name, x.mode.text, x.context.share, x.efforts], ["GPT-6 Luna", "Workspace write", 64, ["low", "high"]], "Codex: its own model list, the model's efforts, its window");
+const x = runsWith({ model: "gpt-6-luna", effort: "high", mode: "plan", context: 164132, window: 258400, models }, codex);
+check([x.model.name, x.mode.text, x.context.share, x.efforts], ["GPT-6 Luna", "Plan mode", 64, ["low", "high"]], "Codex: its own model list, the model's efforts, its window");
 
 check(switchCommand(claude, "model", { model: "sonnet" }), "/model sonnet", "the model switch, as Claude takes it");
 check(switchCommand(codex, "effort", { model: "gpt-6-luna", effort: "low" }), "/model gpt-6-luna --reasoning=low", "Codex switches effort through /model");

@@ -7,4 +7,7 @@ export default {
   box: { style: "rules" },
   skills: { triggers: ["/"], invoke: "/skill:", user: ["~/.pi/agent/skills", "~/.agents/skills"], project: [".pi/skills", ".agents/skills"], skip: [] },
   reader: "pi",
+  // Its thinking levels, which Shift+Tab cycles; it says the new one as "Thinking level: low". No permission modes.
+  efforts: ["off", "minimal", "low", "medium", "high", "xhigh"],
+  switching: { nextEffort: ["shift+tab"], screenEffort: { pattern: "Thinking level: (\\w+)" } },
 };

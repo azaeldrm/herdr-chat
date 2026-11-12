@@ -61,11 +61,27 @@ def opencode_texts(con, sid, count=3):
         if len(texts) >= count: break
     return texts
 
+def opencode_runs_with(con, sid):
+    """The agent (its mode), model and context of the session's newest reply, from OpenCode's message table."""
+    try: row = con.execute("select data from message where session_id = ? order by time_created desc limit 20", (sid,)).fetchall()
+    except Exception: return
+    for (data,) in row:
+        d = loads(data)
+        if not isinstance(d, dict) or d.get("role") != "assistant": continue
+        tok = d.get("tokens") or {}
+        cache = tok.get("cache") or {}
+        meta = state["meta"]
+        if d.get("modelID"): meta["model"] = d.get("modelID")
+        if d.get("agent") or d.get("mode"): meta["mode"] = d.get("agent") or d.get("mode")
+        meta["context"] = int(tok.get("input") or 0) + int(cache.get("read") or 0) + int(cache.get("write") or 0)
+        return
+
 def parse_opencode(path):
     db, sid = path.split("#", 1)
     con = opencode_open(db)
     if con is None: return
     state["next"] = 0
+    opencode_runs_with(con, sid)
     cols = {r[1] for r in con.execute("pragma table_info(session_message)")}
     times = "time_created, time_updated" if {"time_created", "time_updated"} <= cols else "null, null"
     rows = con.execute(f"select type, data, id, {times} from session_message where session_id = ? order by seq desc limit ?", (sid, MAX_ENTRIES)).fetchall()[::-1]
