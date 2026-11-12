@@ -62,7 +62,9 @@ export class Composer {
     const session = t ? sessionOf(t) : "";
     const was = this.lastMode, wasSession = this.lastModeSession;
     this.lastMode = mode; this.lastModeSession = session;
-    if (mode === "chat" && was !== "chat") this.input.focus();
+    // The box takes the keyboard whenever Chat starts showing: switched to from Terminal, or showing another agent (another
+    // tab or space, an agent picked in the sidebar), where the view stays Chat.
+    if (mode === "chat" && (was !== "chat" || session !== wasSession)) this.input.focus();
     if (mode === was || !t || session !== wasSession || !canMirror(t.harness) || this.host.sending || this.host.card.choices) return;
     if (was === "chat" && mode === "terminal") this.pushDraft(t, session, cx);
     else if (was === "terminal" && mode === "chat") this.pullDraft(t, session, cx);
