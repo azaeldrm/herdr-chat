@@ -1,6 +1,6 @@
 import { View, div, image } from "gpui-kit";
 import { set_theme, v_flex, h_flex, Popup } from "gpui-base";
-import { panes, focused, props, hc, theme, shared, window as appWindow } from "herdr";
+import { panes, focused, props, hc, theme, shared, setShared, window as appWindow } from "herdr";
 import { switchTo, showView, shownView, adoptView, preferredView, sessionOf, chatKey } from "./common.js";
 import { target, inputBox, interruptAgent, sendMessage, pressKeys, readScreen } from "./terminal.js";
 import { keyRows, splitCode, withCopyRows, stepRows, stepText, withoutRetracted } from "./model/transcript.js";
@@ -16,6 +16,8 @@ import { QuestionCard } from "./components/question-card.js";
 import { Composer } from "./components/composer.js";
 import { SessionReader } from "./components/session-reader.js";
 import { isDiagramViewer, openDiagram, DiagramViewer } from "./components/diagram-viewer.js";
+import { BackdropView } from "./backdrop/view.js";
+import { sceneFor, nextScene } from "./backdrop/scenes/index.js";
 
 function inputHighlight(cx) {
   const t = theme(), th = cx.theme();
@@ -26,6 +28,8 @@ function inputHighlight(cx) {
   if (th.colors.accent.slice(0, 7).toLowerCase() === want && th.colors.selection.slice(0, 7).toLowerCase() === see.slice(0, 7).toLowerCase()) return;
   set_theme({ appearance: th.appearance, tokens: { colors: { ...th.colors, accent: want, selection: see }, spacing: th.spacing, radius: th.radius } });
 }
+
+const BACKDROP_SCENE = "herdr-chat.backdrop", BACKDROP_DIM = 0.3;
 
 const SPARK = ["·", "✢", "✶", "✻", "✽", "✻", "✶", "✢"];
 
@@ -43,6 +47,11 @@ export default class HerdrChat extends View {
     this.card = new QuestionCard(this);
     this.composer = new Composer(this, cx);
     this.width = 900; this.zoom = 1; this.rootPx = 0;
+    // With props {backdrop: true} (harns sets it), an animated scene plays, dimmed, behind the whole chat while it has no
+    // conversation to show: a new session's welcome, or no agent in view. One backdrop for every conversation (this view
+    // stays as the chat switches), and it stops whenever it isn't drawn. The button at the bottom right steps through
+    // its scenes; the one picked is kept in shared state.
+    if (props()?.backdrop) this.backdrop = cx.new(BackdropView, { dim: BACKDROP_DIM, sceneKey: BACKDROP_SCENE });
     this.visit = shared("herdr-chat.visit");
     this.refresh(cx);
     cx.timer.every(1500, cx => inputHighlight(cx));
@@ -167,6 +176,18 @@ export default class HerdrChat extends View {
       .child(logo)
       .child(div().text_center().text_size(17).font_semibold().text_color(t.foreground).child("What would you like to build today?"))
       .child(div().max_w(420).text_center().text_size(13).text_color(t.muted).child(`Send a message to start this conversation with ${active.label}.`));
+  }
+
+  backdropButton(t) {
+    // The scene's name, at the bottom right over the backdrop; a click shows the next one.
+    return h_flex().id("backdrop-scene").absolute().bottom(12).right(14).h(26).px(10).gap(6).items_center().rounded(13)
+      .border_1().border_color(t.border).bg(t.background).cursor_pointer()
+      .text_size(11.5).text_color(t.muted).hover(s => s.text_color(t.foreground).bg(t.hover))
+      .tooltip("Next background animation")
+      // The backdrop watches the shared value and switches on its next tick; this view redraws for the new name.
+      .on_click((_e, cx) => { setShared(BACKDROP_SCENE, nextScene(shared(BACKDROP_SCENE)).id); cx.notify(); })
+      .child(icon("layers", 12, t.dim))
+      .child(sceneFor(shared(BACKDROP_SCENE)).label);
   }
 
   header(t, active) {
@@ -449,6 +470,8 @@ export default class HerdrChat extends View {
     const status = this.status(t, active);
     return v_flex().id("herdr-chat-root").relative().size_full().min_h(0).rounded(10).border_1().border_color(t.border)
       .bg(t.background).text_color(t.foreground)
+      .when(Boolean(this.backdrop) && empty, el => el.child(this.backdrop))
+      .when(Boolean(this.backdrop) && empty, el => el.child(this.backdropButton(t)))
       .on_size_change((size, cx) => { this.rootPx = size.width; const w = designPx(size.width, this.zoom); if (w >= 200 && Math.abs(w - this.width) > 8) { this.width = w; cx.notify(); } })
       .child(zoomProbe((zoom, cx) => { if (Math.abs(zoom - this.zoom) > 0.001) { this.zoom = zoom; if (this.rootPx) this.width = designPx(this.rootPx, zoom); cx.notify(); } }))
       .on_drop((e, cx) => this.composer.dropFiles(e.paths ?? [], cx))
@@ -465,7 +488,7 @@ export default class HerdrChat extends View {
         // The status line's room is kept while there's a conversation, so "Working…" coming and going (just after a send,
         // at a turn's end) doesn't resize the list above and shift every message.
         .when(Boolean(status), el => el.child(status))
-        .when(!status && !empty, el => el.child(div().w_full().h(26).flex_none()))
+        .when(!status, el => el.child(div().w_full().h(26).flex_none()))
         .child(this.composer.render(t, active, this.sessionLine(t, active, this.modelChip(t, active)))));
   }
 }
