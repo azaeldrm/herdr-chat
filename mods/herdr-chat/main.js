@@ -405,6 +405,7 @@ export default class HerdrChat extends View {
       row: m => row(m, { t, open: this.reader.session.open, width: this.width, sent: this.composer.sent, machine: target()?.machine, copied: this.copied }),
       onItemClick: (key, cx) => {
         const row = rows.find(r => r.key === key);
+        if (row?.kind === "copy" && row.writing) return;
         if (row?.kind === "code" || row?.kind === "copy") {
           cx.write_to_clipboard(row.text);
           this.copied = key; cx.notify();
