@@ -438,7 +438,10 @@ export default class HerdrChat extends View {
       .when(!empty, el => el.child(body))
       .when(Boolean(measure), el => el.child(measure))
       .child(v_flex().w_full().flex_none().items_center().px(24).pt(12).pb(14).gap(12)
+        // The status line's room is kept while there's a conversation, so "Working…" coming and going (just after a send,
+        // at a turn's end) doesn't resize the list above and shift every message.
         .when(Boolean(status), el => el.child(status))
+        .when(!status && !empty, el => el.child(div().w_full().h(26).flex_none()))
         .child(this.composer.render(t, active, this.sessionLine(t, active), this.modelChip(t, active))));
   }
 }
