@@ -350,10 +350,9 @@ export class Composer {
     });
   }
 
-  render(t, active, footer = null, label = active?.label) {
+  render(t, active, footer = null) {
     // The reply box (attachments, the text, and the send or stop button at its bottom right) and the line under it
-    // (`footer`: the model, effort, mode and context), so the box grows only with what's typed. `label`: the agent the
-    // hint names, which can be one still starting, before there's an `active` to send to.
+    // (`footer`: the model, effort, mode and context), so the box grows only with what's typed.
     const ready = (Boolean(this.input.value().trim()) || this.attachments.length > 0) && !this.host.sending && Boolean(active);
     const stopping = active?.status === "working" && !this.input.value().trim() && !this.attachments.length;
     const menu = this.menu.render(t, active);
@@ -389,6 +388,6 @@ export class Composer {
       // Under the box: what the session runs with (main.js), else how sending works, on a line as tall as that one,
       // so the box stays put when the session's line replaces the hint.
       .child(footer ?? h_flex().w_full().h(24).px(4).items_center().justify_center().text_size(11.5).text_color(t.dim)
-        .child(label ? `Sends to the live ${label} terminal · drop or paste an image to attach it` : ""));
+        .child(active ? `Sends to the live ${active.label} terminal · drop or paste an image to attach it` : ""));
   }
 }

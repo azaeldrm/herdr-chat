@@ -1,8 +1,6 @@
 export default {
   id: "opencode",
   label: "OpenCode",
-  // The command that starts it, as a new tab's launch command names it (launch.js).
-  command: "opencode",
   images: "path",
   mirror: false,
   prompt: { byNumber: true },

@@ -1,8 +1,6 @@
 export default {
   id: "codex",
   label: "Codex",
-  // The command that starts it, as a new tab's launch command names it (launch.js).
-  command: "codex",
   images: "paste",
   mirror: true,
   prompt: { columns: true, notes: true },
