@@ -1,7 +1,7 @@
 import { View, div, image } from "gpui-kit";
 import { set_theme, v_flex, h_flex, Popup } from "gpui-base";
 import { panes, focused, props, hc, theme, shared, window as appWindow } from "herdr";
-import { switchTo, showView, preferredView, sessionOf, chatKey } from "./common.js";
+import { switchTo, showView, shownView, adoptView, preferredView, sessionOf, chatKey } from "./common.js";
 import { target, inputBox, interruptAgent, sendMessage, pressKeys, readScreen } from "./terminal.js";
 import { keyRows, splitCode, withCopyRows, stepRows, stepText, withoutRetracted } from "./model/transcript.js";
 import { runsWith, switchCommand, tokens } from "./model/runs-with.js";
@@ -48,6 +48,7 @@ export default class HerdrChat extends View {
     cx.timer.every(1500, cx => inputHighlight(cx));
     cx.timer.every(100, cx => {
       this.applyView();
+      this.noticeStack();
       this.composer.mirrorOnSwitch(cx);
       const t = target();
       if (chatKey(t) !== this.key || this.reader.needsFirstRead || this.composer.pendingDraft) this.refresh(cx);
@@ -109,6 +110,17 @@ export default class HerdrChat extends View {
     if (focus === this.viewFocus) return;
     this.viewFocus = focus;
     showView(t ? preferredView(sessionOf(t)) : "terminal");
+  }
+
+  noticeStack() {
+    // The stack switched by something other than the chat (Alt+Left/Right, the sidebar's terminals): adopt it as the mode.
+    // Only on a change, and only when it differs from the mode, so the chat's own switches (which set the mode first) pass.
+    const shown = shownView(), was = this.lastStack;
+    if (shown === was) return;
+    this.lastStack = shown;
+    if (was === undefined || !shown || shown === shared("herdr-chat.mode")) return;
+    const t = target();
+    adoptView(shown, t ? sessionOf(t) : "");
   }
 
   noticeVisit() {
@@ -312,15 +324,24 @@ export default class HerdrChat extends View {
     // A trigger with its menu above it (open while this.menu === id): rows of { key, text, note?, on }, picked with a click,
     // closed by a press anywhere else.
     return Popup.new(`menu-${id}`, trigger).anchor("bottom_left")
-      .when(open, pop => pop.content(v_flex().id(`menu-list-${id}`).w(width).mb(6).p(4).gap(1).rounded(10).border_1().border_color(t.border)
+      .when(open, pop => pop.content(v_flex().id(`menu-list-${id}`).w(width).mb(12).p(4).gap(1).rounded(10).border_1().border_color(t.border)
         .bg(t.popover ?? t.raised).shadow_md().text_size(12.5)
-        .on_mouse_down_out((_e, cx) => { if (this.menu === id) { this.menu = null; cx.notify(); } })
+        .on_mouse_down_out((_e, cx) => { if (this.menu === id) { this.menu = null; this.menuClosed = { id, at: Date.now() }; cx.notify(); } })
         .children(items.map(item => h_flex().id(`menu-${id}-${item.key}`).h(28).px(8).gap(8).items_center().rounded(6).cursor_pointer()
           .text_color(item.on ? t.foreground : t.muted).hover(s => s.bg(t.hover).text_color(t.foreground))
           .on_click((_e, cx) => { this.menu = null; onPick(item, cx); cx.notify(); })
           .child(div().w(12).flex_none().child(item.on ? icon("check", 12, t.accent) : div()))
           .child(div().flex_1().min_w(0).truncate().child(item.text))
           .when(Boolean(item.note), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(item.note)))))));
+  }
+
+  toggleMenu(id, cx) {
+    // Its button opens the menu, or closes it. Pressing the button while it's open is a press outside the menu, which closes
+    // it first; that same press's click then lands here and would open it again, so a menu just closed that way stays shut.
+    const justClosed = this.menuClosed?.id === id && Date.now() - this.menuClosed.at < 400;
+    this.menuClosed = null;
+    this.menu = this.menu === id || justClosed ? null : id;
+    cx.notify();
   }
 
   switchTo(active, line, cx) {
@@ -330,28 +351,29 @@ export default class HerdrChat extends View {
   }
 
   modelChip(t, active) {
-    // Left of the message box: the agent's icon and model; a click lists the models to switch to.
+    // First on the line under the message box: the agent's icon and model, as the line's other items; a click lists the
+    // models to switch to.
     const look = active ? runsWith(this.reader.session.meta, active.harness) : null;
     if (!look?.model) return null;
     const canSwitch = look.models.length > 0 && Boolean(active.harness?.switching?.model);
-    const chip = h_flex().id("model-chip").h(32).px(10).gap(6).flex_none().items_center().rounded(16).bg(t.raised).text_size(12.5).text_color(t.foreground)
+    const chip = h_flex().id("model-chip").h(22).px(6).gap(5).flex_none().items_center().rounded(6).text_size(11.5).text_color(t.foreground)
       .tooltip(look.model.id)
       .when(canSwitch, el => el.cursor_pointer().hover(s => s.bg(t.hover))
-        .on_click((_e, cx) => { this.menu = this.menu === "model" ? null : "model"; cx.notify(); }))
-      .when(Boolean(programIcon(active.program, 14, t.muted)), el => el.child(programIcon(active.program, 14, t.muted)))
+        .on_click((_e, cx) => this.toggleMenu("model", cx)))
+      .when(Boolean(programIcon(active.program, 12, t.muted)), el => el.child(programIcon(active.program, 12, t.muted)))
       .child(look.model.name)
-      .when(canSwitch, el => el.child(icon("chevron-down", 12, t.dim)));
+      .when(canSwitch, el => el.child(icon("chevron-down", 11, t.dim)));
     if (!canSwitch) return chip;
     return this.menuButton(t, "model", this.menu === "model", chip,
       look.models.map(m => ({ key: m.id, text: m.name, on: look.model.id === m.id || String(look.model.id).startsWith(m.id), switchTo: m.switchTo })),
       (item, cx) => this.switchTo(active, switchCommand(active.harness, "model", { model: item.switchTo }), cx));
   }
 
-  sessionLine(t, active) {
+  sessionLine(t, active, chip = null) {
     // Under the message box: the effort (a menu) and the permission mode (a click moves to the next) at the left, each with
     // its icon; the context used as a gauge and a bar at the right.
     const look = active ? runsWith(this.reader.session.meta, active.harness) : null;
-    if (!look || (!look.effort && !look.mode && !look.context)) return null;
+    if (!look || (!chip && !look.effort && !look.mode && !look.context)) return null;
     const item = (id, glyph, text, tip) => h_flex().id(id).h(22).px(6).gap(5).items_center().rounded(6).text_size(11.5).text_color(t.muted)
       .tooltip(tip).child(icon(glyph, 12, t.dim)).child(text);
     // Effort: a menu where the harness switches it by command, a click for the next where it cycles by key (Pi's Shift+Tab).
@@ -361,7 +383,7 @@ export default class HerdrChat extends View {
     const effortText = this.seenOnScreen("effort", look.effort) ?? look.effort;
     const effort = effortText ? item("session-effort", "zap", effortText, sw.nextEffort ? "Effort · click for the next one" : switchEffort ? "Effort · click to change" : "Effort")
       .when(Boolean(sw.nextEffort), el => clickable(el).on_click((_e, cx) => this.cycle("effort", active, look.effort, cx)))
-      .when(switchEffort && !sw.nextEffort, el => clickable(el).on_click((_e, cx) => { this.menu = this.menu === "effort" ? null : "effort"; cx.notify(); })) : null;
+      .when(switchEffort && !sw.nextEffort, el => clickable(el).on_click((_e, cx) => this.toggleMenu("effort", cx))) : null;
     const modeText = this.seenOnScreen("mode", look.mode?.key) ?? look.mode?.text;
     const mode = modeText ? item("session-mode", "shield", modeText, sw.nextMode ? "Mode · click for the next one" : "Mode")
       .when(Boolean(sw.nextMode), el => clickable(el).on_click((_e, cx) => this.cycle("mode", active, look.mode?.key, cx))) : null;
@@ -375,6 +397,7 @@ export default class HerdrChat extends View {
         .child(div().h_full().rounded_full().w(Math.max(2, Math.round(96 * c.share / 100))).bg(level)))) : null;
     return h_flex().w_full().h(24).px(4).items_center()
       .child(h_flex().flex_1().min_w(0).gap(2).items_center()
+        .when(Boolean(chip), el => el.child(chip))
         .when(Boolean(effort), el => el.child(switchEffort && !sw.nextEffort
           ? this.menuButton(t, "effort", this.menu === "effort", effort,
             look.efforts.map(e => ({ key: e, text: e, on: e === look.effort })),
@@ -443,7 +466,7 @@ export default class HerdrChat extends View {
         // at a turn's end) doesn't resize the list above and shift every message.
         .when(Boolean(status), el => el.child(status))
         .when(!status && !empty, el => el.child(div().w_full().h(26).flex_none()))
-        .child(this.composer.render(t, active, this.sessionLine(t, active), this.modelChip(t, active))));
+        .child(this.composer.render(t, active, this.sessionLine(t, active, this.modelChip(t, active)))));
   }
 }
 

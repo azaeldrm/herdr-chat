@@ -62,7 +62,9 @@ export class Composer {
     const session = t ? sessionOf(t) : "";
     const was = this.lastMode, wasSession = this.lastModeSession;
     this.lastMode = mode; this.lastModeSession = session;
-    if (mode === "chat" && was !== "chat") this.input.focus();
+    // The box takes the keyboard whenever Chat starts showing: switched to from Terminal, or showing another agent (another
+    // tab or space, an agent picked in the sidebar), where the view stays Chat.
+    if (mode === "chat" && (was !== "chat" || session !== wasSession)) this.input.focus();
     if (mode === was || !t || session !== wasSession || !canMirror(t.harness) || this.host.sending || this.host.card.choices) return;
     if (was === "chat" && mode === "terminal") this.pushDraft(t, session, cx);
     else if (was === "terminal" && mode === "chat") this.pullDraft(t, session, cx);
@@ -348,15 +350,15 @@ export class Composer {
     });
   }
 
-  render(t, active, footer = null, lead = null) {
-    // The reply box: what sits before the text (`lead`, the model chip), attachments, the text, and the send or stop button.
+  render(t, active, footer = null) {
+    // The reply box (attachments, the text, and the send or stop button at its bottom right) and the line under it
+    // (`footer`: the model, effort, mode and context), so the box grows only with what's typed.
     const ready = (Boolean(this.input.value().trim()) || this.attachments.length > 0) && !this.host.sending && Boolean(active);
     const stopping = active?.status === "working" && !this.input.value().trim() && !this.attachments.length;
     const menu = this.menu.render(t, active);
     return v_flex().w_full().max_w(COLUMN).gap(6).relative()
       .when(Boolean(menu), el => el.child(menu))
-      .child(h_flex().id("composer-box").w_full().pl(lead ? 8 : 16).pr(8).py(8).gap(8).items_end().rounded(18).border_1().border_color(t.input).bg(t.surface)
-        .when(Boolean(lead), el => el.child(lead))
+      .child(h_flex().id("composer-box").w_full().pl(16).pr(8).py(8).gap(8).items_end().rounded(18).border_1().border_color(t.input).bg(t.surface)
         .child(v_flex().flex_1().min_w(0)
           .when(this.attachments.length > 0, el => el.child(this.attachmentStrip(t)))
           .child(div().id("composer-input").w_full().min_w(0).py(4).key_context("HerdrChatReply")

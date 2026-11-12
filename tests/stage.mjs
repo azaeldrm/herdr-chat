@@ -28,7 +28,7 @@ export const Textarea = { new: () => el() }, VirtualListScrollHandle = { new: ()
   pkg("herdr", `export const appHome = () => ${JSON.stringify(home)};
 export const exec = async () => ({ code: 0, stdout: '{"box": ""}', stderr: "" });
 export const hc = async () => ({ code: 0, stdout: '{"path":"/x/placed.png"}' });
-export const run = () => {}, shared = () => null, setShared = () => {}, terminals = () => [], settings = () => ({});
+export const run = () => {}, shared = () => null, setShared = () => {}, terminals = () => [], settings = () => ({}), layout = () => null;
 export const focused = () => ({ tab: "tb", space: "sp", terminal: "t1" });
 export const agents = () => [{ address: "t1", tab: "tb", space: "sp", app: "claude-code", status: "working", pane: "p1" }];
 export const panes = () => [], props = () => ({}), home = () => "/home/u", watchFolder = () => new Promise(() => {});
