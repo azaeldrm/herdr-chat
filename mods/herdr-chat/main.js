@@ -324,7 +324,7 @@ export default class HerdrChat extends View {
     // A trigger with its menu above it (open while this.menu === id): rows of { key, text, note?, on }, picked with a click,
     // closed by a press anywhere else.
     return Popup.new(`menu-${id}`, trigger).anchor("bottom_left")
-      .when(open, pop => pop.content(v_flex().id(`menu-list-${id}`).w(width).mb(6).p(4).gap(1).rounded(10).border_1().border_color(t.border)
+      .when(open, pop => pop.content(v_flex().id(`menu-list-${id}`).w(width).mb(12).p(4).gap(1).rounded(10).border_1().border_color(t.border)
         .bg(t.popover ?? t.raised).shadow_md().text_size(12.5)
         .on_mouse_down_out((_e, cx) => { if (this.menu === id) { this.menu = null; this.menuClosed = { id, at: Date.now() }; cx.notify(); } })
         .children(items.map(item => h_flex().id(`menu-${id}-${item.key}`).h(28).px(8).gap(8).items_center().rounded(6).cursor_pointer()
