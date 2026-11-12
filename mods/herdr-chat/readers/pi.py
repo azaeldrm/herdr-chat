@@ -39,9 +39,28 @@ def pi_runs_with(lines):
         if "model" not in meta and '"role":"assistant"' in line and '"usage"' in line:
             m = (loads(line) or {}).get("message") or {}
             u = m.get("usage") or {}
-            if m.get("model"): meta["model"] = m.get("model")
+            if m.get("model"):
+                meta["model"] = m.get("model")
+                pi_model_facts(meta, str(m.get("provider") or ""), meta["model"])
             meta["context"] = sum(int(u.get(k) or 0) for k in ("input", "cacheRead", "cacheWrite"))
         if "model" in meta and "effort" in meta: break
+
+def pi_model_facts(meta, provider, model):
+    """The model's name and context window as Pi knows them: its name from ~/.pi/agent/models.json (a provider's
+    modelOverrides or models), its window from models-store.json (the models Pi found); both as the chat's model list."""
+    base = os.path.join(HOME, ".pi", "agent")
+    def load(name):
+        try:
+            with open(os.path.join(base, name), encoding="utf-8") as f: return json.load(f)
+        except (OSError, ValueError): return {}
+    def find(providers):
+        p = (providers or {}).get(provider) or {}
+        listed = {m.get("id"): m for m in p.get("models") or [] if isinstance(m, dict)}
+        return (p.get("modelOverrides") or {}).get(model) or listed.get(model) or {}
+    own, found = find(load("models.json").get("providers")), find(load("models-store.json"))
+    window = own.get("contextWindow") or found.get("contextWindow")
+    if window: meta["window"] = int(window)
+    meta["models"] = [{"id": model, "name": own.get("name") or found.get("name") or model}]
 
 def parse_pi(path):
     since = A.created - 10000 if A.created else 0
