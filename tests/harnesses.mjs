@@ -12,6 +12,7 @@ const check = (name, got, want) => {
 const SHAPE = {
   id: v => typeof v === "string" && v.length > 0,
   label: v => typeof v === "string" && v.length > 0,
+  command: v => typeof v === "string" && /^[a-z][a-z0-9-]*$/.test(v),
   images: v => ["mention", "paste", "path"].includes(v),
   mirror: v => typeof v === "boolean",
   prompt: v => v && typeof v === "object" && Object.keys(v).every(k => ["columns", "notes", "byNumber"].includes(k)),
@@ -60,5 +61,14 @@ const order = JSON.parse(readFileSync(join(MOD, "readers", "manifest.json"), "ut
 for (const h of Object.values(HARNESSES)) check(`${h.id}: its reader "${h.reader}" is registered in readers/`, readers.includes(`READERS["${h.reader}"] = `), true);
 check("every reader file is in the manifest", readdirSync(join(MOD, "readers")).filter(f => f.endsWith(".py")).sort(), [...order].sort());
 check("the manifest starts with common.py and ends with main.py", [order[0], order.at(-1)], ["common.py", "main.py"]);
+
+// A tab opened to start an agent names it in its launch command (launch.js), however the shell wraps it.
+const { harnessIn } = await stage().load("launch.js");
+const started = argv => harnessIn(argv)?.id ?? null;
+check("a Windows tab started with Claude Code", started(["powershell.exe", "-NoExit", "-Command", "& 'claude'"]), "claude-code");
+check("a remote tab started with Codex", started(["sh", "-c", "shell=${SHELL:-/bin/sh}\nexec \"$shell\" -lic '\"$@\"'", "sh", "codex", "--no-daemon"]), "codex");
+check("an agent started by its path", started(["C:\\Users\\u\\bin\\opencode.exe"]), "opencode");
+check("a plain shell starts no agent", started(["powershell.exe", "-NoExit", "-Command", "$global:__hc_prompt = $function:prompt; function global:prompt { $p }"]), null);
+check("a word inside another starts no agent", started(["/bin/bash", "-c", "claudette; pipx run spin"]), null);
 
 process.exit(failed ? 1 : 0);

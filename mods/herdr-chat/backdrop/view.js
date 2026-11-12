@@ -4,7 +4,8 @@
 // It animates only while it's drawn and the window is in front. Anything else (the welcome gone, the Terminal view
 // shown, another app in front) drops it to one look a second, and a look that finds it drawn again picks the
 // motion back up. Shown for REST_MS with the pointer still, it rests on its last frame until the pointer moves over
-// it: every frame costs the whole window a redraw, and a welcome can sit open for hours.
+// it: every frame costs the whole window a redraw, and a welcome can sit open for hours. Drawn again while it looks only
+// once a second, it moves at once rather than at the next look, so a welcome doesn't open on a frozen frame.
 import { View, div } from "gpui-kit";
 import { theme, shared, window as appWindow } from "herdr";
 import { Palette } from "./palette.js";
@@ -97,8 +98,13 @@ export class BackdropView extends View {
     return true;
   }
 
-  render() {
+  render(cx) {
     this.drawn = true;
+    // Only when that tick will move it: otherwise its idle branch redraws, this runs again, and the two loop.
+    if (this.mode === "idle" && !this.waking && this.size && appWindow()?.active) {
+      this.waking = true;
+      cx.timer.after(0, cx => { this.waking = false; this.tick(cx); });
+    }
     const { cw, ch, font } = this.cell;
     const rows = this.rows;
     const runs = [];

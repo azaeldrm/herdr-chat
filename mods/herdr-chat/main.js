@@ -17,6 +17,7 @@ import { Composer } from "./components/composer.js";
 import { SessionReader } from "./components/session-reader.js";
 import { isDiagramViewer, openDiagram, DiagramViewer } from "./components/diagram-viewer.js";
 import { BackdropView } from "./backdrop/view.js";
+import { noticeTerminals, launching, unlisted } from "./launch.js";
 import { sceneFor, nextScene } from "./backdrop/scenes/index.js";
 
 function inputHighlight(cx) {
@@ -56,6 +57,7 @@ export default class HerdrChat extends View {
     this.refresh(cx);
     cx.timer.every(1500, cx => inputHighlight(cx));
     cx.timer.every(100, cx => {
+      noticeTerminals();
       this.applyView();
       this.noticeStack();
       this.composer.mirrorOnSwitch(cx);
@@ -114,11 +116,14 @@ export default class HerdrChat extends View {
   }
 
   applyView() {
-    const f = focused(), t = target();
-    const focus = `${f?.space ?? ""}:${f?.tab ?? ""}:${t ? sessionOf(t) : "-"}`;
+    // A tab just opened to start an agent shows Chat (its welcome) while the agent starts, not the shell it starts in.
+    // One not even listed yet may be that too: the view stays as it is until it is.
+    const f = focused(), t = target(), starting = t ? null : launching();
+    if (!t && !starting && unlisted()) return;
+    const focus = `${f?.space ?? ""}:${f?.tab ?? ""}:${t ? sessionOf(t) : starting ? `starting:${starting.address}` : "-"}`;
     if (focus === this.viewFocus) return;
     this.viewFocus = focus;
-    showView(t ? preferredView(sessionOf(t)) : "terminal");
+    showView(t ? preferredView(sessionOf(t)) : starting ? "chat" : "terminal");
   }
 
   noticeStack() {
@@ -433,6 +438,10 @@ export default class HerdrChat extends View {
     if (this.diagram) return this.diagram.render(cx);
     const t = theme();
     const active = target();
+    // No agent yet in a tab opened to start one: the header and welcome it will have, so nothing moves when it reports.
+    // Before it's even listed: a blank chat, not the "select a terminal" note, for the tick until it is.
+    const starting = active ? null : launching();
+    const blank = !active && !starting && unlisted();
     if (chatKey(active) !== this.key) this.switchSession(active, chatKey(active));
     const shown = withoutRetracted(this.reader.session.messages, this.retracted?.key === this.key ? this.retracted.text : null);
     if (!shown.retracted && this.retracted?.key === this.key) this.retracted = null;
@@ -475,13 +484,14 @@ export default class HerdrChat extends View {
       .on_size_change((size, cx) => { this.rootPx = size.width; const w = designPx(size.width, this.zoom); if (w >= 200 && Math.abs(w - this.width) > 8) { this.width = w; cx.notify(); } })
       .child(zoomProbe((zoom, cx) => { if (Math.abs(zoom - this.zoom) > 0.001) { this.zoom = zoom; if (this.rootPx) this.width = designPx(this.rootPx, zoom); cx.notify(); } }))
       .on_drop((e, cx) => this.composer.dropFiles(e.paths ?? [], cx))
-      .child(this.header(t, active))
+      .child(this.header(t, active ?? starting))
       .when(empty && /^Opening/.test(this.note || ""), el => el.child(this.placeholder(t)))
-      .when(empty && this.fresh(active), el => el.child(this.welcome(t, active)))
-      .when(empty && !/^Opening/.test(this.note || "") && !this.fresh(active), el => el.child(v_flex().flex_1().min_h(0).items_center().justify_center().gap(14).px(24)
+      .when(empty && (Boolean(starting) || this.fresh(active)), el => el.child(this.welcome(t, active ?? starting)))
+      .when(empty && !/^Opening/.test(this.note || "") && !starting && !blank && !this.fresh(active), el => el.child(v_flex().flex_1().min_h(0).items_center().justify_center().gap(14).px(24)
         .child(image("frame/welcome/herdr.png").size(64).rounded(14).flex_none()
           .when(/^(Opening|Finding)/.test(this.note || ""), el => el.loop("opacity", { from: 0.4, to: 1, period: 1600 })))
         .child(div().max_w(420).text_center().text_size(14).text_color(t.muted).child(this.note))))
+      .when(empty && blank, el => el.child(div().flex_1().min_h(0)))
       .when(!empty, el => el.child(body))
       .when(Boolean(measure), el => el.child(measure))
       .child(v_flex().w_full().flex_none().items_center().px(24).pt(12).pb(14).gap(12)
@@ -489,7 +499,7 @@ export default class HerdrChat extends View {
         // at a turn's end) doesn't resize the list above and shift every message.
         .when(Boolean(status), el => el.child(status))
         .when(!status, el => el.child(div().w_full().h(26).flex_none()))
-        .child(this.composer.render(t, active, this.sessionLine(t, active, this.modelChip(t, active)))));
+        .child(this.composer.render(t, active, this.sessionLine(t, active, this.modelChip(t, active)), (active ?? starting)?.label)));
   }
 }
 

@@ -4,6 +4,7 @@ import { sessionOf, chatKey } from "../common.js";
 import { base64Utf8, onWindows, python } from "../platform.js";
 import { target, agentTargets, readScreen } from "../terminal.js";
 import { supportedNames } from "../harnesses/index.js";
+import { justOpened } from "../launch.js";
 import { blankSession, parseReaderInSlices, applyRead, readerArgs, embeddedReader, readerFromFolder, compressProgram, compressedReader, readerProgram, batchProgram, splitBatch } from "../model/session.js";
 
 const SESSIONS_KEPT = 32;
@@ -127,7 +128,10 @@ export class SessionReader {
     else {
       const known = t ? (shared(PATHS_KEY) ?? {})[sessionOf(t)] : null;
       this.session = blankSession(known?.path ?? "", known?.hint ?? "");
-      this.session.note = !t ? `Select a ${supportedNames()} terminal to see it as a chat.` : `Opening this ${t.label} conversation…`;
+      // An agent in a terminal just opened has no conversation yet: its welcome at once, not a load that finds none.
+      this.session.note = !t ? `Select a ${supportedNames()} terminal to see it as a chat.`
+        : !known?.path && justOpened(t.address) ? `Waiting for this ${t.label} conversation to start.`
+        : `Opening this ${t.label} conversation…`;
     }
     this.needsFirstRead = Boolean(t);
   }

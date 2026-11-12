@@ -1,6 +1,8 @@
 export default {
   id: "claude-code",
   label: "Claude Code",
+  // The command that starts it, as a new tab's launch command names it (launch.js).
+  command: "claude",
   images: "mention",
   mirror: true,
   prompt: {},

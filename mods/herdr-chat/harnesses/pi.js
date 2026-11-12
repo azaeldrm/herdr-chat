@@ -1,6 +1,8 @@
 export default {
   id: "pi",
   label: "Pi",
+  // The command that starts it, as a new tab's launch command names it (launch.js).
+  command: "pi",
   images: "path",
   mirror: true,
   prompt: {},
