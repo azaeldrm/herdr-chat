@@ -2,40 +2,36 @@ import { appHome, shared, run } from "herdr";
 import { readFile } from "fs/promises";
 import { onWindows } from "./platform.js";
 
-export const PASSED_KEYS = { "alt-shift-up": "herdr_chat::PassAltShiftUp", "alt-shift-down": "herdr_chat::PassAltShiftDown" };
-const REPLY = "HerdrChatReply > Input";
-let keymap = {}, keysText = null;
+const CONTEXT = "HerdrChatReply > Input";
+const LAYOUT_KEYS = { "alt-shift-up": "herdr_chat::PassAltShiftUp", "alt-shift-down": "herdr_chat::PassAltShiftDown" };
+const COMPOSER_KEYS = [
+  { keystroke: "up", action: "herdr_chat::LineUp" },
+  { keystroke: "down", action: "herdr_chat::LineDown" },
+  { keystroke: "escape", action: "herdr_chat::Stop" },
+  ...Object.entries(LAYOUT_KEYS).map(([keystroke, action]) => ({ keystroke, action })),
+].map(key => ({ ...key, context: CONTEXT }));
 
-async function loadKeys() {
-  // Reads keys.json into the cached keymap and its text; a missing or broken file leaves the keymap empty.
-  try { keysText = await readFile(onWindows() ? `${appHome()}\\keys.json` : `${appHome()}/keys.json`, "utf8"); }
-  catch { keysText = ""; }
-  try { keymap = JSON.parse(keysText) ?? {}; } catch { keymap = {}; }
+let keymap = {}, keymapText = null, keymapChanged = false;
+
+async function readKeymap() {
+  // Reads keys.json into the keymap, noting when its text changed since the last read.
+  let text;
+  try { text = await readFile(onWindows() ? `${appHome()}\\keys.json` : `${appHome()}/keys.json`, "utf8"); }
+  catch { text = ""; }
+  if (keymapText !== null && text !== keymapText) keymapChanged = true;
+  keymapText = text;
+  try { keymap = JSON.parse(text) ?? {}; } catch { keymap = {}; }
 }
-loadKeys();
+readKeymap();
 
-function replyKeys() {
-  // The reply box's own keys: line moves, Stop, and the layout keys it passes on.
-  return [
-    { keystroke: "up", action: "herdr_chat::LineUp", context: REPLY },
-    { keystroke: "down", action: "herdr_chat::LineDown", context: REPLY },
-    { keystroke: "escape", action: "herdr_chat::Stop", context: REPLY },
-    ...Object.entries(PASSED_KEYS).map(([keystroke, action]) => ({ keystroke, action, context: REPLY })),
-  ];
-}
-
-export function keepReplyKeys(cx) {
-  // Binds the reply box's keys, and binds them again whenever keys.json changes: Herdr's reload of it drops every key a
-  // mod bound. The tick after a change binds them once more, in case Herdr's reload landed after this one read the file.
-  if (globalThis.herdrChatReplyKeys) return;
-  globalThis.herdrChatReplyKeys = true;
-  cx.bind_keys(replyKeys());
-  let boundText = null, again = false;
+export function bindComposerKeys(cx) {
+  // Binds the composer's keys, and binds them again each time keys.json changes, as Herdr then installs its keymap anew.
+  if (globalThis.herdrChatComposerKeys) return;
+  globalThis.herdrChatComposerKeys = true;
+  cx.bind_keys(COMPOSER_KEYS);
   cx.timer.every(1000, cx => {
-    if (again) { cx.bind_keys(replyKeys()); again = false; }
-    if (keysText !== null && boundText === null) boundText = keysText;
-    else if (keysText !== null && keysText !== boundText) { cx.bind_keys(replyKeys()); boundText = keysText; again = true; }
-    loadKeys();
+    if (keymapChanged) { keymapChanged = false; cx.bind_keys(COMPOSER_KEYS); }
+    readKeymap();
   });
 }
 
@@ -45,10 +41,9 @@ function bound(keystroke) {
 }
 
 export function passKey(keystroke) {
-  // Runs keys.json's binding for a chord the reply box's text input would otherwise take; true when it ran one.
-  if (!(keystroke in PASSED_KEYS)) return false;
+  // Runs keys.json's binding for a layout key the composer's text input would otherwise take; true when it ran one.
+  if (!(keystroke in LAYOUT_KEYS)) return false;
   const action = bound(keystroke);
-  loadKeys();
   if (typeof action === "string" && !action.includes(":") && action !== "terminal") { run(action); return true; }
   if (action && typeof action === "object" && action.command) { run(action.command, action.args ?? {}); return true; }
   return false;
