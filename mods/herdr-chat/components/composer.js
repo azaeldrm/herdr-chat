@@ -17,7 +17,7 @@ const SENT_PRUNE_EVERY = 3600000;
 
 export class Composer {
   constructor(host, cx) {
-    // The reply box: one draft per session (text and images), mirrored into the agent's own box, and sending it. `host` is the view: its `sending` lock, `note`, `key`, `list`, `card`, `stop()`, `stopping`, and `showPending()` / `dropPending()` for the message just sent.
+    // The reply box: one draft per session (text and images), mirrored into the agent's own box, and sending it. `host` is the view: its `sending` lock, `note`, `key`, `list`, `card`, `stop()`, `stopping`, `showPending()` / `dropPending()` for the message just sent, and `backdropShown` (whether the backdrop is behind the box now).
     this.host = host;
     this.input = TextareaState.new({ placeholder: "Reply…", rows: 1 });
     this.input.set_soft_wrap(true);
@@ -358,7 +358,9 @@ export class Composer {
     const menu = this.menu.render(t, active);
     return v_flex().w_full().max_w(COLUMN).gap(6).relative()
       .when(Boolean(menu), el => el.child(menu))
-      .child(h_flex().id("composer-box").w_full().pl(16).pr(8).py(8).gap(8).items_end().rounded(18).border_1().border_color(t.input).bg(t.surface)
+      // Over the backdrop (an empty chat, in layouts that show one) the box is see-through, the animation dim behind it.
+      .child(h_flex().id("composer-box").w_full().pl(16).pr(8).py(8).gap(8).items_end().rounded(18).border_1().border_color(t.input)
+        .bg(this.host.backdropShown ? `${t.surface.slice(0, 7)}a6` : t.surface)
         .child(v_flex().flex_1().min_w(0)
           .when(this.attachments.length > 0, el => el.child(this.attachmentStrip(t)))
           .child(div().id("composer-input").w_full().min_w(0).py(4).key_context("HerdrChatReply")
@@ -383,8 +385,9 @@ export class Composer {
             .bg(ready ? t.accent : t.raised).text_color(ready ? t.accent_foreground : t.dim)
             .when(ready, el => el.cursor_pointer().hover(s => s.opacity(0.88)).on_click((_e, cx) => this.send(cx)))
             .child(svg(`${ICONS}/arrow-up.svg`).size(16))))
-      // Under the box: what the session runs with (main.js), else how sending works.
-      .child(footer ?? div().w_full().text_center().text_size(11.5).text_color(t.dim)
+      // Under the box: what the session runs with (main.js), else how sending works, on a line as tall as that one,
+      // so the box stays put when the session's line replaces the hint.
+      .child(footer ?? h_flex().w_full().h(24).px(4).items_center().justify_center().text_size(11.5).text_color(t.dim)
         .child(active ? `Sends to the live ${active.label} terminal · drop or paste an image to attach it` : ""));
   }
 }
