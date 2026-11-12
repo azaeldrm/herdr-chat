@@ -17,7 +17,7 @@ const SENT_PRUNE_EVERY = 3600000;
 
 export class Composer {
   constructor(host, cx) {
-    // The reply box: one draft per session (text and images), mirrored into the agent's own box, and sending it. `host` is the view: its `sending` lock, `note`, `key`, `list`, `card`, `stop()` and `stopping`.
+    // The reply box: one draft per session (text and images), mirrored into the agent's own box, and sending it. `host` is the view: its `sending` lock, `note`, `key`, `list`, `card`, `stop()`, `stopping`, and `showPending()` / `dropPending()` for the message just sent.
     this.host = host;
     this.input = TextareaState.new({ placeholder: "Reply…", rows: 1 });
     this.input.set_soft_wrap(true);
@@ -298,7 +298,12 @@ export class Composer {
     this.keepDraft(cx);
     cx.notify();
     const owner = this.host.key;
+    // Shown in the conversation at once, as chat apps do, until the agent's log has it (main.js withPending): the log
+    // gets it a moment after the agent starts working, which drew the list in several jumps. Not for an answer to a
+    // prompt or a slash command, which the log doesn't record as a message of the person's.
+    if (typed && t.status !== "blocked" && !typed.startsWith("/")) this.host.showPending(owner, typed);
     const restore = () => {
+      this.host.dropPending(owner, typed);
       if (this.host.key !== owner) {
         const d = this.drafts.get(owner) ?? { text: "", attachments: [] };
         this.drafts.set(owner, { text: d.text.trim() ? d.text : typed, attachments: [...attached, ...d.attachments] });

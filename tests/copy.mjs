@@ -5,7 +5,7 @@ const u = text => ({ kind: "message", role: "user", text });
 const a = text => ({ kind: "message", role: "assistant", text });
 const tools = { kind: "tools", calls: [] };
 
-const answers = rs => rs.filter(r => r.kind === "copy" && !r.prompt).map(r => r.text);
+const answers = rs => rs.filter(r => r.kind === "copy" && !r.prompt && !r.writing).map(r => r.text);
 const prompts = rs => rs.filter(r => r.kind === "copy" && r.prompt).map(r => r.text);
 const rows = withCopyRows([u("hi"), a("one"), tools, a("two"), u("again"), a("three")], false);
 assert.deepEqual(answers(rows), ["one\n\ntwo", "three"]);
@@ -16,6 +16,7 @@ assert.equal(rows.at(-1).kind, "copy");
 
 const live = withCopyRows([u("hi"), a("one"), u("again"), a("partial")], true);
 assert.deepEqual(answers(live), ["one"]);
+assert.deepEqual(live.at(-1), { kind: "copy", text: "", writing: true }, "the response being written keeps an empty copy row's room");
 
 assert.deepEqual(answers(withCopyRows([u("hi"), tools], false)), []);
 assert.deepEqual(prompts(withCopyRows([u("  "), tools], false)), [], "an empty message (an image alone) gets none");

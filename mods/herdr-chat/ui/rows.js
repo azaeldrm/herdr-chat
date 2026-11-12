@@ -37,6 +37,7 @@ function copyRow(m, { t, copied }) {
   // clicking the row copies it (see onItemClick in main.js). Always shown: a list row can't react to hovering the message
   // above it (no per-row hover in the list yet), so a hover-only bar would only show over its own strip.
   // A response's turn numbers (m.stats) follow its button, each with its icon: time, output tokens, tokens per second.
+  if (m.writing) return div().w_full().h(32);
   const done = copied === m.key, s = m.stats;
   const stat = (glyph, text, tip) => h_flex().id(`st-${glyph}-${m.key}`).gap(5).items_center().tooltip(tip)
     .child(icon(glyph, 13, t.dim)).child(div().text_size(12).text_color(t.dim).child(text));

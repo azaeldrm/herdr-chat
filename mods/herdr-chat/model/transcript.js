@@ -146,7 +146,10 @@ export function withCopyRows(rows, working) {
   const out = [];
   let texts = [], stats = null;
   const close = last => {
-    if (texts.length && !(last && working)) out.push({ kind: "copy", text: texts.join("\n\n"), ...(stats ? { stats } : {}) });
+    // The response still being written gets an empty copy row (`writing`), keeping its room so the list doesn't shift when
+    // the turn ends and the button and numbers fill in.
+    if (texts.length && last && working) out.push({ kind: "copy", text: "", writing: true });
+    else if (texts.length) out.push({ kind: "copy", text: texts.join("\n\n"), ...(stats ? { stats } : {}) });
     texts = []; stats = null;
   };
   for (const m of rows) {
