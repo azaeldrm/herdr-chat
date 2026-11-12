@@ -61,6 +61,8 @@ Colours come from the active theme; icons are the mod's own SVGs in the theme's 
 - **Sending:** Enter sends, Shift+Enter starts a new line, ↑ and ↓ move between lines. The text
   reaches the live terminal as plain typing (`hc send` from the agent's machine, without hc's
   `<hc from="…">` wrapper). A send that can't be delivered puts the text back in the box.
+- **Layout keys:** Alt+Shift+Up and Alt+Shift+Down, which the reply box's text input would otherwise take,
+  run what `keys.json` binds them to for the shown layout, else globally (`keys.js`).
 - **Stop:** while the agent works, the send button stops it (also Esc). A message the agent hands
   back on Stop returns to the reply box.
 - **Images:** drop png, jpg, gif or webp files on the chat, or paste one with Ctrl+V. Images over
@@ -104,6 +106,7 @@ the terminal itself belongs to the layout. The same mod runs twice: as the chat
 | `ui/` | `primitives.js` (icons, buttons, badges, toggle) and `rows.js` (each conversation row) |
 | `harnesses/` | one adapter per agent: label, image style, drafts, prompt options, input box, skills, reader. All agent-specific behaviour lives here |
 | `readers/` | the session reader in Python 3.6+, one file per agent beside `common.py` and `main.py`, joined in `manifest.json` order |
+| `keys.js` | the layout keys the reply box passes on to `keys.json` |
 | `terminal.js`, `platform.js` | the target agent and its screen; Windows and Unix differences |
 | `images.js`, `prepare-image.sh` / `.ps1` | image previews: where they go, shrinking, the clipboard |
 | `input-box.py`, `send.ps1` | the agent's own input box through `hc attach` (Linux and macOS); sending on Windows |
