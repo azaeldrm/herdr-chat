@@ -240,6 +240,33 @@ export default class HerdrChat extends View {
     return s && s.key === this.key && s.logged === logged ? s.text : null;
   }
 
+  showPending(key, text) {
+    // The message just sent from the chat, shown at once until the log has it (withPending).
+    const after = [...this.reader.session.messages].reverse().find(m => m.kind === "message" && m.role === "user") ?? null;
+    this.pending = { key, text, after, at: Date.now() };
+    this.list.follow();
+  }
+
+  dropPending(key, text) {
+    // The send failed: the message goes back to the box, so it leaves the conversation.
+    if (this.pending?.key === key && this.pending.text === text) this.pending = null;
+  }
+
+  withPending(messages) {
+    // The messages with the one just sent from the chat at the end, drawn as the person's message, until the log has a
+    // newer message of theirs than it had at sending (or a minute passes). The same array while nothing changes, so the
+    // rows built from it are reused.
+    const p = this.pending;
+    if (!p || p.key !== this.key) return messages;
+    const last = [...messages].reverse().find(m => m.kind === "message" && m.role === "user") ?? null;
+    if (last !== p.after || Date.now() - p.at > 60000) { this.pending = null; return messages; }
+    const c = this.pendingRows;
+    if (c?.messages === messages && c.pending === p) return c.rows;
+    const rows = [...messages, { kind: "message", role: "user", phase: "", text: p.text }];
+    this.pendingRows = { messages, pending: p, rows };
+    return rows;
+  }
+
   splitRows(messages, working) {
     // The messages as rows (copy rows added, diagrams and code blocks split out), rebuilt only when the messages change:
     // a read with nothing new keeps the same array, so most redraws reuse the last rows and their row objects.
@@ -365,7 +392,7 @@ export default class HerdrChat extends View {
     if (chatKey(active) !== this.key) this.switchSession(active, chatKey(active));
     const shown = withoutRetracted(this.reader.session.messages, this.retracted?.key === this.key ? this.retracted.text : null);
     if (!shown.retracted && this.retracted?.key === this.key) this.retracted = null;
-    const rows = [...this.splitRows(shown.rows, active?.status === "working")];
+    const rows = [...this.splitRows(this.withPending(shown.rows), active?.status === "working")];
     if (this.note) rows.push({ kind: "note", text: this.note });
     const empty = rows.length === 0 || (rows.length === 1 && rows[0].kind === "note" && !this.reader.session.messages.length);
     keyRows(rows);
