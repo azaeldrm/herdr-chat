@@ -1,4 +1,4 @@
-// What a session runs with, for the model chip beside the message box and the line under it: the model and what it can switch
+// What a session runs with, for the line under the message box (the model chip first): the model and what it can switch
 // to, the effort, the permission mode and the context used, from the reader's META (the newest values its log gave) and the
 // harness (its models, efforts and how it switches).
 
