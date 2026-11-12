@@ -326,13 +326,22 @@ export default class HerdrChat extends View {
     return Popup.new(`menu-${id}`, trigger).anchor("bottom_left")
       .when(open, pop => pop.content(v_flex().id(`menu-list-${id}`).w(width).mb(6).p(4).gap(1).rounded(10).border_1().border_color(t.border)
         .bg(t.popover ?? t.raised).shadow_md().text_size(12.5)
-        .on_mouse_down_out((_e, cx) => { if (this.menu === id) { this.menu = null; cx.notify(); } })
+        .on_mouse_down_out((_e, cx) => { if (this.menu === id) { this.menu = null; this.menuClosed = { id, at: Date.now() }; cx.notify(); } })
         .children(items.map(item => h_flex().id(`menu-${id}-${item.key}`).h(28).px(8).gap(8).items_center().rounded(6).cursor_pointer()
           .text_color(item.on ? t.foreground : t.muted).hover(s => s.bg(t.hover).text_color(t.foreground))
           .on_click((_e, cx) => { this.menu = null; onPick(item, cx); cx.notify(); })
           .child(div().w(12).flex_none().child(item.on ? icon("check", 12, t.accent) : div()))
           .child(div().flex_1().min_w(0).truncate().child(item.text))
           .when(Boolean(item.note), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(item.note)))))));
+  }
+
+  toggleMenu(id, cx) {
+    // Its button opens the menu, or closes it. Pressing the button while it's open is a press outside the menu, which closes
+    // it first; that same press's click then lands here and would open it again, so a menu just closed that way stays shut.
+    const justClosed = this.menuClosed?.id === id && Date.now() - this.menuClosed.at < 400;
+    this.menuClosed = null;
+    this.menu = this.menu === id || justClosed ? null : id;
+    cx.notify();
   }
 
   switchTo(active, line, cx) {
@@ -350,7 +359,7 @@ export default class HerdrChat extends View {
     const chip = h_flex().id("model-chip").h(22).px(6).gap(5).flex_none().items_center().rounded(6).text_size(11.5).text_color(t.foreground)
       .tooltip(look.model.id)
       .when(canSwitch, el => el.cursor_pointer().hover(s => s.bg(t.hover))
-        .on_click((_e, cx) => { this.menu = this.menu === "model" ? null : "model"; cx.notify(); }))
+        .on_click((_e, cx) => this.toggleMenu("model", cx)))
       .when(Boolean(programIcon(active.program, 12, t.muted)), el => el.child(programIcon(active.program, 12, t.muted)))
       .child(look.model.name)
       .when(canSwitch, el => el.child(icon("chevron-down", 11, t.dim)));
@@ -374,7 +383,7 @@ export default class HerdrChat extends View {
     const effortText = this.seenOnScreen("effort", look.effort) ?? look.effort;
     const effort = effortText ? item("session-effort", "zap", effortText, sw.nextEffort ? "Effort · click for the next one" : switchEffort ? "Effort · click to change" : "Effort")
       .when(Boolean(sw.nextEffort), el => clickable(el).on_click((_e, cx) => this.cycle("effort", active, look.effort, cx)))
-      .when(switchEffort && !sw.nextEffort, el => clickable(el).on_click((_e, cx) => { this.menu = this.menu === "effort" ? null : "effort"; cx.notify(); })) : null;
+      .when(switchEffort && !sw.nextEffort, el => clickable(el).on_click((_e, cx) => this.toggleMenu("effort", cx))) : null;
     const modeText = this.seenOnScreen("mode", look.mode?.key) ?? look.mode?.text;
     const mode = modeText ? item("session-mode", "shield", modeText, sw.nextMode ? "Mode · click for the next one" : "Mode")
       .when(Boolean(sw.nextMode), el => clickable(el).on_click((_e, cx) => this.cycle("mode", active, look.mode?.key, cx))) : null;
