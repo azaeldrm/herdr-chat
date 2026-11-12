@@ -44,7 +44,8 @@ status bar) with the chat and the terminal sharing the work area.
   - while the agent works, an accent spark and its live status;
   - a question card above the reply box when the agent asks something;
   - a reply box that grows to four lines, with a round send button in the theme's accent (a Stop
-    button while the agent works) and a line naming the terminal it sends to;
+    button while the agent works); under it, the model (a menu to switch it), effort, mode and
+    context used, or a line naming the terminal it sends to until those are known;
   - a jump-to-bottom button when the newest message is off screen.
 - **Empty chat:** herdr's logo with "Opening this … conversation…", "Waiting for this …
   conversation to start." or "No messages in this session yet."
