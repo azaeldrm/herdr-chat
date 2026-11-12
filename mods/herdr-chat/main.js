@@ -17,8 +17,8 @@ import { Composer } from "./components/composer.js";
 import { SessionReader } from "./components/session-reader.js";
 import { isDiagramViewer, openDiagram, DiagramViewer } from "./components/diagram-viewer.js";
 import { BackdropView } from "./backdrop/view.js";
-import { noticeTerminals, launching, unlisted } from "./launch.js";
 import { sceneFor, nextScene } from "./backdrop/scenes/index.js";
+import { noticeTerminals, launching, unlisted } from "./launch.js";
 
 function inputHighlight(cx) {
   const t = theme(), th = cx.theme();
@@ -195,13 +195,16 @@ export default class HerdrChat extends View {
       .child(sceneFor(shared(BACKDROP_SCENE)).label);
   }
 
-  header(t, active) {
-    const glyph = programIcon(active?.program, 15, t.muted), badge = statusBadge(t, active?.status);
-    const pane = active?.pane, zoomed = Boolean(pane && panes().find(p => p.pane === pane)?.zoomed);
+  header(t, active, starting = null) {
+    // `starting`: the agent a just-opened tab is starting (launch.js), shown until it reports; only `active`'s session
+    // keeps a switch to Terminal.
+    const shown = active ?? starting;
+    const glyph = programIcon(shown?.program, 15, t.muted), badge = statusBadge(t, active?.status);
+    const pane = shown?.pane, zoomed = Boolean(pane && panes().find(p => p.pane === pane)?.zoomed);
     return h_flex().id("chat-header").h(42).px(14).gap(9).items_center().flex_none()
       .on_hover((hovered, cx) => { if (this.headerHovered !== hovered) { this.headerHovered = hovered; cx.notify(); } })
       .when(Boolean(glyph), el => el.child(glyph))
-      .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.muted).child(active?.title || active?.label || ""))
+      .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.muted).child(shown?.title || shown?.label || ""))
       .when(Boolean(this.headerHovered && pane), el => el.children(paneButtons(t, pane, zoomed, "chat")))
       .when(Boolean(badge), el => el.child(badge))
       .child(viewToggle(t, "chat", "view", () => {}, () => switchTo("terminal", active ? sessionOf(active) : "")));
@@ -486,7 +489,7 @@ export default class HerdrChat extends View {
       .on_size_change((size, cx) => { this.rootPx = size.width; const w = designPx(size.width, this.zoom); if (w >= 200 && Math.abs(w - this.width) > 8) { this.width = w; cx.notify(); } })
       .child(zoomProbe((zoom, cx) => { if (Math.abs(zoom - this.zoom) > 0.001) { this.zoom = zoom; if (this.rootPx) this.width = designPx(this.rootPx, zoom); cx.notify(); } }))
       .on_drop((e, cx) => this.composer.dropFiles(e.paths ?? [], cx))
-      .child(this.header(t, active ?? starting))
+      .child(this.header(t, active, starting))
       .when(empty && /^Opening/.test(this.note || ""), el => el.child(this.placeholder(t)))
       .when(empty && (Boolean(starting) || this.fresh(active)), el => el.child(this.welcome(t, active ?? starting)))
       .when(empty && !/^Opening/.test(this.note || "") && !starting && !blank && !this.fresh(active), el => el.child(v_flex().flex_1().min_h(0).items_center().justify_center().gap(14).px(24)

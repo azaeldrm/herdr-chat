@@ -6,7 +6,7 @@ import { focused, terminals, agents } from "herdr";
 import { HARNESSES } from "./harnesses/index.js";
 
 // How long after a terminal first appears it counts as starting; past this, one still not reporting gets its terminal.
-export const LAUNCH_MS = 20000;
+const LAUNCH_MS = 20000;
 
 // When this chat first saw each terminal: 0 for those already there when it started (restored, not just opened).
 const seen = new Map();
@@ -50,8 +50,8 @@ export function harnessIn(argv) {
 }
 
 export function launching() {
-  // The agent the focused terminal was just opened to start and hasn't reported yet: { address, harness, label, program,
-  // pane }, shaped enough like target()'s agent for the header and welcome; null otherwise.
+  // The agent the focused terminal was just opened to start and hasn't reported yet: { address, label, title, program,
+  // pane }, what the header, the welcome and the reply box's hint show of target()'s agent; null otherwise.
   const f = focused();
   if (!f?.terminal) return null;
   const term = terminals().find(x => x.address === f.terminal);
@@ -60,5 +60,5 @@ export function launching() {
   if (!harness) return null;
   // Its icon as herdr draws that agent elsewhere (another of its kind running), so the welcome keeps it when it reports.
   const program = agents().find(a => a.app === harness.id)?.program ?? null;
-  return { address: term.address, harness, label: harness.label, title: harness.label, program, pane: f.pane };
+  return { address: term.address, label: harness.label, title: harness.label, program, pane: f.pane };
 }

@@ -353,7 +353,7 @@ export class Composer {
   render(t, active, footer = null, label = active?.label) {
     // The reply box (attachments, the text, and the send or stop button at its bottom right) and the line under it
     // (`footer`: the model, effort, mode and context), so the box grows only with what's typed. `label`: the agent the
-    // hint names (one still starting, before `active`, to send to, exists).
+    // hint names, which can be one still starting, before there's an `active` to send to.
     const ready = (Boolean(this.input.value().trim()) || this.attachments.length > 0) && !this.host.sending && Boolean(active);
     const stopping = active?.status === "working" && !this.input.value().trim() && !this.attachments.length;
     const menu = this.menu.render(t, active);
