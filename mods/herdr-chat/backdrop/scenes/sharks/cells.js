@@ -27,7 +27,7 @@ function inTriangle(px, py, ax, ay, bx, by, cx, cy) {
 
 export class SharkCells {
   constructor() {
-    this.cols = 0; this.rows = 0; this.cw = 8; this.ch = 16; this.width = 0; this.height = 0;
+    this.cols = 0; this.rows = 0; this.cw = 8; this.ch = 16;
     this.spine = new Float32Array(SHARK_NODES * 2);
     this.arc = new Float32Array(SHARK_NODES);
     // Per spine segment: its vector, length and 1 / length², for the shark being drawn.
@@ -41,8 +41,8 @@ export class SharkCells {
     this.finTipLeft = 0; this.finTipRight = 0;
     this.hitFlag = 0; this.hitShade = 0; this.hitS = 0; this.hitV = 0; this.hitDist = 0;
     this.frameId = 0;
-    // How bright the whole scene is, 0 to 1: it sits dimmed behind a page.
-    this.dim = 1;
+    // How bright the whole scene is, 0 to 1: it sits dimmed behind a page. `alpha` is that in twelfths, what paint uses.
+    this.dim = 1; this.alpha = 1;
     this.alloc(0);
   }
 
@@ -57,7 +57,6 @@ export class SharkCells {
     this.sharkKind = new Uint8Array(n);
     this.fishStamp = new Uint32Array(n);
     this.fishLevel = new Uint8Array(n);
-    this.fade = new Float32Array(n).fill(1);
     this.candidate = new Uint32Array(n);
     this.candidateSeg = new Uint8Array(n);
     this.candidateDist = new Float64Array(n);
@@ -73,7 +72,7 @@ export class SharkCells {
 
   /** Lays the grid over width × height px in cells of cw × ch px; keeps the fields when the grid is the same. */
   resize(width, height, cw, ch) {
-    this.width = width; this.height = height; this.cw = cw; this.ch = ch;
+    this.cw = cw; this.ch = ch;
     const cols = Math.max(1, Math.ceil(width / cw)), rows = Math.max(1, Math.ceil(height / ch));
     if (cols !== this.cols || rows !== this.rows) { this.cols = cols; this.rows = rows; this.alloc(cols * rows); }
     this.setDim(this.dim);
@@ -82,7 +81,7 @@ export class SharkCells {
   /** Dims the whole scene evenly to `dim` (0 to 1), so it sits darker behind the page. */
   setDim(dim) {
     this.dim = dim;
-    this.fade.fill(Math.round(dim * 12) / 12);
+    this.alpha = Math.round(dim * 12) / 12;
   }
 
   /** Draws world into glyph / fg / bg. dt: seconds since the last frame (for the wake's ripple and fade). */
@@ -368,11 +367,11 @@ export class SharkCells {
   }
 
   paint(t, pal) {
-    const { cols, rows, glyph, fg, bg, energy, heat, sharkFlag, sharkShade, sharkKey, sharkDepth, sharkKind, fishStamp, fishLevel, fade, frameId } = this;
+    const { cols, rows, glyph, fg, bg, energy, heat, sharkFlag, sharkShade, sharkKey, sharkDepth, sharkKind, fishStamp, fishLevel, frameId } = this;
+    const a = this.alpha;
     const n = cols * rows;
     const step = v => Math.round(v * SHADE_STEPS) / SHADE_STEPS;
     for (let i = 0; i < n; i++) {
-      const a = fade[i];
       const flag = sharkFlag[i];
       glyph[i] = " "; fg[i] = null; bg[i] = null;
       if (flag) {
