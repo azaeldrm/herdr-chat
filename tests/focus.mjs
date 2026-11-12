@@ -26,7 +26,7 @@ globalThis.agentList = [
 ];
 let focusedTimes = 0;
 const self = { lastMode: undefined, lastModeSession: undefined, host: { sending: false, card: { choices: null } },
-  input: { focus: () => { focusedTimes++; } } };
+  input: { focus: () => { focusedTimes++; } }, pushDraft: () => {}, pullDraft: () => {} };
 const tick = () => Composer.prototype.mirrorOnSwitch.call(self, {});
 const show = (tab, mode) => { globalThis.focus = { space: "sp", tab, terminal: tab === "tb1" ? "t1" : "t2" }; globalThis.store["herdr-chat.mode"] = mode; };
 const focusesOn = (tab, mode) => { show(tab, mode); const before = focusedTimes; tick(); return focusedTimes > before; };
