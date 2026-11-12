@@ -58,6 +58,10 @@ Colours come from the active theme; icons are the mod's own SVGs in the theme's 
   Adding an agent below). Every other tab shows its terminal.
 - **View:** a new agent session opens on Chat. Each session keeps the view it was left in, across
   restarts (the latest 200, shared key `herdr-chat.views`).
+- **Session logs:** the log each session reads is kept across restarts (the latest 200, shared key
+  `herdr-chat.paths`, by address and start: `{ path, hint, cwd }`). `cwd` is the folder a Pi or Codex
+  session works in, as its log says, which can differ from the terminal's after a resume; other mods
+  read it (harns's agent cards).
 - **Sending:** Enter sends, Shift+Enter starts a new line, ↑ and ↓ move between lines. The text
   reaches the live terminal as plain typing (`hc send` from the agent's machine, without hc's
   `<hc from="…">` wrapper). A send that can't be delivered puts the text back in the box.
