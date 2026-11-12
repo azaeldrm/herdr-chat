@@ -349,15 +349,14 @@ export class Composer {
   }
 
   render(t, active, footer = null) {
-    // The reply box (attachments and the text, nothing else, so it grows only with them), the send or stop button outside
-    // it at the right, level with its bottom, and the line under it (`footer`: the model, effort, mode and context).
+    // The reply box (attachments, the text, and the send or stop button at its bottom right) and the line under it
+    // (`footer`: the model, effort, mode and context), so the box grows only with what's typed.
     const ready = (Boolean(this.input.value().trim()) || this.attachments.length > 0) && !this.host.sending && Boolean(active);
     const stopping = active?.status === "working" && !this.input.value().trim() && !this.attachments.length;
     const menu = this.menu.render(t, active);
     return v_flex().w_full().max_w(COLUMN).gap(6).relative()
       .when(Boolean(menu), el => el.child(menu))
-      .child(h_flex().w_full().gap(10).items_end()
-      .child(h_flex().id("composer-box").flex_1().min_w(0).px(16).py(8).items_end().rounded(18).border_1().border_color(t.input).bg(t.surface)
+      .child(h_flex().id("composer-box").w_full().pl(16).pr(8).py(8).gap(8).items_end().rounded(18).border_1().border_color(t.input).bg(t.surface)
         .child(v_flex().flex_1().min_w(0)
           .when(this.attachments.length > 0, el => el.child(this.attachmentStrip(t)))
           .child(div().id("composer-input").w_full().min_w(0).py(4).key_context("HerdrChatReply")
@@ -372,7 +371,7 @@ export class Composer {
             cx.stop_propagation();
             this.enter(cx);
           })
-          .child(Textarea.new(this.input).w_full().text_size(15).text_color(t.foreground)))))
+          .child(Textarea.new(this.input).w_full().text_size(15).text_color(t.foreground))))
         .child(stopping
           ? div().id("stop").size(32).flex_none().flex().items_center().justify_center().rounded(16)
             .bg(t.foreground).text_color(t.background).tooltip("Stop (Esc)")
