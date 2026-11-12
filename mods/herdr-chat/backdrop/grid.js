@@ -3,13 +3,13 @@
 
 export class Grid {
   constructor() {
-    this.cols = 0; this.rows = 0; this.cw = 8; this.ch = 16; this.width = 0; this.height = 0;
+    this.cols = 0; this.rows = 0; this.cw = 8; this.ch = 16;
     this.glyph = []; this.fg = []; this.bg = [];
   }
 
   /** Lays the grid over width × height px in cells of cw × ch px. Whether the number of cells changed. */
   resize(width, height, cw, ch) {
-    this.width = width; this.height = height; this.cw = cw; this.ch = ch;
+    this.cw = cw; this.ch = ch;
     const cols = Math.max(1, Math.ceil(width / cw)), rows = Math.max(1, Math.ceil(height / ch));
     if (cols === this.cols && rows === this.rows) return false;
     this.cols = cols; this.rows = rows;

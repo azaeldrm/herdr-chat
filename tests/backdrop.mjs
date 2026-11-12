@@ -45,8 +45,7 @@ let shark = 0, fish = 0;
 for (let i = 0; i < n; i++) { if (cells.bg[i]) shark++; else if (cells.glyph[i] === "-") fish++; }
 check([cells.cols, cells.rows], [Math.ceil(1200 / cw), Math.ceil(640 / ch)], "the grid covers the page");
 check([shark > 50, fish > 20], [true, true], "sharks and fish are drawn");
-const mid = Math.floor(cells.rows / 2) * cells.cols + Math.floor(cells.cols / 2);
-check([cells.fade[mid], cells.fade[0]].map(v => v.toFixed(3)), ["0.417", "0.417"], "the whole scene is dimmed evenly");
+check(cells.alpha.toFixed(3), "0.417", "the whole scene is dimmed evenly, in twelfths");
 const runs = frameRuns(cells);
 check(runs.length, cells.rows, "a list of runs per row");
 check(runs.flat().every(u => u.text.length === u.len && u.len > 0), true, "every run's text fills its cells");

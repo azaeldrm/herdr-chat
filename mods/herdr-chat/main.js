@@ -468,10 +468,12 @@ export default class HerdrChat extends View {
       canJump: !this.card.showing && active?.status !== "blocked",
     });
     const status = this.status(t, active);
+    // What the composer asks to make its box see-through: whether the backdrop is behind it now.
+    this.backdropShown = Boolean(this.backdrop) && empty;
     return v_flex().id("herdr-chat-root").relative().size_full().min_h(0).rounded(10).border_1().border_color(t.border)
       .bg(t.background).text_color(t.foreground)
-      .when(Boolean(this.backdrop) && empty, el => el.child(this.backdrop))
-      .when(Boolean(this.backdrop) && empty, el => el.child(this.backdropButton(t)))
+      .when(this.backdropShown, el => el.child(this.backdrop))
+      .when(this.backdropShown, el => el.child(this.backdropButton(t)))
       .on_size_change((size, cx) => { this.rootPx = size.width; const w = designPx(size.width, this.zoom); if (w >= 200 && Math.abs(w - this.width) > 8) { this.width = w; cx.notify(); } })
       .child(zoomProbe((zoom, cx) => { if (Math.abs(zoom - this.zoom) > 0.001) { this.zoom = zoom; if (this.rootPx) this.width = designPx(this.rootPx, zoom); cx.notify(); } }))
       .on_drop((e, cx) => this.composer.dropFiles(e.paths ?? [], cx))
@@ -485,8 +487,8 @@ export default class HerdrChat extends View {
       .when(!empty, el => el.child(body))
       .when(Boolean(measure), el => el.child(measure))
       .child(v_flex().w_full().flex_none().items_center().px(24).pt(12).pb(14).gap(12)
-        // The status line's room is kept while there's a conversation, so "Working…" coming and going (just after a send,
-        // at a turn's end) doesn't resize the list above and shift every message.
+        // The status line's room is always kept, so "Working…" coming and going (just after a send, at a turn's end)
+        // doesn't resize the list above and shift every message, and the welcome's box sits where the conversation's will.
         .when(Boolean(status), el => el.child(status))
         .when(!status, el => el.child(div().w_full().h(26).flex_none()))
         .child(this.composer.render(t, active, this.sessionLine(t, active, this.modelChip(t, active)))));

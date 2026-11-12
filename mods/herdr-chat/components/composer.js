@@ -17,7 +17,7 @@ const SENT_PRUNE_EVERY = 3600000;
 
 export class Composer {
   constructor(host, cx) {
-    // The reply box: one draft per session (text and images), mirrored into the agent's own box, and sending it. `host` is the view: its `sending` lock, `note`, `key`, `list`, `card`, `stop()`, `stopping`, `showPending()` / `dropPending()` for the message just sent, and `backdrop` (whether one plays behind the chat).
+    // The reply box: one draft per session (text and images), mirrored into the agent's own box, and sending it. `host` is the view: its `sending` lock, `note`, `key`, `list`, `card`, `stop()`, `stopping`, `showPending()` / `dropPending()` for the message just sent, and `backdropShown` (whether the backdrop is behind the box now).
     this.host = host;
     this.input = TextareaState.new({ placeholder: "Reply…", rows: 1 });
     this.input.set_soft_wrap(true);
@@ -358,9 +358,9 @@ export class Composer {
     const menu = this.menu.render(t, active);
     return v_flex().w_full().max_w(COLUMN).gap(6).relative()
       .when(Boolean(menu), el => el.child(menu))
-      // Over the backdrop (layouts that show one) the box is see-through, the animation dim behind it.
+      // Over the backdrop (an empty chat, in layouts that show one) the box is see-through, the animation dim behind it.
       .child(h_flex().id("composer-box").w_full().pl(16).pr(8).py(8).gap(8).items_end().rounded(18).border_1().border_color(t.input)
-        .bg(this.host.backdrop ? `${t.surface.slice(0, 7)}a6` : t.surface)
+        .bg(this.host.backdropShown ? `${t.surface.slice(0, 7)}a6` : t.surface)
         .child(v_flex().flex_1().min_w(0)
           .when(this.attachments.length > 0, el => el.child(this.attachmentStrip(t)))
           .child(div().id("composer-input").w_full().min_w(0).py(4).key_context("HerdrChatReply")
