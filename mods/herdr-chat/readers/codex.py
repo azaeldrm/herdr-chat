@@ -111,6 +111,7 @@ def codex_runs_with(lines):
             meta["model"] = p.get("model")
             meta["effort"] = p.get("effort") or ((p.get("collaboration_mode") or {}).get("settings") or {}).get("reasoning_effort")
             meta["mode"] = (p.get("collaboration_mode") or {}).get("mode") or "default"
+            if p.get("cwd"): meta["cwd"] = p["cwd"]
         if "context" not in meta and '"token_count"' in line:
             info = ((loads(line) or {}).get("payload") or {}).get("info") or {}
             last = info.get("last_token_usage") or {}
@@ -131,6 +132,9 @@ def codex_runs_with(lines):
 def parse_codex(path):
     lines = read_tail(path)
     codex_runs_with(lines)
+    if "cwd" not in state["meta"] and state["fresh"]:
+        cwd = (codex_meta(path) or {}).get("cwd")
+        if cwd: state["meta"]["cwd"] = cwd
     for line in lines:
         if '"token_count"' in line:
             # One model request done: its output tokens, keyed by the running total (Codex repeats a count at times).
