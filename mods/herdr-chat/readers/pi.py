@@ -62,10 +62,19 @@ def pi_model_facts(meta, provider, model):
     if window: meta["window"] = int(window)
     meta["models"] = [{"id": model, "name": own.get("name") or found.get("name") or model}]
 
+def pi_header(path):
+    """A Pi log's first line (its session header, with the folder it runs in), or None."""
+    try:
+        with open(path, encoding="utf-8") as f: return loads(f.readline())
+    except OSError: return None
+
 def parse_pi(path):
     since = A.created - 10000 if A.created else 0
     lines = read_tail(path)
     pi_runs_with(lines)
+    if state["fresh"]:
+        head = loads(lines[0]) if lines and not state["clipped"] else pi_header(path)
+        if isinstance(head, dict) and head.get("type") == "session" and head.get("cwd"): state["meta"]["cwd"] = head["cwd"]
     for line in lines:
         if '"type":"message"' not in line: continue
         o = loads(line)

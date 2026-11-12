@@ -207,7 +207,7 @@ export class SessionReader {
     // Applies the reader's update to the session on screen and remembers its log, for the agent it was read from. Whether anything shown changed.
     const changed = applyRead(this.session, update);
     this.session.readAt = Date.now();
-    this.rememberPath(sessionOf(t), this.session.path, this.session.hint);
+    this.rememberPath(sessionOf(t), this.session.path, this.session.hint, this.session.meta?.cwd);
     const last = this.session.messages[this.session.messages.length - 1];
     const id = last ? `${this.session.messages.length}:${last.kind}:${last.text ?? last.calls.length}:${last.calls?.at(-1)?.o?.length ?? 0}` : "";
     if (id !== this.lastId) { this.lastId = id; if (this.host.list.following) this.host.list.follow(); }
@@ -230,13 +230,13 @@ export class SessionReader {
     });
   }
 
-  rememberPath(id, path, hint) {
-    // Which log a session reads, kept across restarts (herdr's shared state), so it isn't searched for again.
+  rememberPath(id, path, hint, cwd) {
+    // Which log a session reads, kept across restarts (herdr's shared state), so it isn't searched for again; with the folder the session runs in, where its log says.
     if (!id || !path) return;
     const all = { ...(shared(PATHS_KEY) ?? {}) };
-    if (all[id]?.path === path && all[id]?.hint === (hint || "")) return;
+    if (all[id]?.path === path && all[id]?.hint === (hint || "") && (all[id]?.cwd ?? null) === (cwd || null)) return;
     delete all[id];
-    all[id] = { path, hint: hint || "" };
+    all[id] = { path, hint: hint || "", ...(cwd ? { cwd } : {}) };
     const ids = Object.keys(all);
     for (const old of ids.slice(0, Math.max(0, ids.length - 200))) delete all[old];
     setShared(PATHS_KEY, all);
@@ -276,7 +276,7 @@ export class SessionReader {
             applyRead(s, r);
             s.readAt = Date.now();
             if (!x.s) this.sessions.set(x.key, s);
-            this.rememberPath(sessionOf(x.t), s.path, s.hint);
+            this.rememberPath(sessionOf(x.t), s.path, s.hint, s.meta?.cwd);
           }
         }));
         this.trimSessions(live);

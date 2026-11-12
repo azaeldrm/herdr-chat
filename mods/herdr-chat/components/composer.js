@@ -10,6 +10,7 @@ import { IMAGE_FILE, attachDir, attachName, ATTACH_DIR, keepSent, sentNames, fet
 import { caretOf, lineMove } from "../model/caret.js";
 import { COLUMN, icon } from "../ui/primitives.js";
 import { SkillMenu } from "./skill-menu.js";
+import { passKey, PASSED_KEYS } from "../keys.js";
 import { skillToken } from "../model/skills.js";
 
 const DRAFT_PAUSE = 400;
@@ -37,6 +38,9 @@ export class Composer {
         { keystroke: "up", action: "herdr_chat::LineUp", context: "HerdrChatReply > Input" },
         { keystroke: "down", action: "herdr_chat::LineDown", context: "HerdrChatReply > Input" },
       ]);
+    }
+    if (!globalThis.herdrChatPassedKeys) {
+      globalThis.herdrChatPassedKeys = cx.bind_keys(Object.entries(PASSED_KEYS).map(([keystroke, action]) => ({ keystroke, action, context: "HerdrChatReply > Input" })));
     }
     if (!globalThis.herdrChatStopKey) {
       globalThis.herdrChatStopKey = cx.bind_keys([{ keystroke: "escape", action: "herdr_chat::Stop", context: "HerdrChatReply > Input" }]);
@@ -366,6 +370,8 @@ export class Composer {
           .child(div().id("composer-input").w_full().min_w(0).py(4).key_context("HerdrChatReply")
           .on_action("herdr_chat::LineUp", (_e, cx) => this.lineKey(-1, cx))
           .on_action("herdr_chat::LineDown", (_e, cx) => this.lineKey(1, cx))
+          .on_action("herdr_chat::PassAltShiftUp", () => passKey("alt-shift-up"))
+          .on_action("herdr_chat::PassAltShiftDown", () => passKey("alt-shift-down"))
           .on_action("herdr_chat::Stop", (_e, cx) => { if (!this.menu.dismiss(target(), cx)) this.host.stop(cx); })
           .on_key_down((e, cx) => {
             const paste = e.key === "v" && (e.modifiers.control || e.modifiers.platform) && !e.modifiers.alt;
