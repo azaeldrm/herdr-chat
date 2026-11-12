@@ -10,7 +10,7 @@ import { IMAGE_FILE, attachDir, attachName, ATTACH_DIR, keepSent, sentNames, fet
 import { caretOf, lineMove } from "../model/caret.js";
 import { COLUMN, icon } from "../ui/primitives.js";
 import { SkillMenu } from "./skill-menu.js";
-import { passKey, PASSED_KEYS } from "../keys.js";
+import { passKey, keepReplyKeys } from "../keys.js";
 import { skillToken } from "../model/skills.js";
 
 const DRAFT_PAUSE = 400;
@@ -33,18 +33,7 @@ export class Composer {
       cx.notify();
     });
     this.input.on("paste_other", (_e, cx) => { if (Date.now() - (this.imagePasteAt ?? 0) > 800) this.pasteImage(cx); });
-    if (!globalThis.herdrChatLineKeys) {
-      globalThis.herdrChatLineKeys = cx.bind_keys([
-        { keystroke: "up", action: "herdr_chat::LineUp", context: "HerdrChatReply > Input" },
-        { keystroke: "down", action: "herdr_chat::LineDown", context: "HerdrChatReply > Input" },
-      ]);
-    }
-    if (!globalThis.herdrChatPassedKeys) {
-      globalThis.herdrChatPassedKeys = cx.bind_keys(Object.entries(PASSED_KEYS).map(([keystroke, action]) => ({ keystroke, action, context: "HerdrChatReply > Input" })));
-    }
-    if (!globalThis.herdrChatStopKey) {
-      globalThis.herdrChatStopKey = cx.bind_keys([{ keystroke: "escape", action: "herdr_chat::Stop", context: "HerdrChatReply > Input" }]);
-    }
+    keepReplyKeys(cx);
     this.menu = new SkillMenu(this);
     this.attachments = []; this.drafts = new Map();
     this.mirror = null; this.mirrorChain = Promise.resolve();

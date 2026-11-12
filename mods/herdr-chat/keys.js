@@ -3,14 +3,41 @@ import { readFile } from "fs/promises";
 import { onWindows } from "./platform.js";
 
 export const PASSED_KEYS = { "alt-shift-up": "herdr_chat::PassAltShiftUp", "alt-shift-down": "herdr_chat::PassAltShiftDown" };
-let keymap = {};
+const REPLY = "HerdrChatReply > Input";
+let keymap = {}, keysText = null;
 
 async function loadKeys() {
-  // Reads keys.json into the cached keymap; a missing or broken file leaves it empty.
-  try { keymap = JSON.parse(await readFile(onWindows() ? `${appHome()}\\keys.json` : `${appHome()}/keys.json`, "utf8")) ?? {}; }
-  catch { keymap = {}; }
+  // Reads keys.json into the cached keymap and its text; a missing or broken file leaves the keymap empty.
+  try { keysText = await readFile(onWindows() ? `${appHome()}\\keys.json` : `${appHome()}/keys.json`, "utf8"); }
+  catch { keysText = ""; }
+  try { keymap = JSON.parse(keysText) ?? {}; } catch { keymap = {}; }
 }
 loadKeys();
+
+function replyKeys() {
+  // The reply box's own keys: line moves, Stop, and the layout keys it passes on.
+  return [
+    { keystroke: "up", action: "herdr_chat::LineUp", context: REPLY },
+    { keystroke: "down", action: "herdr_chat::LineDown", context: REPLY },
+    { keystroke: "escape", action: "herdr_chat::Stop", context: REPLY },
+    ...Object.entries(PASSED_KEYS).map(([keystroke, action]) => ({ keystroke, action, context: REPLY })),
+  ];
+}
+
+export function keepReplyKeys(cx) {
+  // Binds the reply box's keys, and binds them again whenever keys.json changes: Herdr's reload of it drops every key a
+  // mod bound. The tick after a change binds them once more, in case Herdr's reload landed after this one read the file.
+  if (globalThis.herdrChatReplyKeys) return;
+  globalThis.herdrChatReplyKeys = true;
+  cx.bind_keys(replyKeys());
+  let boundText = null, again = false;
+  cx.timer.every(1000, cx => {
+    if (again) { cx.bind_keys(replyKeys()); again = false; }
+    if (keysText !== null && boundText === null) boundText = keysText;
+    else if (keysText !== null && keysText !== boundText) { cx.bind_keys(replyKeys()); boundText = keysText; again = true; }
+    loadKeys();
+  });
+}
 
 function bound(keystroke) {
   // What keys.json binds this chord to for the shown layout, else globally.
