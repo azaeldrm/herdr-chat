@@ -2,7 +2,7 @@ import { View, div, image } from "gpui-kit";
 import { set_theme, v_flex, h_flex, Popup } from "gpui-base";
 import { panes, focused, props, hc, theme, shared, window as appWindow } from "herdr";
 import { switchTo, showView, preferredView, sessionOf, chatKey } from "./common.js";
-import { target, inputBox, interruptAgent, sendMessage, pressKeys } from "./terminal.js";
+import { target, inputBox, interruptAgent, sendMessage, pressKeys, readScreen } from "./terminal.js";
 import { keyRows, splitCode, withCopyRows, stepRows, stepText, withoutRetracted } from "./model/transcript.js";
 import { runsWith, switchCommand, tokens } from "./model/runs-with.js";
 import { row, TOOL_BUTTON, TOOL_GAP } from "./ui/rows.js";
@@ -214,6 +214,21 @@ export default class HerdrChat extends View {
     catch (e) { return div().p(20).text_color(theme().blocked).child(`herdr-chat render error: ${e?.stack ?? e}`); }
   }
 
+  nextMode(active, logged, cx) {
+    // Moves the agent to its next permission mode, then reads the new one off its footer (harness switching.screenModes).
+    const key = this.key, words = active.harness?.switching?.screenModes ?? {};
+    cx.spawn(async cx => {
+      await pressKeys(active, active.harness.switching.nextMode);
+      for (const wait of [200, 400, 800]) {
+        await new Promise(done => cx.timer.after(wait, () => done()));
+        const screen = (await readScreen(active, 0)) ?? "";
+        const lines = screen.split("\n").slice(-8).join("\n").toLowerCase();
+        const found = Object.entries(words).find(([w]) => lines.includes(w));
+        if (found) { this.screenMode = { key, logged, text: found[1] }; cx.notify(); return; }
+      }
+    });
+  }
+
   splitRows(messages, working) {
     // The messages as rows (copy rows added, diagrams and code blocks split out), rebuilt only when the messages change:
     // a read with nothing new keeps the same array, so most redraws reuse the last rows and their row objects.
@@ -306,9 +321,11 @@ export default class HerdrChat extends View {
       .when(switchEffort, el => el.cursor_pointer().hover(s => s.bg(t.hover).text_color(t.foreground))
         .on_click((_e, cx) => { this.menu = this.menu === "effort" ? null : "effort"; cx.notify(); })) : null;
     const nextMode = active.harness?.switching?.nextMode;
-    const mode = look.mode ? item("session-mode", "shield", look.mode.text, nextMode ? "Permission mode · click for the next one" : "Permission mode")
+    // After a click, the mode the terminal's footer shows, until the log records a newer one (it does so only with a message).
+    const seen = this.screenMode?.key === this.key && this.screenMode.logged === look.mode?.key ? this.screenMode.text : null;
+    const mode = look.mode ? item("session-mode", "shield", seen ?? look.mode.text, nextMode ? "Permission mode · click for the next one" : "Permission mode")
       .when(Boolean(nextMode), el => el.cursor_pointer().hover(s => s.bg(t.hover).text_color(t.foreground))
-        .on_click(() => pressKeys(active, nextMode))) : null;
+        .on_click((_e, cx) => this.nextMode(active, look.mode.key, cx))) : null;
     const c = look.context;
     const level = c?.share == null ? t.muted : c.share >= 95 ? "#d88179" : c.share >= 80 ? "#e8823a" : t.accent;
     const gauge = c ? h_flex().id("session-context").gap(6).items_center().text_size(11.5).text_color(t.muted)

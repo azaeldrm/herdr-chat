@@ -14,7 +14,11 @@ export default {
     { id: "claude-fable-5-2", alias: "fable", name: "Fable 5.2" },
   ],
   efforts: ["low", "medium", "high", "xhigh", "max"],
-  switching: { model: "/model {model}", effort: "/effort {effort}", nextMode: ["shift+tab"] },
+  // screenModes: the footer's words for each mode, read after a Shift+Tab (the log records the mode only with a message).
+  switching: {
+    model: "/model {model}", effort: "/effort {effort}", nextMode: ["shift+tab"],
+    screenModes: { "auto mode on": "Auto mode", "manual mode on": "Ask before edits", "accept edits on": "Accept edits", "plan mode on": "Plan mode", "bypass permissions on": "Bypass permissions" },
+  },
   box: { style: "mark", mark: "❯", stopAtBlank: false },
   skills: { triggers: ["/"], invoke: "/", user: ["~/.claude/skills"], project: [".claude/skills"], skip: ["synced"] },
   reader: "claude-code",
