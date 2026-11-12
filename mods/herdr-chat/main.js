@@ -18,6 +18,7 @@ import { SessionReader } from "./components/session-reader.js";
 import { isDiagramViewer, openDiagram, DiagramViewer } from "./components/diagram-viewer.js";
 import { BackdropView } from "./backdrop/view.js";
 import { sceneFor, nextScene } from "./backdrop/scenes/index.js";
+import { noticeTerminals } from "./opened.js";
 
 function inputHighlight(cx) {
   const t = theme(), th = cx.theme();
@@ -56,6 +57,7 @@ export default class HerdrChat extends View {
     this.refresh(cx);
     cx.timer.every(1500, cx => inputHighlight(cx));
     cx.timer.every(100, cx => {
+      noticeTerminals();
       this.applyView();
       this.noticeStack();
       this.composer.mirrorOnSwitch(cx);
