@@ -110,7 +110,7 @@ the terminal itself belongs to the layout. The same mod runs twice: as the chat
 | `ui/` | `primitives.js` (icons, buttons, badges, toggle) and `rows.js` (each conversation row) |
 | `harnesses/` | one adapter per agent: label, image style, drafts, prompt options, input box, skills, reader. All agent-specific behaviour lives here |
 | `readers/` | the session reader in Python 3.6+, one file per agent beside `common.py` and `main.py`, joined in `manifest.json` order |
-| `keys.js` | the layout keys the reply box passes on to `keys.json` |
+| `keys.js` | the composer's key bindings, and the layout keys it passes on to `keys.json` |
 | `terminal.js`, `platform.js` | the target agent and its screen; Windows and Unix differences |
 | `images.js`, `prepare-image.sh` / `.ps1` | image previews: where they go, shrinking, the clipboard |
 | `input-box.py`, `send.ps1` | the agent's own input box through `hc attach` (Linux and macOS); sending on Windows |
