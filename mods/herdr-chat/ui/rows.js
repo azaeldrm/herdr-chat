@@ -34,14 +34,13 @@ function toolButton(t, id, glyph, done, busy, tip, bordered = true) {
 
 function copyRow(m, { t, copied }) {
   // The copy button under an agent's response, at the left, or under one of the person's messages, at the right (`prompt`):
-  // clicking the row copies it (see onItemClick in main.js). The button shows while the pointer is over its row (or it was
-  // just used); its row keeps its height either way, so nothing moves when it appears.
+  // clicking the row copies it (see onItemClick in main.js). Always shown: a list row can't react to hovering the message
+  // above it (no per-row hover in the list yet), so a hover-only bar would only show over its own strip.
   // A response's turn numbers (m.stats) follow its button, each with its icon: time, output tokens, tokens per second.
   const done = copied === m.key, s = m.stats;
   const stat = (glyph, text, tip) => h_flex().id(`st-${glyph}-${m.key}`).gap(5).items_center().tooltip(tip)
     .child(icon(glyph, 13, t.dim)).child(div().text_size(12).text_color(t.dim).child(text));
   return h_flex().id(`copy-row-${m.key}`).w_full().h(32).gap(14).items_center().when(m.prompt, el => el.justify_end()).when(!m.prompt, el => el.justify_start())
-    .opacity(done ? 1 : 0).hover(st => st.opacity(1))
     .child(toolButton(t, `copy-${m.key}`, "copy", done, false, m.prompt ? "Copy your message" : "Copy the response", false))
     .when(Boolean(s && !m.prompt), el => el
       .child(div().text_size(12).text_color(t.dim).child("•"))
