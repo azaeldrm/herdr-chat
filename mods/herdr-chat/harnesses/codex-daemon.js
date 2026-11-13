@@ -42,7 +42,7 @@ function card(request, question, options, extra = {}) {
 
 function approvalCard(request, files) {
   const p = request.params;
-  const decisions = files ? FILE_DECISIONS : p.availableDecisions ?? ["accept", "cancel"];
+  const decisions = files ? FILE_DECISIONS : p.availableDecisions ?? [];
   const options = decisions.map(d => ({ d, label: decisionLabel(d, files) })).filter(o => o.label)
     .map((o, i) => ({ n: i + 1, label: o.label, desc: [], selected: i === 0, answered: false, decision: o.d }));
   if (options.length < 2) return null;
@@ -62,7 +62,6 @@ function inputCard(request, step, answers) {
 
 export function daemonChoices(request, step = 0, answers = {}) {
   // The question card for a request Codex's daemon has open (null: the terminal handles that kind).
-  if (!request?.params?.itemId) return null;
   if (request.method === COMMAND) return approvalCard(request, false);
   if (request.method === FILES) return approvalCard(request, true);
   if (request.method === INPUT) return inputCard(request, step, answers);

@@ -57,6 +57,7 @@ check("the last part sends every answer", daemonReply(q2, 0, "Ada"), { result: {
 
 check("a secret question is left to the terminal", daemonChoices({ ...input, params: { ...input.params, questions: [{ id: "k", header: "Key", question: "API key?", isSecret: true }] } }), null);
 check("a request the chat doesn't know is left to the terminal", daemonChoices({ id: 5, method: "mcpServer/elicitation/request", params: { threadId: ID, itemId: "m" } }), null);
+check("a command approval that lists no decisions is left to the terminal", daemonChoices({ ...command, params: { ...command.params, availableDecisions: undefined } }), null);
 check("a command approval with one decision is left to the terminal", daemonChoices({ ...command, params: { ...command.params, availableDecisions: ["accept"] } }), null);
 
 process.exit(failed ? 1 : 0);

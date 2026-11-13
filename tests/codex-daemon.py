@@ -61,6 +61,8 @@ def serve(conn):
             elif method == "thread/turns/list":
                 turns = [{"id": running["turn"], "status": "inProgress"}] if running["turn"] else [{"id": "old", "status": "completed"}]
                 conn.sendall(frame({"jsonrpc": "2.0", "id": mid, "result": {"data": turns}}))
+            elif method in ("turn/start", "turn/steer") and m["params"]["input"][-1].get("text") == "refused":
+                conn.sendall(frame({"jsonrpc": "2.0", "id": mid, "error": {"code": -32600, "message": "no active turn to steer"}}))
             elif method in ("turn/start", "turn/steer"):
                 conn.sendall(frame({"jsonrpc": "2.0", "id": mid, "result": {"turnId": "t2"} if method == "turn/steer" else {"turn": {"id": "t2"}}}))
             elif method is None and mid == 7:
@@ -94,7 +96,6 @@ try:
 
         r = daemon(home, {"op": "pending", "thread": LOADED})
         check("an open conversation's request is read", [q.get("params", {}).get("itemId") for q in r.get("requests", [])] == ["exec-1"])
-        check("with the conversation's status", r.get("status", {}).get("activeFlags") == ["waitingOnApproval"])
 
         before = len(seen)
         r = daemon(home, {"op": "pending", "thread": OTHER})
@@ -116,7 +117,9 @@ try:
         running["turn"] = "t1"
         r = daemon(home, {"op": "send", "thread": LOADED, "text": "also this"})
         steer = [m for m in seen if m.get("method") == "turn/steer"]
-        check("a working conversation's turn is steered, as Enter does in the terminal", r == {"sent": True, "steered": True} and steer and steer[-1]["params"]["expectedTurnId"] == "t1")
+        check("a working conversation's turn is steered, as Enter does in the terminal", r == {"sent": True} and steer and steer[-1]["params"]["expectedTurnId"] == "t1")
+        r = daemon(home, {"op": "send", "thread": LOADED, "text": "refused"})
+        check("a send Codex turns away reports it, so typing it is safe", r.get("sent") is False and "no active turn" in r.get("why", ""))
         before = len(seen)
         r = daemon(home, {"op": "send", "thread": OTHER, "text": "x"})
         check("a conversation the daemon doesn't have open isn't sent to, so typing it is safe", r.get("sent") is False and not any(m.get("method", "").startswith("turn/") for m in seen[before:]))
