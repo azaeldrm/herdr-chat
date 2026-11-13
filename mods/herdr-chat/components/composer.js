@@ -1,15 +1,16 @@
 import { div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, Textarea, TextareaState } from "gpui-base";
 import { shared, hc, exec } from "herdr";
-import { ICONS, sessionOf } from "../common.js";
+import { ICONS, sessionOf, chatKey } from "../common.js";
 import { onWindows, modFile, removeFiles, pruneOld } from "../platform.js";
 import { target, sendMessage, pressKeys, inputBox } from "../terminal.js";
-import { imageStyle, canMirror, withImages, draftPastes, textOfBox, readBack } from "../harnesses/index.js";
+import { imageStyle, canMirror, withImages, draftPastes, textOfBox, readBack, viaDaemon } from "../harnesses/index.js";
 import { savedDraft, storeDraft, keptImages } from "../draft.js";
 import { IMAGE_FILE, attachDir, attachName, ATTACH_DIR, keepSent, sentNames, fetchSent, previewName, previewFile, staleSent, dropSent } from "../images.js";
 import { caretOf, lineMove } from "../model/caret.js";
 import { COLUMN, icon } from "../ui/primitives.js";
 import { SkillMenu } from "./skill-menu.js";
+import { askDaemon } from "./session-reader.js";
 import { passKey, bindComposerKeys } from "../keys.js";
 import { skillToken } from "../model/skills.js";
 
@@ -319,6 +320,12 @@ export class Composer {
           if ((await inputBox("set", t, "[]")).ok) this.mirror = null;
         }
         const placed = await this.placeImages(t, attached);
+        const thread = this.daemonThread(t, typed);
+        if (thread) {
+          const d = await askDaemon(t, { op: "send", thread, text: typed, images: placed });
+          if (d.sent) { this.delivered(t, attached, placed, cx); return; }
+          if (d.sent !== false) throw new Error(`Check whether ${t.label} got the message before sending it again (${d.error || "no answer"}).`);
+        }
         if (imageStyle(t.harness) === "paste") {
           for (const path of placed) {
             const p = await inputBox("paste", t, path);
@@ -335,12 +342,22 @@ export class Composer {
         const r = await sendMessage(t, withImages(t.harness, placed, typed), t.status === "blocked");
         if (r.code !== 0) throw new Error(r.stderr || "Send failed");
         if (t.harness.skills?.enterTwice && skillToken(typed, [t.harness.skills.invoke[0]])) { await cx.sleep(400); await pressKeys(t, ["enter"]); }
-        this.mirror = { session: sessionOf(t), sig: "\u0000", images: [], paths: [], pasted: "", textBox: "", box: "", foreign: false };
-        this.keepSent(attached, placed, t, cx);
-        this.host.list.follow();
+        this.delivered(t, attached, placed, cx);
       } catch (e) { this.host.note = String(e); restore(); }
       finally { this.host.sending = false; cx.notify(); }
     });
+  }
+
+  delivered(t, attached, placed, cx) {
+    // After a message reaches the agent: its box starts empty, its images are kept for the conversation, and the list follows it.
+    this.mirror = { session: sessionOf(t), sig: "\u0000", images: [], paths: [], pasted: "", textBox: "", box: "", foreign: false };
+    this.keepSent(attached, placed, t, cx);
+    this.host.list.follow();
+  }
+
+  daemonThread(t, typed) {
+    // The conversation to send `typed` to through the agent's daemon, or "" to type it into the terminal.
+    return viaDaemon(t.harness, t.status, typed) && chatKey(t) === this.host.key ? t.harness.daemon.thread(this.host.sessionPath) : "";
   }
 
   render(t, active, footer = null) {

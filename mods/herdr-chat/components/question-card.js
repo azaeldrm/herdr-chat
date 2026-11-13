@@ -4,6 +4,7 @@ import { switchTo, sessionOf, chatKey } from "../common.js";
 import { onWindows } from "../platform.js";
 import { target, readPrompt, pressKeys, sendMessage, inputBox } from "../terminal.js";
 import { parsePrompt, looksLikePrompt, keysFor, typedAnswer, sameOption, previewKey, fullPreview } from "../model/prompts.js";
+import { askDaemon } from "./session-reader.js";
 import { shared } from "herdr";
 import { COLUMN, mono, icon, keyButton, checkbox } from "../ui/primitives.js";
 
@@ -15,6 +16,7 @@ const PREVIEW_LABEL_CHARS = 28;
 const ROW_PAUSE = 500;
 const SCROLL_TRIES = 12;
 const ROW_SETTLE = 3000;
+const DAEMON_SKIP = 30000;
 
 function stacked(o) {
   // Whether an option's description needs a line of its own.
@@ -85,6 +87,10 @@ export class QuestionCard {
   async stillCurrent(t) {
     // Whether the prompt shown is still the one on screen.
     if (target()?.address !== t.address) return false;
+    if (this.choices?.daemon) {
+      const r = await askDaemon(t, { op: "pending", thread: this.daemonThread(t) });
+      return Boolean(r.requests?.some(q => q.method === this.choices.daemon.method && q.params.itemId === this.choices.daemon.item));
+    }
     const text = await readPrompt(t);
     if (text == null) return false;
     if (this.choices) return parsePrompt(t.harness, text)?.sig === this.choices.sig;
@@ -95,6 +101,7 @@ export class QuestionCard {
     // Acts on a choice of the prompt on screen, with the keys its harness takes.
     const t = target(), shown = this.choices;
     if (!t || !shown || this.host.sending) return;
+    if (shown.daemon) { this.chooseDaemon(index, "", cx); return; }
     this.host.sending = true; cx.notify();
     cx.spawn(async cx => {
       try {
@@ -162,6 +169,7 @@ export class QuestionCard {
     // Sends what's typed in a text row of the prompt; an empty row is picked like any choice.
     const shown = this.choices, index = shown?.options.findIndex(o => o.input === kind) ?? -1;
     if (index < 0) return;
+    if (shown.daemon) { this.chooseDaemon(index, this.rowInputs[kind].value(), cx); return; }
     const box = this.rowInputs[kind], text = box.value().trim();
     const t = target();
     if (shown.multi && kind === "text") {
@@ -205,6 +213,51 @@ export class QuestionCard {
     });
   }
 
+  daemonThread(t) {
+    // The conversation the chat shows, as the agent's daemon names it ("" for agents with no daemon).
+    return t?.harness.daemon && this.host.key === chatKey(t) ? t.harness.daemon.thread(this.host.sessionPath) : "";
+  }
+
+  async readDaemon(t) {
+    // The card for the request the agent's daemon has open for this conversation, or undefined to read the screen instead,
+    // as for agents with no daemon, conversations the daemon has closed, and requests the terminal handles.
+    const thread = t.status === "blocked" ? this.daemonThread(t) : "";
+    if (!thread || (this.daemonSkip?.thread === thread && Date.now() < this.daemonSkip.until)) return undefined;
+    const r = await askDaemon(t, { op: "pending", thread });
+    if (!r.open || r.error) { this.daemonSkip = { thread, until: Date.now() + DAEMON_SKIP }; return undefined; }
+    const request = (r.requests ?? []).sort((a, b) => (a.params.startedAtMs ?? 0) - (b.params.startedAtMs ?? 0) || a.id - b.id)[0];
+    if (!request) return undefined;
+    const shown = this.choices?.daemon;
+    if (shown && shown.method === request.method && shown.item === request.params.itemId) return this.choices;
+    this.daemonRequest = request;
+    return t.harness.daemon.choices(request) ?? undefined;
+  }
+
+  showDaemon(choices) {
+    // Puts a daemon request's card up: its step, and an empty text row for a new question.
+    if (choices !== this.choices) this.rowInputs.text.set_value("");
+    this.choices = choices; this.screen = `daemon:${choices.daemon.item}`; this.unread = false;
+    this.currentStep = choices.steps[choices.daemon.step ?? 0]?.label ?? "";
+  }
+
+  chooseDaemon(index, typed, cx) {
+    // Answers the daemon's request with a row's decision (or shows the next question, for a request with several).
+    const t = target(), shown = this.choices, reply = shown && t?.harness.daemon ? t.harness.daemon.reply(shown, index, typed) : null;
+    if (!t || !reply || this.host.sending) return;
+    if (reply.step !== undefined) { this.showDaemon(t.harness.daemon.choices(this.daemonRequest, reply.step, reply.answers)); cx.notify(); return; }
+    this.host.sending = true; cx.notify();
+    cx.spawn(async cx => {
+      try {
+        const r = await askDaemon(t, { op: "answer", thread: this.daemonThread(t), method: shown.daemon.method, item: shown.daemon.item, result: reply.result });
+        if (r.why === "gone") throw new Error("The question changed. Review it again before answering.");
+        if (!r.ok) throw new Error(`Answer this one in ${t.label}'s terminal (${r.error || r.why}).`);
+        if (typed) this.rowInputs.text.set_value("");
+        this.choices = null; this.screen = ""; this.unread = false;
+      } catch (e) { this.host.note = String(e?.message ?? e); }
+      finally { this.host.sending = false; cx.notify(); this.lookAgain(cx, t); }
+    });
+  }
+
   lookAgain(cx, t) {
     // Reads the screen soon after keys, since a blocked agent reports no change when a question moves on.
     cx.spawn(async cx => {
@@ -241,7 +294,7 @@ export class QuestionCard {
       .child(titleRow)
       .when(Boolean(q), el => el
         .when(q.steps.length > 0, el => el.child(h_flex().gap(2).items_center().flex_wrap()
-          .child(key("k-back", "←", "left"))
+          .when(!q.daemon, el => el.child(key("k-back", "←", "left")))
           .children(q.steps.map((s, i) => {
             const here = q.steps.length === 1 || s.label === this.currentStep;
             return div().id(`step-${i}`).h(24).px(9).flex().items_center().rounded(6).text_size(12)
@@ -249,7 +302,7 @@ export class QuestionCard {
               .when(here, el => el.bg(t.selected))
               .child(s.label);
           }))
-          .child(key("k-forward", "→", "right"))))
+          .when(!q.daemon, el => el.child(key("k-forward", "→", "right")))))
         .when(q.question.length > 1, el => el.child(div().flex_none().h(Math.min(90, q.question.slice(0, -1).length * 17 + 10)).overflow_y_scrollbar().px(8).py(4).rounded(6).bg(t.background)
           .font_family(mono()).text_size(11).text_color(t.muted).child(q.question.slice(0, -1).join("\n"))))
         .child(div().text_size(13).text_color(t.foreground).child(q.question.at(-1) ?? ""))
@@ -312,6 +365,11 @@ export class QuestionCard {
     this.readingScreen = true;
     cx.spawn(async cx => {
       try {
+        const fromDaemon = await this.readDaemon(t);
+        if (fromDaemon) {
+          if (fromDaemon !== this.choices) { this.showDaemon(fromDaemon); cx.notify(); }
+          return;
+        }
         const text = (await readPrompt(t)) ?? "";
         if (text !== this.screen) {
           this.screen = text; this.choices = parsePrompt(t.harness, text);

@@ -1,3 +1,6 @@
+if A.daemon:
+    daemon_run(A.daemon)
+    sys.exit(0)
 if A.skills:
     emit_skills()
     sys.exit(0)
