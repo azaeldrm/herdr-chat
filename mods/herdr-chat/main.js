@@ -1,7 +1,7 @@
 import { View, div, image } from "gpui-kit";
 import { set_theme, v_flex, h_flex, Popup } from "gpui-base";
 import { panes, focused, props, hc, theme, shared, setShared, window as appWindow } from "herdr";
-import { switchTo, showView, shownView, adoptView, preferredView, sessionOf, chatKey } from "./common.js";
+import { switchTo, showView, shownView, adoptView, preferredView, sessionOf, chatKey, chatOn } from "./common.js";
 import { target, inputBox, interruptAgent, sendMessage, pressKeys, readScreen } from "./terminal.js";
 import { keyRows, splitCode, withCopyRows, stepRows, stepText, withoutRetracted } from "./model/transcript.js";
 import { runsWith, switchCommand, tokens } from "./model/runs-with.js";
@@ -129,7 +129,9 @@ export default class HerdrChat extends View {
     const shown = shownView(), was = this.lastStack;
     if (shown === was) return;
     this.lastStack = shown;
-    if (was === undefined || !shown || shown === shared("herdr-chat.mode")) return;
+    if (was === undefined || !shown) return;
+    if (shown === "chat" && !chatOn()) return showView("terminal");
+    if (shown === shared("herdr-chat.mode")) return;
     const t = target();
     adoptView(shown, t ? sessionOf(t) : "");
   }
@@ -201,7 +203,7 @@ export default class HerdrChat extends View {
       .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.muted).child(active?.title || active?.label || ""))
       .when(Boolean(this.headerHovered && pane), el => el.children(paneButtons(t, pane, zoomed, "chat")))
       .when(Boolean(badge), el => el.child(badge))
-      .child(viewToggle(t, "chat", "view", () => {}, () => switchTo("terminal", active ? sessionOf(active) : "")));
+      .when(chatOn(), el => el.child(viewToggle(t, "chat", "view", () => {}, () => switchTo("terminal", active ? sessionOf(active) : ""))));
   }
 
   status(t, active) {
@@ -471,7 +473,7 @@ export default class HerdrChat extends View {
     });
     const status = this.status(t, active);
     // What the composer asks to make its box see-through: whether the backdrop is behind it now.
-    this.backdropShown = Boolean(this.backdrop) && empty;
+    this.backdropShown = Boolean(this.backdrop) && empty && shared("herdr-chat.animation") !== false;
     return v_flex().id("herdr-chat-root").relative().size_full().min_h(0).rounded(10).border_1().border_color(t.border)
       .bg(t.background).text_color(t.foreground)
       .when(this.backdropShown, el => el.child(this.backdrop))

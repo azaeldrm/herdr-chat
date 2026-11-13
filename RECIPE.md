@@ -48,7 +48,9 @@ status bar) with the chat and the terminal sharing the work area.
     context used, or a line naming the terminal it sends to until those are known;
   - a jump-to-bottom button when the newest message is off screen.
 - **Empty chat:** herdr's logo with "Opening this … conversation…", "Waiting for this …
-  conversation to start." or "No messages in this session yet."
+  conversation to start." or "No messages in this session yet." With the block's `backdrop` prop, a dimmed
+  animation (sharks, jellyfish, a night sky or rain) plays behind it, unless shared `herdr-chat.animation` is false
+  (harns's Settings sets it).
 
 Colours come from the active theme; icons are the mod's own SVGs in the theme's text colour.
 
@@ -57,7 +59,8 @@ Colours come from the active theme; icons are the mod's own SVGs in the theme's 
 - **Agents:** a terminal gets the toggle when its program has an adapter in `harnesses/` (see
   Adding an agent below). Every other tab shows its terminal.
 - **View:** a new agent session opens on Chat. Each session keeps the view it was left in, across
-  restarts (the latest 200, shared key `herdr-chat.views`).
+  restarts (the latest 200, shared key `herdr-chat.views`). Shared `herdr-chat.chat` false (harns's Settings sets
+  it) keeps every tab on its terminal, without the toggle.
 - **Session logs:** the log each session reads is kept across restarts (the latest 200, shared key
   `herdr-chat.paths`, by address and start: `{ path, hint, cwd }`). `cwd` is the folder a Pi or Codex
   session works in, as its log says, which can differ from the terminal's after a resume; other mods

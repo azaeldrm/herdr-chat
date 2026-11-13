@@ -21,8 +21,13 @@ export function sessionKey(address) {
   return term ? sessionOf({ address, created: term.created_ms ?? 0 }) : "";
 }
 
+export function chatOn() {
+  // Whether agents' tabs may show as a chat (herdr-chat.chat: false, as harns's settings set it, keeps them on the terminal).
+  return shared("herdr-chat.chat") !== false;
+}
+
 export function preferredView(key) {
-  return (shared(VIEWS_KEY) ?? {})[key] === "terminal" ? "terminal" : "chat";
+  return !chatOn() || (shared(VIEWS_KEY) ?? {})[key] === "terminal" ? "terminal" : "chat";
 }
 
 function remember(key, mode) {
