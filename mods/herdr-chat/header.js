@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { panes, props, run, theme, home } from "herdr";
-import { SUPPORTED, switchTo, sessionKey } from "./common.js";
+import { SUPPORTED, switchTo, sessionKey, chatOn } from "./common.js";
 import { programIcon, paneButtons, statusBadge, viewToggle } from "./ui/primitives.js";
 
 function folder(cwd) {
@@ -27,5 +27,5 @@ export function terminalHeader(view) {
     .child(div().flex_1().truncate().text_color(t.dim).child(folder(p.cwd)))
     .when(Boolean(view.hovered), el => el.children(paneButtons(t, pane, p.zoomed, `ph-${pane}`)))
     .when(Boolean(badge), el => el.child(badge))
-    .when(Boolean(SUPPORTED[p.app]), el => el.child(viewToggle(t, "terminal", `view-${pane}`, () => switchTo("chat", sessionKey(p.terminal)), () => {})));
+    .when(Boolean(SUPPORTED[p.app]) && chatOn(), el => el.child(viewToggle(t, "terminal", `view-${pane}`, () => switchTo("chat", sessionKey(p.terminal)), () => {})));
 }
