@@ -129,7 +129,8 @@ the terminal itself belongs to the layout. The same mod runs twice: as the chat
   `attach`, including `attach --observe`), `sh`, `env`, `rm`, `find`, `powershell.exe`, the
   clipboard tools (`wl-paste`, `xclip`, `pngpaste`) and ImageMagick or `sips`. The reader travels
   with each run, so other machines need only Python 3 and `hc`;
-- reads the agents' session logs (`~/.claude`, including `~/.claude/sessions`, `~/.codex/sessions`,
+- reads the agents' session logs (`~/.claude` or the `CLAUDE_CONFIG_DIR` a Claude Code process was
+  started with, including its `sessions`, `~/.codex/sessions`,
   `~/.pi/agent/sessions`, OpenCode's database), their skill folders, terminal screens, and the
   process list, to find which session runs in each terminal;
 - types into terminals and stops a working agent with its own stop key;
