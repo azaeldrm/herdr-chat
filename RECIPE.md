@@ -68,6 +68,11 @@ Colours come from the active theme; icons are the mod's own SVGs in the theme's 
 - **Sending:** Enter sends, Shift+Enter starts a new line, ↑ and ↓ move between lines. The text
   reaches the live terminal as plain typing (`hc send` from the agent's machine, without hc's
   `<hc from="…">` wrapper). A send that can't be delivered puts the text back in the box.
+  Codex is the exception when its app-server daemon has the conversation open (Codex's default): the
+  message and its images go to the daemon as a new turn, or into the turn it's running, as Enter
+  does in its terminal, and the terminal shows them as if typed. Answers to a waiting prompt,
+  `/commands`, `!shell` lines and messages naming a `$skill` are still typed, since only the
+  terminal understands them, as is everything in a conversation the daemon has closed.
 - **Layout keys:** Alt+Shift+Up and Alt+Shift+Down, which the reply box's text input would otherwise take,
   run what `keys.json` binds them to for the shown layout, else globally (`keys.js`).
 - **Stop:** while the agent works, the send button stops it (also Esc). A message the agent hands
@@ -81,7 +86,10 @@ Colours come from the active theme; icons are the mod's own SVGs in the theme's 
   or a click answers, multi-select questions tick rows, multi-step questions step through, and
   Claude Code's previews show beside the options. The card folds to one line. Each key is sent
   only while the screen still shows the same question. Other prompts show the screen's last lines
-  with key buttons.
+  with key buttons. Codex's command and file approvals and its questions come from its daemon
+  instead of the screen, with the choices Codex offers, and a click answers them there; the
+  terminal's dialog closes with it. The chat joins only a conversation the daemon already has
+  open, and leaves its settings as they are.
 - **Skills:** typing `/` (also `$` on Codex, `@` on OpenCode) opens the agent's skills: ↑↓ choose,
   Enter or Tab insert, Esc closes.
 - **One draft:** on Linux and macOS, the reply box and the agent's own input box share one draft,
@@ -129,7 +137,11 @@ the terminal itself belongs to the layout. The same mod runs twice: as the chat
   `attach`, including `attach --observe`), `sh`, `env`, `rm`, `find`, `powershell.exe`, the
   clipboard tools (`wl-paste`, `xclip`, `pngpaste`) and ImageMagick or `sips`. The reader travels
   with each run, so other machines need only Python 3 and `hc`;
-- reads the agents' session logs (`~/.claude`, including `~/.claude/sessions`, `~/.codex/sessions`,
+- connects to Codex's app-server daemon (`~/.codex/app-server-control/app-server-control.sock`, or
+  under `CODEX_HOME`) from the reader, to read and answer a conversation's approvals and send its
+  messages;
+- reads the agents' session logs (`~/.claude` or the `CLAUDE_CONFIG_DIR` a Claude Code process was
+  started with, including its `sessions`, `~/.codex/sessions`,
   `~/.pi/agent/sessions`, OpenCode's database), their skill folders, terminal screens, and the
   process list, to find which session runs in each terminal;
 - types into terminals and stops a working agent with its own stop key;

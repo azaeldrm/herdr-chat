@@ -17,6 +17,7 @@ ap.add_argument("--leaf", default="")
 ap.add_argument("--tail", type=int, default=24)
 ap.add_argument("--entries", type=int, default=400)
 ap.add_argument("--skills", default="")
+ap.add_argument("--daemon", default="")
 A = ap.parse_args()
 
 HOME = os.path.expanduser("~")
@@ -294,3 +295,13 @@ def iso_ms(s):
     except ValueError: return None
 
 READERS = {}
+DAEMONS = {}
+
+def daemon_run(text):
+    """One request to the agent's daemon (DAEMONS[A.app], by the request's op), its answer printed as a DAEMON line."""
+    try:
+        req = json.loads(text)
+        out = DAEMONS[A.app][req["op"]](req)
+    except Exception as e:
+        out = {"error": "%s: %s" % (type(e).__name__, e)}
+    print("DAEMON|" + esc(json.dumps(out, separators=(",", ":"))))

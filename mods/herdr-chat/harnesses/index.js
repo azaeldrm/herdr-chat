@@ -29,6 +29,14 @@ export function canMirror(h) {
   return Boolean(h?.mirror) && !onWindows();
 }
 
+export function viaDaemon(h, status, typed) {
+  // Whether a message goes through the harness's daemon rather than typed into its terminal. Answers to a waiting prompt,
+  // commands, shell lines and skills stay typed, since the terminal handles those.
+  if (!h?.daemon || status === "blocked" || /^[/!]/.test(typed)) return false;
+  const invoke = h.skills?.invoke ?? "";
+  return !(invoke && typed.split(/\s+/).some(w => w.length > 1 && w.startsWith(invoke)));
+}
+
 function mention(path) { return /\s/.test(path) ? `@"${path}"` : `@${path}`; }
 
 export function withImages(h, paths, text) {

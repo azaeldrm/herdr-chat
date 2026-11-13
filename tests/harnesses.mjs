@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "fs";
 import { join, relative, sep } from "path";
 import { stage, MOD } from "./stage.mjs";
-const { HARNESSES, harnessFor, supportedNames, draftPastes, textOfBox, readBack } = await stage().load("harnesses/index.js");
+const { HARNESSES, harnessFor, supportedNames, draftPastes, textOfBox, readBack, viaDaemon } = await stage().load("harnesses/index.js");
 let failed = 0;
 const check = (name, got, want) => {
   const ok = JSON.stringify(got) === JSON.stringify(want);
@@ -25,6 +25,7 @@ const SHAPE = {
   efforts: v => v === undefined || (Array.isArray(v) && v.every(e => typeof e === "string" && e)),
   switching: v => v === undefined || Boolean(v && typeof v === "object" && ["model", "effort"].every(k => v[k] === undefined || typeof v[k] === "string")
     && (v.nextMode === undefined || (Array.isArray(v.nextMode) && v.nextMode.length > 0))),
+  daemon: v => v === undefined || Boolean(v && ["thread", "choices", "reply"].every(k => typeof v[k] === "function")),
 };
 for (const [app, h] of Object.entries(HARNESSES)) {
   check(`${app}: registered under its own id`, h.id, app);
@@ -40,6 +41,13 @@ check("a mentioning harness gets @paths", draftPastes(mention, ["/a b.png"], "hi
 check("pasted image placeholders are left out of the box's text", textOfBox(paste, "[Image #1] hi"), "hi");
 const img = { file: "/a.png" }, mirror = { images: [img], paths: ["/a.png"], textBox: "", pasted: "" };
 check("a path harness keeps the image whose path is still in its box", readBack(path, "/a.png hi", mirror), { text: "hi", kept: [img], foreign: false });
+
+const cx = HARNESSES.codex;
+check("a message to an idle or working Codex goes through its daemon", [viaDaemon(cx, "idle", "fix the bug"), viaDaemon(cx, "working", "also this")], [true, true]);
+check("an answer to a waiting prompt is typed", viaDaemon(cx, "blocked", "no, use tabs"), false);
+check("a command or shell line is typed", [viaDaemon(cx, "idle", "/model"), viaDaemon(cx, "idle", "!ls")], [false, false]);
+check("a message naming a skill is typed, so the terminal attaches it", [viaDaemon(cx, "idle", "use $review on this"), viaDaemon(cx, "idle", "costs $ 5")], [false, true]);
+check("an agent without a daemon types every message", viaDaemon(HARNESSES["claude-code"], "idle", "hello"), false);
 
 const ids = Object.keys(HARNESSES);
 const literal = new RegExp(`["'](${ids.map(i => i.replace(/[-]/g, "\\-")).join("|")})["']`);

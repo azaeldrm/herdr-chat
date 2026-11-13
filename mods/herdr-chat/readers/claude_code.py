@@ -30,33 +30,82 @@ def claude_user_text(t):
     if re.match(r"^\s*\[Image: original", t): return ""
     return t
 
-def find_claude():
-    sessions = os.path.join(HOME, ".claude", "sessions")
+def claude_add_dir(dirs, d, base=None):
+    """Adds a folder to `dirs` once, made absolute (a relative one against `base`, the process's folder)."""
+    if not d: return
+    d = os.path.expanduser(d)
+    if not os.path.isabs(d) and base: d = os.path.join(base, d)
+    d = os.path.abspath(d)
+    if d not in dirs: dirs.append(d)
+
+def claude_dirs():
+    """The usual config folders for Claude Code's sessions: the reader's own CLAUDE_CONFIG_DIR, then ~/.claude."""
+    dirs = []
+    claude_add_dir(dirs, os.environ.get("CLAUDE_CONFIG_DIR"))
+    claude_add_dir(dirs, os.path.join(HOME, ".claude"))
+    return dirs
+
+def claude_process_dirs():
+    """The CLAUDE_CONFIG_DIR each process in the terminal was started with (a second account or profile): /proc on Linux,
+    `ps eww` on macOS; Windows keeps to the usual folders."""
+    dirs = []
+    for pid in terminal_pids():
+        try:
+            if os.path.isdir("/proc"):
+                with open("/proc/%d/environ" % pid, "rb") as f: env = f.read().split(b"\0")
+                for e in env:
+                    if e.startswith(b"CLAUDE_CONFIG_DIR="):
+                        try: cwd = os.readlink("/proc/%d/cwd" % pid)
+                        except OSError: cwd = None
+                        claude_add_dir(dirs, e[len(b"CLAUDE_CONFIG_DIR="):].decode("utf-8", "replace"), cwd)
+            elif os.name != "nt":
+                import subprocess
+                line = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
+                for m in re.finditer(r"(?:^|\s)CLAUDE_CONFIG_DIR=(\S+)", line): claude_add_dir(dirs, m.group(1))
+        except Exception: pass
+    return dirs
+
+def claude_record(sessions, parents):
+    """This terminal's Claude session record in a sessions folder: the hinted one, else one whose process is the terminal's or
+    under it (`parents`: pid -> parent pid, read once a scan needs it)."""
     if not os.path.isdir(sessions): return None
-    info = None
     if A.hint:
         try:
             with open(os.path.join(sessions, A.hint + ".json")) as f: info = json.load(f)
         except (OSError, ValueError): info = None
-        if info and A.pid and not belongs(int(info.get("pid") or 0)): info = None
-    if not info and A.pid:
-        parents = parent_map()
-        for fp in glob.glob(os.path.join(sessions, "*.json")):
-            try:
-                with open(fp) as f: s = json.load(f)
-            except (OSError, ValueError): continue
-            p = int(s.get("pid") or 0)
+        if info and (not A.pid or belongs(int(info.get("pid") or 0))): return info
+    if not A.pid: return None
+    if not parents: parents.update(parent_map())
+    for fp in glob.glob(os.path.join(sessions, "*.json")):
+        try:
+            with open(fp) as f: s = json.load(f)
+        except (OSError, ValueError): continue
+        p = int(s.get("pid") or 0)
+        hit = p == A.pid
+        for _ in range(8):
+            if hit or not p: break
+            p = parents.get(p, 0)
             hit = p == A.pid
-            for _ in range(8):
-                if hit or not p: break
-                p = parents.get(p, 0)
-                hit = p == A.pid
-            if hit:
-                info = s
-                break
+        if hit: return s
+    return None
+
+def find_claude():
+    """This terminal's Claude Code log, under the config folder its session record is in: ~/.claude or a CLAUDE_CONFIG_DIR.
+    The usual folders come first, then the folders the terminal's processes were started with."""
+    info = home = None
+    parents = {}
+    tried = claude_dirs()
+    for d in tried:
+        info = claude_record(os.path.join(d, "sessions"), parents)
+        if info: home = d; break
+    if not info and A.pid:
+        for d in claude_process_dirs():
+            if d in tried: continue
+            info = claude_record(os.path.join(d, "sessions"), parents)
+            if info: home = d; break
     if not info: return None
     state["hint"] = str(info.get("pid", ""))
-    projects = os.path.join(HOME, ".claude", "projects")
+    projects = os.path.join(home, "projects")
     sid = str(info.get("sessionId", ""))
     guess = os.path.join(projects, re.sub(r"[^A-Za-z0-9]", "-", str(info.get("cwd", ""))), sid + ".jsonl")
     if os.path.isfile(guess): return guess

@@ -92,6 +92,7 @@ export default class HerdrChat extends View {
   }
 
   get key() { return this.reader?.key ?? ""; }
+  get sessionPath() { return this.reader?.session.path ?? ""; }
   get note() { return this.reader?.session.note ?? ""; }
   set note(text) { if (this.reader) this.reader.session.note = text; }
 

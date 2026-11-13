@@ -52,6 +52,15 @@ async function runReader(t, at) {
   return (await python(["-c", boot, ...readerArgs(t, at)], t.machine ? { on: t.machine } : undefined)) ?? NO_PYTHON;
 }
 
+export async function askDaemon(t, request) {
+  // One request to the agent's daemon on its machine, through the reader: its answer, or { error }.
+  const boot = readerProgram(await readerCode(t.machine));
+  const r = await python(["-c", boot, "--app", t.harness.reader, "--daemon", JSON.stringify(request)], t.machine ? { on: t.machine } : undefined).catch(e => ({ code: 1, stdout: "", stderr: String(e) }));
+  const line = (r?.stdout ?? "").split(/\r?\n/).find(l => l.startsWith("DAEMON|"));
+  if (!line) return { error: (r?.stderr || "no answer").trim().split("\n").at(-1) };
+  try { return JSON.parse(decodeURIComponent(line.slice(7))); } catch { return { error: "an answer in an unknown form" }; }
+}
+
 export async function readSkills(t, path) {
   // The reader's list of an agent's skills, run on the agent's machine.
   const { user, project, skip } = t.harness.skills;

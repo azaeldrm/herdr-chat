@@ -1,3 +1,5 @@
+import { codexThread, daemonChoices, daemonReply } from "./codex-daemon.js";
+
 export default {
   id: "codex",
   label: "Codex",
@@ -14,5 +16,6 @@ export default {
   },
   box: { style: "mark", mark: "›", stopAtBlank: true },
   skills: { triggers: ["$", "/"], invoke: "$", user: ["~/.codex/skills", "~/.agents/skills"], project: [".codex/skills", ".agents/skills"], skip: [], enterTwice: true },
+  daemon: { thread: codexThread, choices: daemonChoices, reply: daemonReply },
   reader: "codex",
 };
