@@ -23,14 +23,15 @@ function stacked(o) {
   return o.desc.length > 0 && o.label.length + o.desc.join(" ").length > ROW_CHARS;
 }
 
-function bodyHeight(q) {
-  // The height of a prompt's answers and options, up to where they scroll.
+function bodyHeight(q, grown = 0) {
+  // The height of a prompt's answers and options, up to where they scroll. `grown`: how much taller than one line the
+  // answer boxes have grown (measured as drawn); the limit rises with it, so a growing answer stays in view.
   const shown = q.options.filter(o => !o.next);
   const wrapped = o => q.preview ? (Math.ceil(o.label.length / PREVIEW_LABEL_CHARS) - 1) * 19 : 0;
   const rows = shown.reduce((sum, o) => sum + 34 + wrapped(o) + (stacked(o) ? Math.ceil(o.desc.join(" ").length / DESC_CHARS) * 19 : 0), 0) + (shown.length - 1) * 6;
   const answers = q.review?.answers.length ? q.review.answers.length * 21 + 24 : 0;
   const preview = q.preview ? q.preview.text.length * 17 + (q.preview.hidden ? 40 : 18) : 0;
-  return Math.min(BODY_HEIGHT, Math.max(rows + answers, preview));
+  return Math.min(BODY_HEIGHT + grown, Math.max(rows + grown + answers, preview));
 }
 
 export class QuestionCard {
@@ -44,9 +45,34 @@ export class QuestionCard {
       chat: TextareaState.new({ placeholder: "Chat about this…", rows: 1 }),
     };
     for (const [kind, box] of Object.entries(this.rowInputs)) {
-      box.on("submit", (e, cx) => { if (!e?.shift) this.answerRow(kind, cx); });
-      box.on("change", (_e, cx) => this.rowChanged(kind, cx));
+      // As the reply box: long answers wrap, the box grows to 3 lines, then scrolls.
+      box.set_soft_wrap(true);
+      box.set_auto_grow(1, 3);
+      // Enter answers (Shift+Enter is a new line), as in the reply box: caught before the box takes it (below), and a
+      // newline that slips in with it is taken back out.
+      box.on("submit", (e, cx) => { if (!e?.shift) this.enterRow(kind, cx); });
+      box.on("change", (_e, cx) => {
+        if (Date.now() - (this.enterAt ?? 0) < 400) {
+          const v = box.value(), trimmed = v.replace(/\r?\n$/, "");
+          if (trimmed !== v) box.set_value(trimmed);
+        }
+        this.rowChanged(kind, cx);
+      });
     }
+  }
+
+  rowSized(kind, height, cx) {
+    // An answer row's height as drawn: past one line (34 px), the options area grows by the difference.
+    const extra = Math.max(0, Math.round(height - 34));
+    if ((this.rowExtra ??= {})[kind] === extra) return;
+    this.rowExtra[kind] = extra;
+    cx.notify();
+  }
+
+  grown(q) {
+    // How much the answer boxes this question shows have grown, together (a box from an earlier question doesn't count).
+    const kinds = new Set(q.options.map(o => o.input).filter(Boolean));
+    return Object.entries(this.rowExtra ?? {}).reduce((sum, [kind, extra]) => sum + (kinds.has(kind) ? extra : 0), 0);
   }
 
   get showing() {
@@ -163,6 +189,14 @@ export class QuestionCard {
       await cx.sleep(300);
     }).catch(e => { this.host.note = String(e?.message ?? e); });
     return this.rowChain;
+  }
+
+  enterRow(kind, cx) {
+    // Enter in an answer box: answers once, however many of its key and submit events arrive.
+    const now = Date.now();
+    if (now - (this.enterAt ?? 0) < 300) return;
+    this.enterAt = now;
+    this.answerRow(kind, cx);
   }
 
   answerRow(kind, cx) {
@@ -308,7 +342,7 @@ export class QuestionCard {
         .child(div().text_size(13).text_color(t.foreground).child(q.question.at(-1) ?? ""))
         .when(Boolean(q.review?.warning), el => el.child(div().text_size(11.5).text_color(t.blocked).child(q.review.warning)))
         .child(h_flex().flex_none().w_full().gap(8).items_start()
-        .child(v_flex().id("prompt-body").flex_none().when(!q.preview, el => el.w_full()).when(Boolean(q.preview), el => el.w(COLUMN * PREVIEW_OPTIONS)).h(bodyHeight(q)).overflow_y_scrollbar().gap(6)
+        .child(v_flex().id("prompt-body").flex_none().when(!q.preview, el => el.w_full()).when(Boolean(q.preview), el => el.w(COLUMN * PREVIEW_OPTIONS)).h(bodyHeight(q, this.grown(q))).overflow_y_scrollbar().gap(6)
           .when(Boolean(q.review?.answers.length), el => el.child(v_flex().flex_none().gap(2).px(10).py(6).rounded(8).bg(t.background)
             .children(q.review.answers.map(a => h_flex().gap(8).items_baseline()
               .child(div().flex_none().w(150).truncate().text_size(11.5).text_color(t.muted).child(a.question))
@@ -321,11 +355,19 @@ export class QuestionCard {
           .child(div().flex_1().min_w(0).text_size(12.5).text_color(t.muted).child(o.typed ? `${o.typed} (edit it in the terminal)` : "Type your own answer in the terminal"))
           : o.input ? v_flex().id(`choice-${i}`).flex_none().w_full().px(10).py(5).rounded(7)
           .border_1().border_color(t.border).bg(t.background)
-          .child(h_flex().gap(7).items_center()
+          .on_size_change((size, cx) => this.rowSized(o.input, size.height, cx))
+          // The number or checkbox stays by the first line as the box grows.
+          .child(h_flex().gap(7).items_start()
             .child(o.checked === undefined
               ? div().flex_none().text_size(12).text_color(t.dim).child(o.n ? `${o.n}.` : "")
               : checkbox(t, Boolean(this.rowInputs.text.value().trim())))
-            .child(div().flex_1().min_w(0).child(Textarea.new(this.rowInputs[o.input]).w_full().text_size(12.5).text_color(t.foreground))))
+            .child(div().flex_1().min_w(0)
+              .on_key_down((e, cx) => {
+                if (e.key !== "enter" || e.modifiers.shift || e.modifiers.alt) return;
+                cx.stop_propagation();
+                this.enterRow(o.input, cx);
+              })
+              .child(Textarea.new(this.rowInputs[o.input]).w_full().text_size(12.5).text_color(t.foreground))))
           : v_flex().id(`choice-${i}`).flex_none().w_full().px(10).py(5).rounded(7)
           .border_1().border_color((q.options.some(x => x.answered) ? o.answered : o.selected) ? t.accent : t.border).bg(t.background).cursor_pointer()
           .hover(s => s.bg(t.hover))
@@ -338,7 +380,7 @@ export class QuestionCard {
             .when(o.desc.length > 0 && !stacked(o), el => el.child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.muted).child(o.desc.join(" "))))
             .when(Boolean(o.answered), el => el.child(div().flex_none().text_size(12).text_color(t.accent).child("✓"))))
           .when(stacked(o), el => el.child(div().pl(19).text_size(11.5).text_color(t.muted).child(o.desc.join(" "))))).filter(Boolean)))
-        .when(Boolean(q.preview), el => el.child(v_flex().id("prompt-preview").flex_1().min_w(0).h(bodyHeight(q)).overflow_scrollbar().gap(6).px(10).py(6).rounded(7).bg(t.background)
+        .when(Boolean(q.preview), el => el.child(v_flex().id("prompt-preview").flex_1().min_w(0).h(bodyHeight(q, this.grown(q))).overflow_scrollbar().gap(6).px(10).py(6).rounded(7).bg(t.background)
           .child(v_flex().flex_none().font_family(mono()).text_size(11.5).text_color(t.foreground)
             .children(q.preview.text.map(line => div().flex_none().min_h(16).whitespace_nowrap().child(line || " "))))
           .when(q.preview.hidden > 0, el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(`${q.preview.hidden} more line${q.preview.hidden === 1 ? "" : "s"} hidden: open the terminal to read them`))))))

@@ -84,7 +84,9 @@ Colours come from the active theme; icons are the mod's own SVGs in the theme's 
   machine.
 - **Questions:** when an agent asks a question with choices, the card lists them: ↑↓ move, Enter
   or a click answers, multi-select questions tick rows, multi-step questions step through, and
-  Claude Code's previews show beside the options. The card folds to one line. Each key is sent
+  Claude Code's previews show beside the options. A typed answer's box wraps and grows to 3 lines, then scrolls, and
+  the options grow with it; Enter sends it (Shift+Enter is a new line), as in the reply box. The card folds to one
+  line. Each key is sent
   only while the screen still shows the same question. Other prompts show the screen's last lines
   with key buttons. Codex's command and file approvals and its questions come from its daemon
   instead of the screen, with the choices Codex offers, and a click answers them there; the
